@@ -1,0 +1,15 @@
+[package]
+name = "mezgeb-server"
+description = "Ledger gRPC service."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mezgeb-core.workspace = true
+mezgeb-offline.workspace = true
+mezgeb-store-pg.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true
