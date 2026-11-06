@@ -1,0 +1,33 @@
+//! Accounts (spec §3.4).
+
+use crate::id::{AccountId, Amount, LedgerId, Timestamp};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AccountFlags(pub u16);
+
+impl AccountFlags {
+    pub const DEBITS_MUST_NOT_EXCEED_CREDITS: u16 = 1 << 0;
+    pub const CREDITS_MUST_NOT_EXCEED_DEBITS: u16 = 1 << 1;
+    pub const CLOSED: u16 = 1 << 2;
+    pub const HISTORY: u16 = 1 << 3;
+
+    pub fn contains(self, flag: u16) -> bool {
+        self.0 & flag == flag
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    pub id: AccountId,
+    pub ledger: LedgerId,
+    /// Client-defined category (chart of accounts).
+    pub code: u16,
+    pub flags: AccountFlags,
+    pub debits_pending: Amount,
+    pub debits_posted: Amount,
+    pub credits_pending: Amount,
+    pub credits_posted: Amount,
+    /// Opaque reference back to the client's own records.
+    pub user_data: u128,
+    pub created_at: Timestamp,
+}
