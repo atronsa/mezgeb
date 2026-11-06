@@ -1,0 +1,9 @@
+[package]
+name = "mezgeb-core"
+description = "Pure double-entry accounting engine: no I/O."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
