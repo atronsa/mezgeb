@@ -10,7 +10,9 @@ pub enum IngestOutcome {
     /// Same (device, counter) and identical content: already settled.
     Duplicate,
     /// An earlier counter is missing; held until the gap fills.
-    WaitingForGap { missing_from: u64 },
+    WaitingForGap {
+        missing_from: u64,
+    },
     /// Same (device, counter) with different content: cloned or tampered
     /// device. Device is frozen.
     Conflict,
