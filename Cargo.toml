@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.96"
+
+[workspace.dependencies]
+mezgeb-core = { path = "crates/mezgeb-core" }
+mezgeb-offline = { path = "crates/mezgeb-offline" }
+mezgeb-store-pg = { path = "crates/mezgeb-store-pg" }
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
