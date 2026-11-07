@@ -9,9 +9,9 @@ license = "Apache-2.0"
 rust-version = "1.96"
 
 [workspace.dependencies]
-mezgeb-core = { path = "crates/mezgeb-core" }
-mezgeb-offline = { path = "crates/mezgeb-offline" }
-mezgeb-store-pg = { path = "crates/mezgeb-store-pg" }
+mezgeb-core = { path = "crates/core" }
+mezgeb-offline = { path = "crates/offline" }
+mezgeb-store-pg = { path = "crates/store-pg" }
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate"] }
 
