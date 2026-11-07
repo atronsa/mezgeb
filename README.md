@@ -103,12 +103,14 @@ Full details and the reasoning behind each decision are in
 
 | Path | Contents |
 |---|---|
-| `crates/mezgeb-core` | Pure domain: money, accounts, entries, validation |
-| `crates/mezgeb-offline` | Vouchers, receipts, device chains, settlement rules |
-| `crates/mezgeb-store-pg` | PostgreSQL storage and migrations |
-| `crates/mezgeb-server` | The HTTP service |
-| `crates/mezgeb-client` | Rust client SDK |
-| `crates/mezgeb-sim` | Deterministic simulator that checks every invariant |
+| `crates/core` | Pure domain: money, accounts, entries, validation |
+| `crates/offline` | Vouchers, receipts, device chains, settlement rules |
+| `crates/store-pg` | PostgreSQL storage |
+| `crates/server` | The HTTP service |
+| `crates/client` | Rust client SDK |
+| `crates/sim` | Deterministic simulator that checks every invariant |
+| `migrations/` | PostgreSQL schema migrations |
+| `proto/` | gRPC API definition |
 | `docs/spec.md` | Specification |
 | `docs/roadmap/` | 52-week engineering roadmap |
 
