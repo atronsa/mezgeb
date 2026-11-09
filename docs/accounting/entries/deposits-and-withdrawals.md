@@ -238,14 +238,72 @@ Cash in the bank still equals what customers are owed.
 
 ## E05. Withdrawal: returned by bank
 
-**Scenario:**
+**Scenario:** The 300 ETB payout from E03 (`wd-0001`) did leave the
+platform's bank account. Three days later, Abebe's bank sends it back because
+the receiving account has been closed. The partner bank credits the 300 ETB
+to the platform's customer funds account, with a return notice that
+references the original transfer. There is no return fee.
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
+| 1 | 1010 Bank: customer funds account | Asset | 300 | |
+| 2 | 2010:cust-abebe Customer wallet | Liability | | 300 |
+| | **Total** | | **300** | **300** |
 
 **Why:**
 
+- **Line 1, debit the bank account (asset ↑).** Unlike E04, the cash really
+  did leave in E03, and now it has really come back. The platform has 300 ETB
+  more cash, so the asset increases on the debit side.
+- **Line 2, credit Abebe's wallet (liability ↑).** The money still belongs to
+  Abebe. Since the payout could not be delivered, the platform owes it to
+  Abebe again, as a spendable wallet balance.
+- **The equation stays in balance:** Assets +300 = Liabilities +300. Both sides
+  grow back by the amount E03 reduced them. The lines look like E01, because
+  economically the money is arriving again.
+- **`2020:wd-0001` is not reopened.** That withdrawal closed at zero in E03,
+  and the payout was correctly booked: it did happen. E05 records a new event
+  on a later date and references `wd-0001` with a reason code (e.g.
+  `account_closed`), so the withdrawal's history reads: requested, sent,
+  returned.
+
+**Returned is not the same as failed or reversed:**
+
+| | E04 Failed | E05 Returned | E13 Reversal |
+|---|---|---|---|
+| Did cash leave the bank? | No | Yes, then came back | Depends on the entry |
+| Bank account (1010) | Not touched | Debited on return | Mirror of the original |
+| Was the original entry wrong? | No | No | **Yes** |
+| Lines | Dr 2020 / Cr 2010 | Dr 1010 / Cr 2010 | Mirror of the original |
+
+E03 is not reversed, because it was correct: the bank statement shows 300 ETB
+leaving on day 1 and 300 ETB arriving on day 4. The books must show the same
+two movements, or the reconciliation against the bank statement (step 2.15)
+would never match.
+
+**Balances after E01–E05:**
+
+| Account | Balance | Matches |
+|---|---:|---|
+| 1010 Bank: customer funds account | 1,000 Dr | The bank statement: +1,000, −300, +300 |
+| 2010:cust-abebe Customer wallet | 1,000 Cr | Abebe's spendable balance |
+| 2020:wd-0001 Pending withdrawals | 0 | Sent in E03, returned in E05 |
+| 2020:wd-0002 Pending withdrawals | 0 | Failed in E04 |
+
+Cash in the bank still equals what customers are owed.
+
 **Open questions:**
+
+- **Unmatched returns.** What if the return notice does not clearly reference
+  the original transfer? The cash is real but its owner is uncertain, so it
+  should go to a suspense account (9xxx) until it is matched, not straight to
+  a wallet.
+- **Return fees.** If the bank deducts a fee and returns only 290 ETB, who
+  absorbs the 10 ETB? If the customer does, the wallet is credited 290. If the
+  platform does, the wallet gets 300 and a separate line books 10 ETB as an
+  expense (5xxx).
+- **Fraud review.** Should returned funds go straight back to the wallet, or
+  be held until checked? Repeated returns can be a sign of money laundering
+  through closed or mule accounts.
+- **Late returns.** Is there a time limit after which a return is no longer
+  accepted automatically and needs manual review?
