@@ -163,17 +163,78 @@ a customer is backed by a birr in the bank.
 
 ## E04. Withdrawal: failed
 
-**Scenario:**
+**Scenario:** After E03, Abebe's wallet holds 700 ETB. Abebe requests a second
+withdrawal of 200 ETB (`wd-0002`), but types the bank account number wrong.
+The request is booked exactly like E02:
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
+| 1 | 2010:cust-abebe Customer wallet | Liability | 200 | |
+| 2 | 2020:wd-0002 Pending withdrawals | Liability | | 200 |
+| | **Total** | | **200** | **200** |
+
+When the payout batch runs, the partner bank rejects the transfer before
+sending it because the account number does not exist. No money leaves the
+platform's bank account. The platform books E04 to give the 200 ETB back:
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2020:wd-0002 Pending withdrawals | Liability | 200 | |
+| 2 | 2010:cust-abebe Customer wallet | Liability | | 200 |
+| | **Total** | | **200** | **200** |
 
 **Why:**
 
+- **The bank account (1010) is not touched.** The bank rejected the transfer
+  before sending it, so the cash never left. The bank statement still shows
+  700 ETB, and the books must too.
+- **Line 1, debit Pending withdrawals (liability ↓).** The platform no longer
+  owes a 200 ETB bank payout, because that payout cannot happen.
+  `2020:wd-0002` returns to zero, which closes the withdrawal.
+- **Line 2, credit Abebe's wallet (liability ↑).** The platform still owes
+  Abebe the 200 ETB. The debt goes back to being a spendable wallet balance,
+  so Abebe can use it or request a new withdrawal with the right account
+  number.
+- **The equation stays in balance:** Assets 0 = Liabilities −200 + 200. As in
+  E02, the money only moves between two liabilities. Total liabilities stay
+  at 700.
+
+**A new entry, not an edit of the request.** The E02-style request for
+`wd-0002` is not deleted or changed. It was a valid request at the time, so it
+stays in history, and E04 is a separate entry that records what happened next.
+The ledger can then answer "what happened to withdrawal `wd-0002`?" from its
+own records: requested, then failed, with the reason.
+
+**Failed is not the same as reversed.** A reversal (E13) corrects an entry
+that was booked by mistake. Nothing was booked by mistake here: the request
+was real and the payout genuinely failed. E04 is a normal business event with
+its own reason code (e.g. `invalid_account`), even though its lines mirror the
+request.
+
+**Balances after E01–E04:**
+
+| Account | Balance | Matches |
+|---|---:|---|
+| 1010 Bank: customer funds account | 700 Dr | The bank statement shows 700 ETB |
+| 2010:cust-abebe Customer wallet | 700 Cr | Abebe's spendable balance |
+| 2020:wd-0001 Pending withdrawals | 0 | Sent in E03 |
+| 2020:wd-0002 Pending withdrawals | 0 | Failed in E04 |
+
+Cash in the bank still equals what customers are owed.
+
 **Open questions:**
+
+- **Duplicate failure notices.** Banks sometimes report the same failure
+  twice. The second notice must not credit the wallet again. If
+  `2020:wd-0002` may never go below zero, the second posting is rejected
+  automatically; an idempotency key on the bank's failure reference is the
+  other safeguard (step 1.11).
+- **Fee refund.** If a withdrawal fee was charged at request time, should it
+  be refunded when the payout fails? Most providers refund it when the failure
+  is not the customer's fault, but an invalid account number arguably is.
+- **Retries.** Is a failed withdrawal ever retried automatically (for example,
+  after a temporary bank outage)? If so, does the retry keep `wd-0002` pending
+  instead of booking E04, and how long before it gives up?
 
 ## E05. Withdrawal: returned by bank
 
