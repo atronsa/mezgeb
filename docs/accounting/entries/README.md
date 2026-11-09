@@ -5,6 +5,37 @@
 Each entry is booked from the **platform's** point of view. IDs (E01–E18) are
 stable and are referenced from code and tests in later steps.
 
+The entries form one continuous story. Read them in order: each one starts
+from the balances the previous one left.
+
+## Cast
+
+| Name | Role | Accounts |
+|---|---|---|
+| Abebe | Customer | `2010:cust-abebe` |
+| Hana | Customer | `2010:cust-hana`, offline device `dev-hana-01` |
+| Merkato Coffee | Merchant | `2030:merch-coffee` |
+| The platform | Runs the wallet and holds the bank accounts | 1010, 1020, revenue and expense accounts |
+
+## Opening position (OB)
+
+Before E01, the platform's owners put 5,000 ETB of their own money into the
+platform's operating bank account. This is the platform's capital, which it
+uses to pay its own costs (see E14). It is not customer money.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 1020 Bank: operating account | Asset | 5,000 | |
+| 2 | 3010 Owner's capital | Equity | | 5,000 |
+| | **Total** | | **5,000** | **5,000** |
+
+The platform keeps **two bank accounts**: the customer funds account (1010)
+holds only money owed to customers and merchants, plus fees not yet swept;
+the operating account (1020) holds the platform's own money. Keeping them
+apart means customer money can never pay the platform's bills.
+
+## Index
+
 | ID | Entry |
 |---|---|
 | E01 | [Deposit via bank](deposits-and-withdrawals.md#e01-deposit-via-bank) |
