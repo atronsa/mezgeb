@@ -181,17 +181,59 @@ three paths:
 
 ### E03. Withdrawal: sent
 
-**Scenario:**
+**Scenario:** The afternoon payout batch runs. The partner bank confirms it
+has sent 300 ETB from the platform's customer funds account to Abebe's
+personal bank account, completing withdrawal `wd-0001` from E02. There is no
+fee.
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
+| 1 | 2020:wd-0001 Pending withdrawals | Liability | 300 | |
+| 2 | 1010 Bank: customer funds account | Asset | | 300 |
+| | **Total** | | **300** | **300** |
 
 **Why:**
 
+- **Line 1, debit Pending withdrawals (liability ↓).** The platform owed Abebe
+  a 300 ETB payout. Now that the payout has gone out, that debt is paid, and
+  liabilities decrease on the debit side. `2020:wd-0001` returns to zero, which
+  is how the books show that this withdrawal is finished.
+- **Line 2, credit the bank account (asset ↓).** 300 ETB of cash has left the
+  platform's bank account. Assets decrease on the credit side.
+- **The equation stays in balance:** Assets −300 = Liabilities −300. Both
+  sides shrink together: the platform has less cash and owes less. Equity does
+  not change, because paying back money the platform was holding is neither
+  income nor expense.
+- **Abebe's wallet (2010) is not touched.** It was already reduced in E02.
+  Debiting it again here would take the 300 twice. This is the payoff of E02:
+  each step moves the money exactly once.
+
+**Balances after E01–E03:**
+
+| Account | Balance | Matches |
+|---|---:|---|
+| 1010 Bank: customer funds account | 700 Dr | The bank statement shows 700 ETB |
+| 2010:cust-abebe Customer wallet | 700 Cr | Abebe's spendable balance |
+| 2020:wd-0001 Pending withdrawals | 0 | The withdrawal is complete |
+
+The cash in the bank (700) equals what the platform owes customers (700). For
+a wallet provider that is the most important check of all: every birr owed to
+a customer is backed by a birr in the bank.
+
 **Open questions:**
+
+- **When exactly is the payout "sent"?** When the platform submits the batch
+  file, when the bank accepts it, or when the bank confirms execution? If
+  there is a gap of hours or days, money may need to pass through a "payouts
+  in transit" clearing account (9xxx) first, so that 1010 always matches the
+  bank statement.
+- If the bank charges a fee for each outgoing transfer, who pays it? If the
+  platform pays, it is an expense line (Dr 5xxx bank charges / Cr 1010). If the
+  customer pays, it is booked in E02 as a withdrawal fee (revenue 4xxx).
+- Payouts usually run in batches. Is the batch one journal entry with one
+  pair of lines per withdrawal, or one entry per withdrawal? One entry per
+  withdrawal keeps each withdrawal's history simple. One batch entry matches
+  the single debit on the bank statement.
 
 ### E04. Withdrawal: failed
 
