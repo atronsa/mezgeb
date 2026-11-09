@@ -67,6 +67,8 @@ Codes and types only. Balances and flags come in Week 5.
 
 | Code | Name | Type | Normal side | Notes |
 |---|---|---|---|---|
+| 1010 | Bank: customer funds account | Asset | Dr | The platform's account at a partner bank that holds customer money (the "float"). Introduced in E01. |
+| 2010 | Customer wallets | Liability | Cr | A control account. Each customer gets their own sub-account (e.g. `2010:cust-abebe`), and the sum of the sub-accounts is the 2010 balance. Introduced in E01. |
 |  |  |  |  |  |
 
 ---
@@ -75,17 +77,48 @@ Codes and types only. Balances and flags come in Week 5.
 
 ### E01. Deposit via bank
 
-**Scenario:**
+**Scenario:** Abebe transfers 1,000 ETB from a personal bank account to the
+platform's customer funds account at the partner bank. The bank confirms the
+funds have arrived, and the platform credits Abebe's wallet. There is no fee.
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
+| 1 | 1010 Bank: customer funds account | Asset | 1,000 | |
+| 2 | 2010:cust-abebe Customer wallet | Liability | | 1,000 |
+| | **Total** | | **1,000** | **1,000** |
 
 **Why:**
 
+- **Line 1, debit the bank account (asset ↑).** The platform now has 1,000 ETB
+  more cash in its bank account. Cash is something the platform *owns*, so it
+  is an asset, and assets increase on the debit side.
+- **Line 2, credit Abebe's wallet (liability ↑).** The money is not the
+  platform's: Abebe can withdraw it at any time. The platform now *owes* Abebe
+  1,000 ETB, so that wallet balance is a liability, and liabilities increase on
+  the credit side.
+- **The equation stays in balance:** Assets +1,000 = Liabilities +1,000. Equity
+  does not change, because the platform has earned nothing. A deposit is never
+  revenue.
+
+**The common confusion:** Abebe's own bank statement shows the payment as a
+*debit* to that account, and the wallet app shows a balance that went *up*. Both
+are true from other points of view. These books are the **platform's**, and
+from the platform's point of view a customer's balance is a debt it owes.
+That is why every customer wallet in Mezgeb is a liability with a credit
+normal balance.
+
 **Open questions:**
+
+- Bank notifications often arrive before the funds are final. Should a
+  confirmed-but-unsettled deposit go through a clearing account (9xxx) first,
+  and only reach the wallet when the bank settles? This decides whether E01
+  becomes two entries.
+- What happens when a deposit arrives with a missing or wrong customer
+  reference? The money is real but has no owner yet, so it probably belongs in
+  a suspense account until it is matched.
+- If the bank charges a fee for incoming transfers, who pays it, the customer
+  or the platform? If the platform pays, it is an expense (5xxx) booked in a
+  separate line.
 
 ### E02. Withdrawal: requested
 
