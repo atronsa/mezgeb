@@ -4,7 +4,7 @@
 >
 > **Reviewer:** _TBD (someone with accounting knowledge)_ · **Reviewed on:** _TBD_
 
-This document books every Atronsa money flow as a double-entry journal entry
+This document books every common payment flow as a double-entry journal entry
 before any code exists. If an entry here is wrong, the code built on it will
 be wrong too.
 
@@ -343,7 +343,7 @@ The balances after applying E01–E18 in order, starting from zero.
 
 ## 5. Week 1 Exit Checklist
 
-- [ ] Every flow in the Atronsa product list has a worked entry
+- [ ] Every supported money flow has a worked entry
 - [ ] The trial balance balances and every account sits on its normal side
 - [ ] Chart of accounts v0 is filled in
 - [ ] An accounting reviewer has signed off (name and date at the top)

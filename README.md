@@ -6,9 +6,9 @@ An open-source financial ledger written in Rust on PostgreSQL. It is the
 system of record for money: what every account holds, how it got there, who
 caused each movement, and proof that the books balance.
 
-It is built to power [Atronsa](https://atronsa.com), an offline-first
-contactless payment platform for Ethiopia, but it knows nothing about Atronsa's
-users, cards or QR codes. Any application that moves money can use it.
+It is application-agnostic: it knows nothing about any product's users, cards
+or QR codes. Any application that moves money can use it, including
+offline-first payment platforms.
 
 *Mezgeb* (መዝገብ) is the Amharic word for a ledger or register.
 
@@ -81,7 +81,7 @@ Most of these are planned, not built yet. The roadmap tracks progress.
 ## Architecture
 
 ```
-  Client application (e.g. Atronsa)
+  Client application (any payment app)
               │  REST + idempotency keys
               ▼
   ┌─────────────────────────────────────┐
@@ -136,7 +136,7 @@ There is nothing to run against yet. The engine is not implemented.
 |---|---|
 | M1 Engine | Balanced, idempotent, concurrent-safe posting; holds; reversals; verification |
 | M2 Functional | Financial operations, REST API, access control, audit chain, offline sync, reconciliation |
-| M3 Shadow | Performance, operations, running beside Atronsa's current ledger on live traffic |
+| M3 Shadow | Performance, operations, running in shadow mode beside an existing production ledger |
 | M4 Release candidate | Security assessment, runbooks, production-readiness evidence |
 
 See [docs/roadmap/README.md](docs/roadmap/README.md).
