@@ -2,8 +2,8 @@
 
 This document records the architectural position the roadmap is built on.
 Every decision below is provisional until it is written up as an ADR
-(`docs/adr/NNNN-*.md`) in Week 2, where the alternatives get re-examined.
-Where a decision is deferred, the week that decides it is named.
+(`docs/adr/NNNN-*.md`) in step 1.02, where the alternatives get re-examined.
+Where a decision is deferred, the roadmap step that decides it is named.
 
 ---
 
@@ -29,13 +29,13 @@ against accounting rules, records them permanently and reports on them.
 | SQLx | Keep | Compile-time-checked SQL; explicit transactions; no ORM hiding locking behaviour. Use offline mode (`.sqlx/`) in CI. |
 | Axum + REST | Keep | The most widely understood API style, works with the Postman tooling already in use, easy to audit. **Replaces the gRPC draft in `proto/`**: gRPC brings no benefit at this scale that justifies a second toolchain. |
 | Docker | Keep | Reproducible local Postgres, CI and deployment. |
-| Redis / Kafka / message broker | **Reject** | Idempotency and events must commit in the *same* Postgres transaction as the posting. An outside store or broker would break that. The outbox table (Week 38) covers eventing. |
+| Redis / Kafka / message broker | **Reject** | Idempotency and events must commit in the *same* Postgres transaction as the posting. An outside store or broker would break that. The outbox table (step 3.06) covers eventing. |
 | Microservices | **Reject** | One ledger service, internally modular (see §3). |
 | ORM (Diesel/SeaORM) | Reject | Locking order and SQL shape must be explicit and reviewable. |
 
-Additions, each justified when introduced: `proptest` (W7), `tracing` (W9),
-`ed25519-dalek` + `sha2` (W25–27), Prometheus/Grafana (W41), pgBackRest (W42),
-`cargo-deny`/`cargo-audit` (W43).
+Additions, each justified when introduced: `proptest` (1.07), `tracing` (1.09),
+`ed25519-dalek` + `sha2` (2.09–2.11), Prometheus/Grafana (3.09), pgBackRest (3.10),
+`cargo-deny`/`cargo-audit` (3.11).
 
 ## 3. Shape of the system: a modular monolith behind its own boundary
 
@@ -89,8 +89,8 @@ it *could* be embedded later without a rewrite.
 journal entries**. One merchant payment with a fee is a single
 balanced entry (debit payer 100, credit merchant 98, credit fee revenue 2)
 instead of a linked chain. That fits accounting practice and trial balances
-better. Week 2 records this as an ADR and
-Week 4–6 rewrites `mezgeb-core` accordingly.
+better. Step 1.02 records this as an ADR and
+Steps 1.04–1.06 rewrite `mezgeb-core` accordingly.
 
 ## 5. The ten architectural questions
 
@@ -135,7 +135,7 @@ Defence in depth, each layer independent:
 
 Alternatives rejected: `SERIALIZABLE` everywhere (correct but retries spike
 under contention on hot accounts); optimistic `version` checks (retry storms on
-popular merchants). Re-evaluated with measurements in Week 10 and Week 35.
+popular merchants). Re-evaluated with measurements in step 1.10 and step 3.03.
 
 ### 5.5 Preventing duplicate financial transactions
 - **Idempotency key** per client, unique, written in the *same* transaction as
@@ -193,14 +193,14 @@ Correct architecture: **escrow + signed claims + deterministic settlement.**
    Unspent escrow returns on expiry. Receipts arriving after the return go to
    suspense and are handled under a written loss policy.
 
-Weeks 26–30 design, build and simulate this.
+Steps 2.10–2.14 design, build and simulate this.
 
 ### 5.9 Reconciling cached balances against the ledger
 Any balance stored outside the ledger (e.g. a client's wallet balance table) is a
 **cache for display**. A recurring reconciliation compares it to the ledger.
 On mismatch the **ledger wins**: the cache is refreshed and an alert is raised.
 The ledger is never "fixed" to match a cache. Authorisation decisions read the
-ledger, never the cache (Week 31).
+ledger, never the cache (step 2.15).
 
 ### 5.10 Recovering from a database crash mid-operation
 - Each posting is **one Postgres transaction**: it commits fully or not at all.
@@ -215,7 +215,7 @@ ledger, never the cache (Week 31).
 - Background jobs (hold expiry, settlement, outbox relay) are idempotent and
   resumable from database state alone. No money state lives only in memory.
 - Disaster level: PITR from WAL archive, then run the full integrity
-  verification before reopening (Week 42).
+  verification before reopening (step 3.10).
 
 ## 6. Standards: mandatory, useful, optional
 
@@ -223,12 +223,12 @@ ledger, never the cache (Week 31).
 |---|---|---|
 | Double-entry principles | Mandatory | The whole model |
 | ISO 4217 | Mandatory | Currency codes and minor units (ETB = 2 decimals) |
-| PostgreSQL docs (MVCC, locking, isolation, WAL, partitioning) | Mandatory | Weeks 8–15, 36, 42 |
-| OWASP ASVS + API Security Top 10 | Useful (adopt as checklist) | Weeks 22–25, 32, 50 |
+| PostgreSQL docs (MVCC, locking, isolation, WAL, partitioning) | Mandatory | Steps 1.08–1.15, 3.04, 3.10 |
+| OWASP ASVS + API Security Top 10 | Useful (adopt as checklist) | Steps 2.06–2.09, 2.16, 4.02 |
 | RFC 9457 (Problem Details) | Useful | API error format |
-| ISO 20022 | Optional / future | Only when bank or switch integration is real (evaluated W40) |
+| ISO 20022 | Optional / future | Only when bank or switch integration is real (evaluated 3.08) |
 | PCI DSS, EMV | Not assumed | Applicability depends on card design; confirm before claiming |
-| National Bank of Ethiopia directives | **Unknown applicability**: research in Week 3 with a legal advisor | Licensing, stored value, offline limits, record retention |
+| National Bank of Ethiopia directives | **Unknown applicability**: research in step 1.03 with a legal advisor | Licensing, stored value, offline limits, record retention |
 
-No regulatory requirement is treated as binding until Week 3 research
+No regulatory requirement is treated as binding until step 1.03 research
 establishes that it applies.
