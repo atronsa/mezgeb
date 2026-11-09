@@ -1,82 +1,8 @@
-# Mezgeb Accounting Model
+# Deposits and Withdrawals (E01–E05)
 
-> **Status:** Draft (Week 1). Roadmap: [phase-1.md § Week 1](roadmap/phase-1.md#week-1-accounting-foundations-and-worked-examples)
->
-> **Reviewer:** _TBD (someone with accounting knowledge)_ · **Reviewed on:** _TBD_
+[All entries](README.md) · [Chart of accounts](../chart-of-accounts.md)
 
-This document books every common payment flow as a double-entry journal entry
-before any code exists. If an entry here is wrong, the code built on it will
-be wrong too.
-
----
-
-## 1. Conventions
-
-- **Currency:** ETB. Amounts are in whole birr in this document for
-  readability. The engine stores them as `i64` santim (minor units).
-- **Accounting equation:** Assets = Liabilities + Equity + (Revenue − Expenses)
-- **Normal balances:**
-
-  | Type | Normal side | Increases with | Decreases with |
-  |---|---|---|---|
-  | Asset | Debit | Dr | Cr |
-  | Liability | Credit | Cr | Dr |
-  | Equity | Credit | Cr | Dr |
-  | Revenue | Credit | Cr | Dr |
-  | Expense | Debit | Dr | Cr |
-
-- **Every entry balances:** the debits equal the credits, per currency.
-- **History is immutable:** a correction is a new entry and never an edit.
-- **Entry format:** each worked example uses the template below.
-
-<details>
-<summary>Entry template</summary>
-
-```markdown
-### E00. <Name>
-
-**Scenario:** <who does what, with concrete amounts>
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | **0** | **0** |
-
-**Why:** <why each account moves on this side>
-
-**Open questions:** <anything unsure, to raise with the reviewer>
-```
-
-</details>
-
----
-
-## 2. Chart of Accounts v0
-
-Codes and types only. Balances and flags come in Week 5.
-
-| Range | Type |
-|---|---|
-| 1000–1999 | Assets |
-| 2000–2999 | Liabilities |
-| 3000–3999 | Equity |
-| 4000–4999 | Revenue |
-| 5000–5999 | Expenses |
-| 9000–9999 | Suspense / clearing |
-
-| Code | Name | Type | Normal side | Notes |
-|---|---|---|---|---|
-| 1010 | Bank: customer funds account | Asset | Dr | The platform's account at a partner bank that holds customer money (the "float"). Introduced in E01. |
-| 2010 | Customer wallets | Liability | Cr | A control account. Each customer gets their own sub-account (e.g. `2010:cust-abebe`), and the sum of the sub-accounts is the 2010 balance. Introduced in E01. |
-| 2020 | Pending withdrawals | Liability | Cr | Money still owed to customers but committed to a payout that has not left the bank yet. One sub-account per withdrawal (e.g. `2020:wd-0001`). Introduced in E02. |
-|  |  |  |  |  |
-
----
-
-## 3. Worked Journal Entries
-
-### E01. Deposit via bank
+## E01. Deposit via bank
 
 **Scenario:** Abebe transfers 1,000 ETB from a personal bank account to the
 platform's customer funds account at the partner bank. The bank confirms the
@@ -121,7 +47,7 @@ normal balance.
   or the platform? If the platform pays, it is an expense (5xxx) booked in a
   separate line.
 
-### E02. Withdrawal: requested
+## E02. Withdrawal: requested
 
 **Scenario:** After E01, Abebe's wallet holds 1,000 ETB. Abebe asks to
 withdraw 300 ETB to a personal bank account. The platform accepts the request
@@ -156,7 +82,7 @@ real money the platform owes, so it must be visible in the trial balance. A
 dedicated account means every pending payout can be listed, totalled and
 aged, and a payout that stays pending too long shows up as a balance that
 should have gone to zero. This matches the plan to model holds as postings,
-which Week 2 records as an ADR.
+which step 1.02 records as an ADR.
 
 **What happens next:** the 2020:wd-0001 balance always ends at zero, by one of
 three paths:
@@ -179,7 +105,7 @@ three paths:
 - Is there a limit on how long a withdrawal can stay pending before it must be
   sent or cancelled? That limit becomes an alert on the age of 2020 balances.
 
-### E03. Withdrawal: sent
+## E03. Withdrawal: sent
 
 **Scenario:** The afternoon payout batch runs. The partner bank confirms it
 has sent 300 ETB from the platform's customer funds account to Abebe's
@@ -235,7 +161,7 @@ a customer is backed by a birr in the bank.
   withdrawal keeps each withdrawal's history simple. One batch entry matches
   the single debit on the bank statement.
 
-### E04. Withdrawal: failed
+## E04. Withdrawal: failed
 
 **Scenario:**
 
@@ -249,7 +175,7 @@ a customer is backed by a birr in the bank.
 
 **Open questions:**
 
-### E05. Withdrawal: returned by bank
+## E05. Withdrawal: returned by bank
 
 **Scenario:**
 
@@ -262,210 +188,3 @@ a customer is backed by a birr in the bank.
 **Why:**
 
 **Open questions:**
-
-### E06. P2P transfer
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E07. QR merchant payment with fee
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E08. Card tap payment
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E09. Fingerprint payment
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E10. Payment request paid
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E11. Full refund
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E12. Partial refund
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E13. Reversal
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E14. Admin adjustment
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E15. Merchant settlement payout
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E16. Offline escrow reservation
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E17. Offline receipt settlement
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
-### E18. Escrow return on expiry
-
-**Scenario:**
-
-| # | Account | Type | Dr | Cr |
-|---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
-
-**Why:**
-
-**Open questions:**
-
----
-
-## 4. Trial Balance Worksheet
-
-The balances after applying E01–E18 in order, starting from zero.
-
-| Code | Account | Type | Dr balance | Cr balance | Matches normal side? |
-|---|---|---|---:|---:|---|
-|  |  |  |  |  |  |
-| | **Total** | | | | |
-
-**Check:** total Dr = total Cr → ☐
-
----
-
-## 5. Week 1 Exit Checklist
-
-- [ ] Every supported money flow has a worked entry
-- [ ] The trial balance balances and every account sits on its normal side
-- [ ] Chart of accounts v0 is filled in
-- [ ] An accounting reviewer has signed off (name and date at the top)
-- [ ] Exit gate: explain, without notes, why a customer deposit *credits* a
-      liability and *debits* an asset (record the evidence in `docs/evidence/week-01.md`)
