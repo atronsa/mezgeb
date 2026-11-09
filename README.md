@@ -97,7 +97,7 @@ Most of these are planned, not built yet. The roadmap tracks progress.
 ```
 
 Full details and the reasoning behind each decision are in
-[docs/roadmap/architecture.md](docs/roadmap/architecture.md).
+[docs/architecture.md](docs/architecture.md).
 
 ## Repository layout
 
@@ -111,10 +111,13 @@ Full details and the reasoning behind each decision are in
 | `crates/sim` | Deterministic simulator that checks every invariant |
 | `migrations/` | PostgreSQL schema migrations |
 | `proto/` | gRPC API definition |
+| `docs/` | Documentation: start at [docs/README.md](docs/README.md) |
 | `docs/spec.md` | Specification |
-| `docs/roadmap/` | 52-week engineering roadmap |
+| `docs/architecture.md` | Architecture and design decisions |
+| `docs/accounting/` | Accounting model: chart of accounts and worked journal entries |
+| `docs/roadmap/` | Engineering roadmap: 52 steps in four phases |
 
-The crate layout will be reorganised in Week 2 of the roadmap.
+The crate layout will be reorganised in step 1.02 of the roadmap.
 
 ## Getting started
 
@@ -145,7 +148,7 @@ See [docs/roadmap/README.md](docs/roadmap/README.md).
 
 The project is in its design phase. Feedback on the
 [specification](docs/spec.md) and the
-[architecture](docs/roadmap/architecture.md) is the most useful contribution
+[architecture](docs/architecture.md) is the most useful contribution
 right now. Please open an issue before starting large changes.
 
 ## Security
