@@ -33,21 +33,21 @@ Rules:
 - **Boundaries:** the ledger has its own DB and credentials. Clients can only
   act through the authenticated API (architecture §3).
 - **Default deny:** role × operation × template permission matrix with
-  generated tests (W24).
+  generated tests (2.08).
 - **Separation of duties:** maker-checker for adjustments, period reopen and
   device unfreeze. No single admin can move money manually.
 - **Database:** app role has INSERT/SELECT on journal tables and column-limited
-  UPDATE on accounts. No superuser, no DDL, triggers it can't disable (W8, W44).
+  UPDATE on accounts. No superuser, no DDL, triggers it can't disable (1.08, 3.12).
 - **Tamper evidence:** hash chain, signed daily checkpoints published outside
-  the DB, and an audit event for every mutation (W25).
+  the DB, and an audit event for every mutation (2.09).
 - **Offline:** hardware-rooted device keys, attestation, tier limits, escrow
-  bounding loss, and conflict → freeze (W26–30).
+  bounding loss, and conflict → freeze (2.10–2.14).
 - **Secrets:** a manager, key IDs, rotation, and HSM/KMS for the issuer key if
-  the evaluation justifies it (W44).
+  the evaluation justifies it (3.12).
 - **Supply chain:** `cargo deny`, `cargo audit`, pinned toolchain,
-  SBOM, minimal non-root images (W32, W43).
+  SBOM, minimal non-root images (2.16, 3.11).
 - **Verification:** threat model maintained as a living document; ASVS L2
-  self-assessment; external review before go-live (W50).
+  self-assessment; external review before go-live (4.02).
 
 ## 3. Database Engineering Strategy
 
@@ -57,15 +57,15 @@ Rules:
 - **Types:** `BIGINT` minor units, `UUID` (v7), `TIMESTAMPTZ`, `TEXT` + CHECK
   for enumerations.
 - **Concurrency:** READ COMMITTED, ordered `FOR NO KEY UPDATE` locks,
-  `lock_timeout`, bounded retry on `40P01`/`40001` (W10).
+  `lock_timeout`, bounded retry on `40P01`/`40001` (1.10).
 - **Durability:** `synchronous_commit=on`, `fsync=on`, no UNLOGGED tables,
-  WAL archived continuously (W42).
-- **Growth:** measured indexing (W34), monthly partitioning with ahead-of-time
-  creation (W36), archival without deletion inside the retention period.
+  WAL archived continuously (3.10).
+- **Growth:** measured indexing (3.02), monthly partitioning with ahead-of-time
+  creation (3.04), archival without deletion inside the retention period.
 - **Migrations:** forward-only in production, expand/contract, lint for unsafe
-  DDL, rehearsed on a production-sized copy (W43).
+  DDL, rehearsed on a production-sized copy (3.11).
 - **Observability:** `pg_stat_statements`, lock wait metrics, autovacuum
-  monitoring (W34, W41).
+  monitoring (3.02, 3.09).
 
 ## 4. Production Deployment and Operations Strategy
 
@@ -74,12 +74,12 @@ Rules:
   archive off-site. No broker, no cache.
 - **Environments:** dev → staging (continuous, production-shaped data) → prod.
 - **Delivery:** CI gates as in §1, signed images, health-checked rolling
-  deploys, scripted rollback (W43).
-- **Operations:** dashboards and actionable alerts (W41), daily verify and
+  deploys, scripted rollback (3.11).
+- **Operations:** dashboards and actionable alerts (3.09), daily verify and
   reconciliation, period close, monthly restore drill, and quarterly key
   rotation rehearsal.
 - **Incidents:** severity levels, an emergency freeze procedure, and
-  post-incident reviews that add regression tests (W51).
+  post-incident reviews that add regression tests (4.03).
 
 ## 5. Production-Readiness Checklist
 
