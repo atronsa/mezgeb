@@ -69,6 +69,7 @@ Codes and types only. Balances and flags come in Week 5.
 |---|---|---|---|---|
 | 1010 | Bank: customer funds account | Asset | Dr | The platform's account at a partner bank that holds customer money (the "float"). Introduced in E01. |
 | 2010 | Customer wallets | Liability | Cr | A control account. Each customer gets their own sub-account (e.g. `2010:cust-abebe`), and the sum of the sub-accounts is the 2010 balance. Introduced in E01. |
+| 2020 | Pending withdrawals | Liability | Cr | Money still owed to customers but committed to a payout that has not left the bank yet. One sub-account per withdrawal (e.g. `2020:wd-0001`). Introduced in E02. |
 |  |  |  |  |  |
 
 ---
@@ -122,17 +123,61 @@ normal balance.
 
 ### E02. Withdrawal: requested
 
-**Scenario:**
+**Scenario:** After E01, Abebe's wallet holds 1,000 ETB. Abebe asks to
+withdraw 300 ETB to a personal bank account. The platform accepts the request
+but has not sent the bank transfer yet; payouts go out in a batch later in the
+day (E03). There is no fee.
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| | **Total** | | | |
+| 1 | 2010:cust-abebe Customer wallet | Liability | 300 | |
+| 2 | 2020:wd-0001 Pending withdrawals | Liability | | 300 |
+| | **Total** | | **300** | **300** |
 
 **Why:**
 
+- **No cash has moved yet, so the bank account (1010) is not touched.** The
+  1,000 ETB is still sitting in the platform's bank account. Booking cash out
+  now would make the books disagree with the bank statement.
+- **Line 1, debit Abebe's wallet (liability ↓).** The 300 ETB must stop being
+  spendable the moment the request is accepted. Otherwise Abebe could request
+  the withdrawal and then spend the same 300 on a payment before the payout
+  goes out: a double spend. Debiting the wallet drops its balance to 700.
+- **Line 2, credit Pending withdrawals (liability ↑).** The platform still owes
+  the 300 ETB, just in a different form: it now owes a bank payout instead of
+  a spendable wallet balance. So the money moves from one liability to
+  another; it does not disappear.
+- **The equation stays in balance:** Assets 0 = Liabilities −300 + 300. Total
+  liabilities stay at 1,000. Only their breakdown changes: 700 in the wallet,
+  300 pending payout.
+
+**Why a separate account and not just a "pending" flag:** the pending 300 is
+real money the platform owes, so it must be visible in the trial balance. A
+dedicated account means every pending payout can be listed, totalled and
+aged, and a payout that stays pending too long shows up as a balance that
+should have gone to zero. This matches the plan to model holds as postings,
+which Week 2 records as an ADR.
+
+**What happens next:** the 2020:wd-0001 balance always ends at zero, by one of
+three paths:
+
+| Outcome | Entry | Effect |
+|---|---|---|
+| The payout is sent | E03 | Dr 2020 / Cr 1010: cash leaves the bank |
+| The payout fails before sending | E04 | Dr 2020 / Cr 2010: the 300 goes back to the wallet |
+| The bank returns it after sending | E05 | Cash comes back into 1010 and the wallet is restored |
+
 **Open questions:**
+
+- Should the money sit in a single shared 2020 account or in one sub-account
+  per withdrawal? Per withdrawal makes it easy to see which payouts are stuck
+  but creates many short-lived accounts. A hold reference on the entry lines
+  could give the same visibility with one account.
+- Should a withdrawal fee be charged at request time (in this entry) or only
+  when the payout succeeds (E03)? Charging at request time means refunding it
+  in E04.
+- Is there a limit on how long a withdrawal can stay pending before it must be
+  sent or cancelled? That limit becomes an alert on the age of 2020 balances.
 
 ### E03. Withdrawal: sent
 
