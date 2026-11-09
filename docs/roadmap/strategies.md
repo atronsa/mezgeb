@@ -30,7 +30,7 @@ Rules:
 
 ## 2. Security Engineering Strategy
 
-- **Boundaries:** the ledger has its own DB and credentials. Atronsa can only
+- **Boundaries:** the ledger has its own DB and credentials. Clients can only
   act through the authenticated API (architecture §3).
 - **Default deny:** role × operation × template permission matrix with
   generated tests (W24).
@@ -90,7 +90,7 @@ Each item needs a link to evidence. "We believe" does not count.
 - [ ] Concurrency suite passes 50 consecutive runs.
 - [ ] Chaos: 20+ Postgres kills under load, verify clean every time.
 - [ ] Simulator: 14+ consecutive clean nightly runs, 10M ops each.
-- [ ] Historical replay of Atronsa matches or every difference is explained.
+- [ ] Historical replay of the first client's ledger matches or every difference is explained.
 - [ ] Shadow mode ≥ 30 days with zero unexplained discrepancies.
 
 **Security**

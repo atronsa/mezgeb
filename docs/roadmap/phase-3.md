@@ -1,14 +1,14 @@
-# Phase 3: Scale, Operations and Atronsa Integration (Weeks 33–48)
+# Phase 3: Scale, Operations and Client Integration (Weeks 33–48)
 
 **Goal:** measured performance, production operations, and a verified
-migration of Atronsa onto the new ledger running in shadow mode.
+migration of a first production client application onto the new ledger running in shadow mode.
 
 ---
 
 ## Week 33: Performance Methodology and Realistic Workload
 
 **1. Overall Objective**
-Build a benchmark that reflects Atronsa's real traffic, then set targets.
+Build a benchmark that reflects a real payment platform's traffic, then set targets.
 
 **2. The Problem We Are Solving**
 Optimising without a realistic workload optimises the wrong thing.
@@ -18,7 +18,7 @@ Optimising without a realistic workload optimises the wrong thing.
 - Skew: Zipf distributions for popular merchants.
 - Coordinated omission.
 - Open vs closed load models.
-- Sizing from Atronsa projections.
+- Sizing from the first client's projections.
 
 **4. Implementation Tasks**
 - `mezgeb-bench` with a configurable mix and skew.
@@ -236,7 +236,7 @@ Reports reviewed by someone with accounting knowledge.
 ## Week 38: Transactional Outbox and Event Integration
 
 **1. Overall Objective**
-Notify Atronsa reliably of ledger events (posted, hold expired, receipt
+Notify clients reliably of ledger events (posted, hold expired, receipt
 settled, conflict) with no message broker.
 
 **2. The Problem We Are Solving**
@@ -248,7 +248,7 @@ between the two steps.
 - At-least-once delivery.
 - Consumer idempotency.
 - Ordering guarantees per account.
-- Webhooks vs polling (Atronsa pulls via a cursor API, the simpler and safer option).
+- Webhooks vs polling (clients pull via a cursor API, the simpler and safer option).
 
 **4. Implementation Tasks**
 - `outbox` table written in the posting transaction.
@@ -258,7 +258,7 @@ between the two steps.
 
 **5. Testing Requirements**
 - Crash between commit and delivery: the event is still delivered.
-- Duplicate delivery is safe on the consumer side (test with an Atronsa stub).
+- Duplicate delivery is safe on the consumer side (test with a client stub).
 - Ordering per account is preserved.
 
 **6. Deliverables**
@@ -379,7 +379,7 @@ verification, cost money when nobody notices them.
 - The RED/USE methods.
 - Prometheus metric types and cardinality limits.
 - Alert design: actionable alerts only.
-- Distributed tracing: **not justified** with one service. Request IDs propagated from Atronsa are enough; revisit if more services appear.
+- Distributed tracing: **not justified** with one service. Request IDs propagated from the client are enough; revisit if more services appear.
 
 **4. Implementation Tasks**
 - A `/metrics` endpoint.
@@ -556,20 +556,20 @@ The threat model's key-compromise scenarios each have a tested response.
 
 ---
 
-## Week 45: Atronsa Integration Design and Account Mapping
+## Week 45: Client Integration Design and Account Mapping
 
 **1. Overall Objective**
-Plan exactly how Atronsa moves from its `ledger.rs` to the new ledger.
+Plan exactly how the first client application moves from its existing ledger
+to Mezgeb.
 
 **2. The Problem We Are Solving**
 Migrating live money is the riskiest step of the whole project.
 
 **3. Concepts and Research**
-- Atronsa's current schema:
-  - `ledger_accounts`
-  - `ledger_transactions`
-  - `ledger_entries`
-  - `user_wallets`
+- The client's current ledger schema:
+  - accounts
+  - transactions and entries
+  - cached wallet balances
   - fee and clearing accounts
   - daily close
 - Strangler pattern.
@@ -577,16 +577,16 @@ Migrating live money is the riskiest step of the whole project.
 - The client-side intent table and retry worker.
 
 **4. Implementation Tasks**
-- A mapping document: each Atronsa account → new account code; each Atronsa transaction type → template.
+- A mapping document: each legacy account → new account code; each legacy transaction type → template.
 - Gaps and mismatches listed and resolved.
-- Atronsa changes specified: intent table, ledger client, idempotency keys from transaction IDs, the event consumer.
+- Client-side changes specified: intent table, ledger client, idempotency keys from transaction IDs, the event consumer.
 - The cutover plan outline, with rollback.
 
 **5. Testing Requirements**
-- Every Atronsa transaction type in production data has a mapping (an automated scan of distinct types).
+- Every legacy transaction type in production data has a mapping (an automated scan of distinct types).
 
 **6. Deliverables**
-Mapping document and Atronsa integration spec.
+Mapping document and client integration spec.
 
 **7. Acceptance Criteria**
 Zero unmapped types or accounts.
@@ -605,7 +605,7 @@ The mapping is reviewed against real (anonymised) production data.
 ## Week 46: Historical Replay and Migration Verification
 
 **1. Overall Objective**
-Replay Atronsa's full history into the new ledger and prove every balance
+Replay the client's full ledger history into Mezgeb and prove every balance
 matches.
 
 **2. The Problem We Are Solving**
@@ -618,13 +618,13 @@ You must know which before going live.
 - Handling historical data that violates new invariants (record and explain it; never fake it).
 
 **4. Implementation Tasks**
-- `mezgeb-cli import-atronsa`: reads an Atronsa DB snapshot and posts through the templates with idempotency keys derived from the original IDs.
+- `mezgeb-cli import`: reads a legacy ledger snapshot through a pluggable source adapter and posts through the templates with idempotency keys derived from the original IDs.
 - A comparison report per account.
 - An exceptions log with an explanation for each item.
 
 **5. Testing Requirements**
 - Replay twice gives an identical result (idempotency).
-- Every account balance equals Atronsa's balance, or the difference is in the exceptions list with a cause.
+- Every account balance equals the legacy ledger's balance, or the difference is in the exceptions list with a cause.
 - The fee revenue total matches.
 
 **6. Deliverables**
@@ -659,12 +659,12 @@ Only real traffic reveals the cases that weren't anticipated.
 - Discrepancy classification.
 
 **4. Implementation Tasks**
-- An Atronsa feature flag: after a successful old-ledger posting, enqueue an intent and post to the new ledger via the worker.
+- A client-side feature flag: after a successful old-ledger posting, enqueue an intent and post to the new ledger via the worker.
 - A nightly comparison job: balances, entry counts and fee totals per account.
 - A discrepancy dashboard.
 
 **5. Testing Requirements**
-- Integration tests: the new ledger being down has zero effect on the Atronsa user path.
+- Integration tests: the new ledger being down has zero effect on the client's user path.
 - Backlog drains after recovery.
 - Comparison detects planted divergence.
 

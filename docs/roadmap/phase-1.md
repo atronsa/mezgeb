@@ -11,8 +11,8 @@ turns modelling mistakes into compatibility promises.
 ## Week 1: Accounting Foundations and Worked Examples
 
 **1. Overall Objective**
-Understand double-entry bookkeeping well enough to book every Atronsa money
-flow on paper before any code exists.
+Understand double-entry bookkeeping well enough to book every common
+payment flow on paper before any code exists.
 
 **2. The Problem We Are Solving**
 Most ledger bugs are modelling bugs: the wrong account type, a misread normal
@@ -20,10 +20,10 @@ side, or a fee booked in the wrong place. Code cannot fix a wrong model.
 
 **3. Concepts and Research**
 - Accounting equation: Assets = Liabilities + Equity (+ Revenue − Expenses).
-- Account types and normal balances. For Atronsa, customer wallets are **liabilities** (money owed to users) and the bank account holding float is an **asset**.
+- Account types and normal balances. For a wallet provider, customer wallets are **liabilities** (money owed to users) and the bank account holding float is an **asset**.
 - Debits/credits as directions, not "good/bad".
 - Journal, general ledger, trial balance, suspense and clearing accounts.
-- Read an introductory accounting text on journal entries and trial balances, then Atronsa's existing `ledger.rs` and its migrations.
+- Read an introductory accounting text on journal entries and trial balances, then how established open-source ledgers model accounts and entries.
 
 **4. Implementation Tasks**
 - Write `docs/accounting-model.md` with **at least 15 worked journal entries**: deposit via bank, withdrawal (requested, sent, failed, returned), P2P transfer, QR merchant payment with fee, card tap payment, fingerprint payment, payment request paid, full refund, partial refund, reversal, admin adjustment, merchant settlement payout, offline escrow reservation, offline receipt settlement, escrow return on expiry.
@@ -38,7 +38,7 @@ side, or a fee booked in the wrong place. Code cannot fix a wrong model.
 `docs/accounting-model.md`, chart of accounts v0, trial balance worksheet.
 
 **7. Acceptance Criteria**
-Every flow in the Atronsa product list has a worked entry, and the trial balance balances.
+Every supported money flow has a worked entry, and the trial balance balances.
 
 **8. Dependencies**
 None.
@@ -109,7 +109,7 @@ Tests without stated invariants only test the cases you thought of. Compliance a
 
 **4. Implementation Tasks**
 - Rewrite spec §2 as `docs/invariants.md`. For each invariant (INV-n): statement, where it is enforced (type / engine / DB / job), and how it is tested. Cover balance, immutability, idempotency, non-negative, period closure, holds, reversal uniqueness, refund cap and offline.
-- Write `docs/threat-model.md` with actors (external attacker, compromised Atronsa server, malicious insider admin, malicious device owner, colluding merchant) and assets (balances, keys, audit log).
+- Write `docs/threat-model.md` with actors (external attacker, compromised client server, malicious insider admin, malicious device owner, colluding merchant) and assets (balances, keys, audit log).
 - Write `docs/regulatory.md` listing questions, sources, answers and status.
 
 **5. Testing Requirements**
@@ -198,7 +198,7 @@ A wallet with the wrong normal side, or a closed account still receiving money, 
 - `Account` and `AccountType`; `NormalSide` derived from the type.
 - `AccountStatus` with explicit transition rules: a closed account can't reopen; it can close only at zero balance.
 - `AccountTemplate` for system accounts.
-- The Atronsa chart of accounts as a **data file** (`charts/atronsa.toml`), not code, so the engine stays generic.
+- An example wallet-provider chart of accounts as a **data file** (`charts/wallet-provider.toml`), not code, so the engine stays generic.
 - A balance function `balance(normal_side, debits_total, credits_total) -> i64`.
 
 **5. Testing Requirements**

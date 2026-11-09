@@ -14,7 +14,7 @@ that two people would implement them the same way.
 - **In scope:** accounts, transfers, balances, holds, offline escrow and
   settlement, audit, history.
 - **Out of scope:** users, KYC, cards, QR, fees policy, FX rates, UI. Those
-  belong to the client application (e.g. Atronsa).
+  belong to the client application.
 - Non-goals: being a general-purpose database; multi-region consensus (v1).
 
 ## 1. Glossary

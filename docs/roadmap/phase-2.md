@@ -196,7 +196,7 @@ cannot rely on them.
 - Effective date vs posting date.
 - Late postings go to the current open period with a reference to the original date.
 - Balance snapshots.
-- How Atronsa's existing `ledger_daily_close` works.
+- How production ledgers implement a daily close.
 
 **4. Implementation Tasks**
 - `periods` and `period_snapshots` tables.
@@ -691,7 +691,7 @@ record of money.
 
 **2. The Problem We Are Solving**
 The ledger can be internally perfect and still disagree with the bank
-statement, Atronsa's cached balances or device reports.
+statement, a client's cached balances or device reports.
 
 **3. Concepts and Research**
 - Reconciliation types: internal (ledger vs caches), external (settlement account vs bank statement), offline (device-reported counters vs ledger).
@@ -703,7 +703,7 @@ statement, Atronsa's cached balances or device reports.
 - `recon_runs`, `recon_items` and `recon_breaks` tables.
 - Statement import (CSV first; the format comes from the partner bank; ISO 20022 camt.053 only if the bank offers it).
 - Matching engine (exact, then rule-based).
-- Cache reconciliation endpoint for Atronsa: per-wallet balance comparison.
+- Cache reconciliation endpoint for clients: per-wallet balance comparison.
 - Resolution through suspense templates only.
 
 **5. Testing Requirements**

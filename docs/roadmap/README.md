@@ -1,15 +1,15 @@
 # Mezgeb Engineering Roadmap: 52 Weeks
 
 The goal is a professionally engineered, secure, reliable, auditable
-double-entry ledger that becomes Atronsa's core accounting infrastructure,
-and an open-source project in its own right.
+double-entry ledger: an open-source project in its own right, ready to
+become the core accounting infrastructure of production payment applications.
 
 | Document | Contents |
 |---|---|
 | [architecture.md](architecture.md) | Stack evaluation, system shape, data model, the 10 architectural questions with alternatives, standards |
 | [phase-1.md](phase-1.md) | Weeks 1–16: accounting model and core engine |
 | [phase-2.md](phase-2.md) | Weeks 17–32: operations, API, security, offline, reconciliation |
-| [phase-3.md](phase-3.md) | Weeks 33–48: scale, operations, Atronsa integration, shadow mode |
+| [phase-3.md](phase-3.md) | Weeks 33–48: scale, operations, client integration, shadow mode |
 | [finalization.md](finalization.md) | Weeks 49–52: game day, security assessment, runbooks, release |
 | [strategies.md](strategies.md) | Testing, security, database and operations strategies; readiness checklist |
 
@@ -97,7 +97,7 @@ graph TD
 
 **Very high overall.** The accounting core (Phase 1) is high complexity.
 Offline settlement (W26–30) is the hardest part and has no off-the-shelf
-reference. The Atronsa migration (W45–48) carries the most operational risk.
+reference. Migrating the first client application (W45–48) carries the most operational risk.
 
 ## Is 52 weeks enough?
 
@@ -119,7 +119,7 @@ gate to hit the date.
 
 - **Self-review blindness** on security and accounting. Plan external eyes (below).
 - **Operations on call**: one person cannot be on call permanently. Before go-live, arrange at least one more person who can follow the runbooks.
-- **Sustained pace**: protect Atronsa's main work; if a week slips, the plan slips. Don't skip gates.
+- **Sustained pace**: protect your other commitments; if a week slips, the plan slips. Don't skip gates.
 - **Hardware coupling**: offline depends on card and phone capabilities being decided by the tap-to-pay work.
 
 ## Specialist review needed

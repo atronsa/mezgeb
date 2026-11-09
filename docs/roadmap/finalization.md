@@ -12,14 +12,14 @@ Break the whole production-like system on purpose and prove it recovers
 correctly.
 
 **2. The Problem We Are Solving**
-Component tests miss interactions between components: Atronsa retries racing
+Component tests miss interactions between components: client retries racing
 ledger restarts, workers resuming after failover, and backlogs after outages.
 
 **3. Concepts and Research**
 - Game day planning.
 - Blast radius.
 - Steady-state hypothesis.
-- Failure catalogue: DB failover, disk full, network partition between Atronsa and the ledger, clock skew, worker crash, a mass offline sync burst (e.g. after a regional network outage).
+- Failure catalogue: DB failover, disk full, network partition between the client and the ledger, clock skew, worker crash, a mass offline sync burst (e.g. after a regional network outage).
 
 **4. Implementation Tasks**
 - Write the game-day plan.
@@ -151,7 +151,7 @@ Readiness review held and recorded.
 ## Week 52: Release Candidate, Cutover Plan and Open-Source Release
 
 **1. Overall Objective**
-Produce v1.0.0-rc, the Atronsa cutover plan, and the public open-source
+Produce v1.0.0-rc, the first client's cutover plan, and the public open-source
 release.
 
 **2. The Problem We Are Solving**

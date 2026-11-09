@@ -15,7 +15,7 @@ movement, and whether the books balance.
 
 It is **not** the wallet product, the payment product, the fee policy, KYC,
 cards, QR codes or the offline device. Those belong to the client application
-(Atronsa). The ledger receives instructions to move value, validates them
+that uses it. The ledger receives instructions to move value, validates them
 against accounting rules, records them permanently and reports on them.
 
 > A wallet balance is a *view* of ledger accounts. It is never the ledger.
@@ -25,9 +25,9 @@ against accounting rules, records them permanently and reports on them.
 | Choice | Verdict | Reason |
 |---|---|---|
 | Rust | Keep | Memory safety, strong types for money/IDs, no GC pauses, the team already knows it. |
-| PostgreSQL 18 | Keep | ACID, mature row locking, deferred constraints, declarative partitioning, PITR. Atronsa CI already runs PG 18. |
+| PostgreSQL 18 | Keep | ACID, mature row locking, deferred constraints, declarative partitioning, PITR. |
 | SQLx | Keep | Compile-time-checked SQL; explicit transactions; no ORM hiding locking behaviour. Use offline mode (`.sqlx/`) in CI. |
-| Axum + REST | Keep | Matches Atronsa, works with the Postman tooling already in use, easy to audit. **Replaces the gRPC draft in `proto/`**: gRPC brings no benefit at this scale that justifies a second toolchain. |
+| Axum + REST | Keep | The most widely understood API style, works with the Postman tooling already in use, easy to audit. **Replaces the gRPC draft in `proto/`**: gRPC brings no benefit at this scale that justifies a second toolchain. |
 | Docker | Keep | Reproducible local Postgres, CI and deployment. |
 | Redis / Kafka / message broker | **Reject** | Idempotency and events must commit in the *same* Postgres transaction as the posting. An outside store or broker would break that. The outbox table (Week 38) covers eventing. |
 | Microservices | **Reject** | One ledger service, internally modular (see §3). |
@@ -40,7 +40,7 @@ Additions, each justified when introduced: `proptest` (W7), `tracing` (W9),
 ## 3. Shape of the system: a modular monolith behind its own boundary
 
 ```
-          Atronsa server (client)                 Ledger service (this repo)
+          Client application server               Ledger service (this repo)
    ┌─────────────────────────────────┐      ┌────────────────────────────────────┐
    │ users, KYC, QR, cards, fees     │      │ api      (Axum, REST, authn/authz) │
    │ payment flows, limits           │ REST │ ops      (posting templates)       │
@@ -58,7 +58,7 @@ own credentials**, internally split into crates/modules.
 
 | Alternative | For | Against |
 |---|---|---|
-| Embedded library in Atronsa's DB | One transaction covers business state + posting; simplest consistency | Atronsa's app credentials can touch ledger tables; a compromised Atronsa server can write money. No hard security boundary. Not reusable as an open-source product. |
+| Embedded library in the client's DB | One transaction covers business state + posting; simplest consistency | The client's app credentials can touch ledger tables; a compromised client server can write money. No hard security boundary. Not reusable as an open-source product. |
 | **Separate service, own DB (chosen)** | Hard privilege boundary; ledger roles can only INSERT entries; independently testable and releasable | Cross-system consistency must be engineered (idempotency + intent table, §5.10) |
 | Several ledger microservices | None at this scale | Distributed transactions inside the money path |
 
@@ -71,7 +71,7 @@ it *could* be embedded later without a rewrite.
 - **Currency**: ISO 4217 alphabetic code + minor-unit exponent (ETB, 2).
 - **Account**: id, code (chart of accounts), name, type
   (asset/liability/equity/revenue/expense), normal side, currency, status
-  (open/frozen/closed), `allow_negative`, `external_ref` (e.g. Atronsa wallet
+  (open/frozen/closed), `allow_negative`, `external_ref` (e.g. a client wallet
   id), `debits_total`, `credits_total`, `version`.
 - **Journal entry**: id (UUIDv7), client id + idempotency key (unique),
   template + version, reference, effective date, posted_at, period,
@@ -88,8 +88,8 @@ it *could* be embedded later without a rewrite.
 "one debit, one credit per transfer" model is replaced by **multi-line
 journal entries**. One merchant payment with a fee is a single
 balanced entry (debit payer 100, credit merchant 98, credit fee revenue 2)
-instead of a linked chain. That fits accounting practice, trial balances and
-the existing Atronsa `ledger.rs` better. Week 2 records this as an ADR and
+instead of a linked chain. That fits accounting practice and trial balances
+better. Week 2 records this as an ADR and
 Week 4–6 rewrites `mezgeb-core` accordingly.
 
 ## 5. The ten architectural questions
@@ -108,7 +108,7 @@ Three layers, each depending only on the one below:
    `p2p_transfer.v1` or `merchant_payment.v1` that turn a typed request into a
    balanced entry. They encode *how* a business event is booked, never *whether*
    it is allowed.
-3. **Client (Atronsa)** decides whether it is allowed (KYC, limits, fee amounts,
+3. **Client application** decides whether it is allowed (KYC, limits, fee amounts,
    fraud rules) and calls the template.
 
 Fee *amounts* are computed by the client (business policy); the template
@@ -196,7 +196,7 @@ Correct architecture: **escrow + signed claims + deterministic settlement.**
 Weeks 26–30 design, build and simulate this.
 
 ### 5.9 Reconciling cached balances against the ledger
-Any balance stored outside the ledger (e.g. Atronsa's `user_wallets`) is a
+Any balance stored outside the ledger (e.g. a client's wallet balance table) is a
 **cache for display**. A recurring reconciliation compares it to the ledger.
 On mismatch the **ledger wins**: the cache is refreshed and an alert is raised.
 The ledger is never "fixed" to match a cache. Authorisation decisions read the
@@ -209,7 +209,7 @@ ledger, never the cache (Week 31).
 - The idempotency record commits *with* the entry. A crash before commit means
   nothing happened, so the retry posts. A crash after commit means the retry
   returns the stored result.
-- Client side: Atronsa writes an **intent row** (with the idempotency key)
+- Client side: the client writes an **intent row** (with the idempotency key)
   before calling the ledger, and a worker retries unfinished intents. Lookup
   by idempotency key lets it learn the outcome after a lost response.
 - Background jobs (hold expiry, settlement, outbox relay) are idempotent and
