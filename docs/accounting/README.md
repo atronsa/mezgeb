@@ -37,9 +37,9 @@ be wrong too.
 
 ## Exit checklist (step 1.01)
 
-- [ ] Every supported money flow has a worked entry
+- [x] Every supported money flow has a worked entry
 - [x] The trial balance balances and every account sits on its normal side
-- [ ] Chart of accounts v0 is filled in
+- [x] Chart of accounts v0 is filled in
 - [ ] An accounting reviewer has signed off (name and date above; details in [review.md](review.md))
-- [ ] Exit gate: explain, without notes, why a customer deposit *credits* a
-      liability and *debits* an asset (record the evidence in `docs/evidence/1.01-accounting-foundations.md`)
+- [x] Exit gate: explain, without notes, why a customer deposit *credits* a
+      liability and *debits* an asset (evidence: [1.01-accounting-foundations.md](../evidence/1.01-accounting-foundations.md))
