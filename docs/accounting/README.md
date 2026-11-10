@@ -13,11 +13,13 @@ be wrong too.
 | [chart-of-accounts.md](chart-of-accounts.md) | Account codes, types and normal sides |
 | [entries/](entries/README.md) | Worked journal entries E01–E18, grouped by flow |
 | [trial-balance.md](trial-balance.md) | Trial balance after all worked entries, with checks and running balances |
+| [review.md](review.md) | Accounting review: checklist, questions, findings and sign-off |
 
 ## Conventions
 
-- **Currency:** ETB. Amounts are in whole birr in this document for
-  readability. The engine stores them as `i64` santim (minor units).
+- **Currency:** ETB. Amounts are shown in birr, with two decimals where
+  needed (for example, 39.20). The engine stores them as `i64` santim
+  (minor units): 39.20 ETB is 3,920 santim.
 - **Accounting equation:** Assets = Liabilities + Equity + (Revenue − Expenses)
 - **Normal balances:**
 
@@ -38,6 +40,6 @@ be wrong too.
 - [ ] Every supported money flow has a worked entry
 - [x] The trial balance balances and every account sits on its normal side
 - [ ] Chart of accounts v0 is filled in
-- [ ] An accounting reviewer has signed off (name and date above)
+- [ ] An accounting reviewer has signed off (name and date above; details in [review.md](review.md))
 - [ ] Exit gate: explain, without notes, why a customer deposit *credits* a
       liability and *debits* an asset (record the evidence in `docs/evidence/1.01-accounting-foundations.md`)
