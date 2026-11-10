@@ -1,0 +1,12 @@
+[package]
+name = "mezgeb-ops"
+description = "Versioned posting templates that turn business events into balanced entries."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+mezgeb-core.workspace = true
+
+[lints]
+workspace = true

@@ -608,15 +608,31 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "mezgeb-client"
+name = "mezgeb-api"
 version = "0.0.1"
 dependencies = [
  "mezgeb-core",
+ "mezgeb-engine",
+ "mezgeb-offline",
+ "mezgeb-ops",
+ "tokio",
 ]
+
+[[package]]
+name = "mezgeb-cli"
+version = "0.0.1"
 
 [[package]]
 name = "mezgeb-core"
 version = "0.0.1"
+
+[[package]]
+name = "mezgeb-engine"
+version = "0.0.1"
+dependencies = [
+ "mezgeb-core",
+ "sqlx",
+]
 
 [[package]]
 name = "mezgeb-offline"
@@ -626,13 +642,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "mezgeb-server"
+name = "mezgeb-ops"
 version = "0.0.1"
 dependencies = [
  "mezgeb-core",
- "mezgeb-offline",
- "mezgeb-store-pg",
- "tokio",
 ]
 
 [[package]]
@@ -641,15 +654,6 @@ version = "0.0.1"
 dependencies = [
  "mezgeb-core",
  "mezgeb-offline",
-]
-
-[[package]]
-name = "mezgeb-store-pg"
-version = "0.0.1"
-dependencies = [
- "mezgeb-core",
- "mezgeb-offline",
- "sqlx",
 ]
 
 [[package]]
