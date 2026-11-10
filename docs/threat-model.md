@@ -160,4 +160,4 @@ Not attackers, but the same assets are at risk.
 - The client application's own security: user login, KYC, card data. The
   client owns these.
 - Physical attacks on servers and hardware security modules.
-- Legal and regulatory controls: see `docs/regulatory.md` (step 1.03).
+- Legal and regulatory controls: see [regulatory.md](regulatory.md).
