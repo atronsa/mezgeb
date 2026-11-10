@@ -26,28 +26,9 @@ ledger receipt (signed proof that the ledger committed a transfer; see §7.2).
 
 ## 2. Invariants (the contract — everything else serves these)
 
-Each invariant gets an ID, a precise statement, where it is enforced
-(core / database / both), and how it is tested.
-
-- INV-1 Every transfer debits exactly one account and credits exactly one
-  account for the same positive amount.
-- INV-2 Sum of all debits == sum of all credits, per ledger, at all times.
-- INV-3 Transfers are immutable once recorded; corrections are new transfers.
-- INV-4 A transfer ID is applied at most once (idempotency).
-- INV-5 Account balance flags (e.g. debits must not exceed credits) hold after
-  every committed batch.
-- INV-6 Transfers only move value between accounts on the same ledger.
-- INV-7 A pending transfer resolves at most once (post XOR void XOR expire).
-- INV-8 Replaying the journal from empty reproduces every balance exactly.
-- INV-9 An offline device can never settle more than its reserved amount.
-- INV-10 A (device, counter) pair settles at most once.
-- INV-11 Two different receipts with the same (device, counter) are never both
-  settled, and always raise a conflict.
-- INV-12 Closed periods are never modified.
-- INV-13 Every committed transfer has exactly one ledger receipt. Its
-  signature verifies against the ledger key that was active at its
-  `recorded_time`, and retrying the same transfer returns the identical
-  receipt bytes.
+The invariants are catalogued in [invariants.md](invariants.md): 26
+invariants (INV-1 to INV-26), each with where it is enforced and the tests
+that cover it. That file replaces the draft list that was here.
 
 ## 3. Data model
 

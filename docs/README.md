@@ -6,6 +6,7 @@ reading order.
 | Path | What it is | Read it when |
 |---|---|---|
 | [spec.md](spec.md) | The specification: invariants, data model, transfer semantics, offline sync, audit | You want to know what Mezgeb guarantees |
+| [invariants.md](invariants.md) | Every rule the ledger must never break, where it is enforced and how it is tested | You want to know what "correct" means |
 | [architecture.md](architecture.md) | System shape, stack choices and the ten architectural questions | You want to know why it is built this way |
 | [adr/](adr/README.md) | Architecture decision records: one binding decision per file, with alternatives | You want the reason behind a table, crate or rule |
 | [accounting/](accounting/README.md) | Chart of accounts and worked journal entries for every money flow | You want to know how money is booked |
