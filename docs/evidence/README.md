@@ -12,3 +12,4 @@ Files are named `<step>-<topic>.md`, for example
 | Step | Evidence | Result |
 |---|---|---|
 | 1.01 | [Accounting foundations](1.01-accounting-foundations.md) | Passed; accounting review pending |
+| 1.02 | [Architecture decisions](1.02-architecture-decisions.md) | Passed |
