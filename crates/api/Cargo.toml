@@ -1,14 +1,15 @@
 [package]
-name = "mezgeb-server"
-description = "Ledger gRPC service."
+name = "mezgeb-api"
+description = "Ledger REST service (Axum): authentication, authorisation and HTTP handlers."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 mezgeb-core.workspace = true
+mezgeb-engine.workspace = true
+mezgeb-ops.workspace = true
 mezgeb-offline.workspace = true
-mezgeb-store-pg.workspace = true
 tokio.workspace = true
 
 [lints]
