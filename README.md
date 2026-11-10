@@ -103,21 +103,25 @@ Full details and the reasoning behind each decision are in
 
 | Path | Contents |
 |---|---|
-| `crates/core` | Pure domain: money, accounts, entries, validation |
+| `crates/core` | Pure domain, no I/O: money, accounts, entries, validation |
+| `crates/engine` | Posting engine on PostgreSQL: entries, holds, reversals |
+| `crates/ops` | Versioned posting templates, one per business event |
 | `crates/offline` | Vouchers, receipts, device chains, settlement rules |
-| `crates/store-pg` | PostgreSQL storage |
-| `crates/server` | The HTTP service |
-| `crates/client` | Rust client SDK |
+| `crates/api` | The REST service (Axum) |
 | `crates/sim` | Deterministic simulator that checks every invariant |
+| `crates/cli` | Operator command line: verification, imports |
 | `migrations/` | PostgreSQL schema migrations |
-| `proto/` | gRPC API definition |
 | `docs/` | Documentation: start at [docs/README.md](docs/README.md) |
 | `docs/spec.md` | Specification |
-| `docs/architecture.md` | Architecture and design decisions |
+| `docs/architecture.md` | Architecture overview |
+| `docs/adr/` | Architecture decision records: why each decision was made |
 | `docs/accounting/` | Accounting model: chart of accounts and worked journal entries |
 | `docs/roadmap/` | Engineering roadmap: 52 steps in four phases |
 
-The crate layout will be reorganised in step 1.02 of the roadmap.
+Folders use short names (`crates/engine`); packages use the `mezgeb-`
+prefix (`mezgeb-engine`), which is the name used with `cargo -p` and in
+`use` statements (`mezgeb_engine`). Crates depend only on the layers below
+them: `core` ← `engine` ← `ops` ← `api` ([ADR-0002](docs/adr/0002-three-layer-separation.md)).
 
 ## Getting started
 

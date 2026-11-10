@@ -1,0 +1,9 @@
+[package]
+name = "mezgeb-cli"
+description = "Operator command line: verification, imports and maintenance."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true

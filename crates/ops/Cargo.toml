@@ -1,14 +1,12 @@
 [package]
-name = "mezgeb-store-pg"
-description = "PostgreSQL storage for the ledger."
+name = "mezgeb-ops"
+description = "Versioned posting templates that turn business events into balanced entries."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 mezgeb-core.workspace = true
-mezgeb-offline.workspace = true
-sqlx.workspace = true
 
 [lints]
 workspace = true
