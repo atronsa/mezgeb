@@ -13,3 +13,4 @@ Files are named `<step>-<topic>.md`, for example
 |---|---|---|
 | 1.01 | [Accounting foundations](1.01-accounting-foundations.md) | Passed; accounting review pending |
 | 1.02 | [Architecture decisions](1.02-architecture-decisions.md) | Passed |
+| 1.03 | [Invariants, threat model and regulation](1.03-invariants-threat-model-and-regulation.md) | Passed; regulatory answers pending |

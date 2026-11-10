@@ -1,7 +1,7 @@
 # Invariant Catalogue
 
-> **Version:** v1 draft. Frozen at v1 when reviewed (step 1.03 exit gate). After
-> that, any change to an invariant needs an [ADR](adr/README.md).
+> **Version:** v1, frozen on 2026-11-10 (step 1.03 exit gate). Any change to an
+> invariant, including adding or removing one, needs an [ADR](adr/README.md).
 
 An **invariant** is a statement that is true of the ledger at every moment,
 whatever happens: crashes, retries, concurrent requests, bugs in a client. If
@@ -60,7 +60,7 @@ listed by ID in the [traceability matrix](#traceability-matrix).
 | ID | Invariant | Enforced at | Tests |
 |---|---|---|---|
 | INV-13 | An idempotency key is applied at most once per client. A repeat with the same request returns the original result; a repeat with a different request is rejected ([ADR-0008](adr/0008-idempotency-in-posting-transaction.md)). | Engine, DB | T-13a, T-13b, T-13c |
-| INV-14 | An entry is reversed at most once, and a reversal is the exact mirror of its original: same accounts, same amounts, opposite sides. | Engine, DB | T-14a, T-14b |
+| INV-14 | An entry is reversed at most once, and a reversal is the exact mirror of its original: same accounts, same amounts, opposite sides. A reversal can never itself be reversed; if a reversal was a mistake, the original is posted again as a new entry. | Engine, DB | T-14a, T-14b, T-14c |
 | INV-15 | The total refunded against a payment never exceeds the payment's original amount. | Engine | T-15a, T-15b |
 
 ### Holds
@@ -143,6 +143,7 @@ Every invariant has at least one planned test. Test kinds:
 | T-13c | INV-13 | Crash | A crash after commit, then a retry, posts nothing new | 1.15 |
 | T-14a | INV-14 | DB | A second reversal of the same entry is rejected | 1.12 |
 | T-14b | INV-14 | Property | Original plus reversal leaves every balance unchanged | 1.12 |
+| T-14c | INV-14 | Unit | Reversing a reversal is rejected | 1.12 |
 | T-15a | INV-15 | Unit | A refund above the remaining refundable amount is rejected | 2.04 |
 | T-15b | INV-15 | Concurrency | Parallel partial refunds never exceed the original in total | 2.04 |
 | T-16a | INV-16 | Unit | Capturing or releasing an already resolved hold is rejected | 1.14 |
