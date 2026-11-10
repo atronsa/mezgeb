@@ -18,7 +18,7 @@ Undocumented decisions get re-argued every month. Each one changed later costs a
 - REST vs gRPC.
 
 **4. Implementation Tasks**
-- Write `docs/adr/0001` to `0010`: service boundary and own DB; layering (engine/ops/client); multi-line entries; holds as postings; money as `i64` minor units; UUIDv7 IDs; READ COMMITTED + ordered row locks; idempotency in the same transaction; REST/Axum; the offline escrow model.
+- Write `docs/adr/0001` to `0010`: service boundary and own DB; layering (engine/ops/client); multi-line entries; holds as postings; money as `i64` minor units; UUIDv7 IDs; READ COMMITTED + ordered row locks; idempotency in the same transaction; REST/Axum; the offline escrow model. Also 0011 (append-only history) and 0012 (stored running balances), so that every question in architecture §5 maps to an ADR.
 - Delete `proto/` and update spec §9 to REST.
 - Rework the crate list: `mezgeb-core`, `mezgeb-engine` (renamed from `store-pg`), `mezgeb-ops`, `mezgeb-offline`, `mezgeb-api`, `mezgeb-sim`, `mezgeb-cli`.
 - Mark the scaffold's transfer types for replacement.
@@ -28,7 +28,7 @@ Undocumented decisions get re-argued every month. Each one changed later costs a
 - An ADR review checklist: does each ADR list at least 2 alternatives and its consequences?
 
 **6. Deliverables**
-10 ADRs and a restructured workspace.
+12 ADRs ([`docs/adr/`](../../adr/README.md)) and a restructured workspace.
 
 **7. Acceptance Criteria**
 Every question in [architecture.md §5](../../architecture.md#5-the-ten-architectural-questions) maps to an ADR.

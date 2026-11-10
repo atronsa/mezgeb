@@ -159,7 +159,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | Step | Topic | Target week | Status |
 |---|---|---:|---|
 | 1.01 | [Accounting Foundations and Worked Examples](phase-1-core-engine/01-accounting-foundations.md) | 1 | Done ([evidence](../evidence/1.01-accounting-foundations.md); accounting review pending) |
-| 1.02 | [Architecture Decision Records and Repository Restructure](phase-1-core-engine/02-architecture-decisions.md) | 2 | Not started |
+| 1.02 | [Architecture Decision Records and Repository Restructure](phase-1-core-engine/02-architecture-decisions.md) | 2 | In progress |
 | 1.03 | [Invariant Catalogue, Threat Model v0, Regulatory Applicability](phase-1-core-engine/03-invariants-threat-model-and-regulation.md) | 3 | Not started |
 | 1.04 | [Money, Currency and Identifier Types](phase-1-core-engine/04-money-and-identifier-types.md) | 4 | Not started |
 | 1.05 | [Chart of Accounts and the Account Model](phase-1-core-engine/05-chart-of-accounts.md) | 5 | Not started |
