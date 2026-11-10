@@ -189,12 +189,20 @@ evidence, not a third ledger column.
 
 ## 9. API
 
-- gRPC (see `proto/mezgeb.proto`): create_accounts, create_transfers,
-  lookup_accounts, lookup_transfers, get_account_history, issue_voucher,
-  ingest_receipts, close_period.
-- Batch-first: every write takes a list.
+- REST over HTTPS with JSON, built with Axum
+  ([ADR-0009](adr/0009-rest-api-with-axum.md)). Versioned in the path
+  (`/v1/...`) and described by an OpenAPI document.
+- Resources: accounts, entries (post, look up, reverse), holds (create,
+  capture, release), account history, offline vouchers and receipts,
+  periods (close). Designed in step 2.06.
+- Every write takes an `Idempotency-Key` header
+  ([ADR-0008](adr/0008-idempotency-in-posting-transaction.md)).
+- Amounts are decimal strings with an explicit currency
+  (`{"amount": "39.20", "currency": "ETB"}`), converted to minor units at the
+  boundary ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
+- Batch writes: to be decided in step 2.06.
 - Every successful transfer result includes its ledger receipt (§7.2).
-- Errors: stable, enumerated codes.
+- Errors: RFC 9457 Problem Details with stable, enumerated codes.
 - Versioning and backward-compatibility policy.
 
 ## 10. Testing and verification
