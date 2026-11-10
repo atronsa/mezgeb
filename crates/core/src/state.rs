@@ -1,5 +1,9 @@
 //! The state machine (spec §4). Storage-agnostic: the in-memory simulator and
 //! the PostgreSQL store both implement `StateView`.
+//!
+//! **Scaffold, to be replaced.** This module follows the draft one-debit,
+//! one-credit transfer model. ADR-0003 (multi-line journal entries) and
+//! ADR-0004 (holds as postings) replace it in steps 1.04–1.06.
 
 use crate::account::Account;
 use crate::error::{CreateAccountError, CreateTransferError};

@@ -1,4 +1,8 @@
 //! Accounts (spec §3.4).
+//!
+//! **Scaffold, to be replaced.** This module follows the draft one-debit,
+//! one-credit transfer model. ADR-0003 (multi-line journal entries) and
+//! ADR-0004 (holds as postings) replace it in steps 1.04–1.06.
 
 use crate::id::{AccountId, Amount, LedgerId, Timestamp};
 
