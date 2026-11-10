@@ -12,7 +12,7 @@ be wrong too.
 |---|---|
 | [chart-of-accounts.md](chart-of-accounts.md) | Account codes, types and normal sides |
 | [entries/](entries/README.md) | Worked journal entries E01–E18, grouped by flow |
-| [trial-balance.md](trial-balance.md) | Trial balance after all worked entries |
+| [trial-balance.md](trial-balance.md) | Trial balance after all worked entries, with checks and running balances |
 
 ## Conventions
 
@@ -36,7 +36,7 @@ be wrong too.
 ## Exit checklist (step 1.01)
 
 - [ ] Every supported money flow has a worked entry
-- [ ] The trial balance balances and every account sits on its normal side
+- [x] The trial balance balances and every account sits on its normal side
 - [ ] Chart of accounts v0 is filled in
 - [ ] An accounting reviewer has signed off (name and date above)
 - [ ] Exit gate: explain, without notes, why a customer deposit *credits* a
