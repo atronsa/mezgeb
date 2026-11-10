@@ -1,8 +1,9 @@
 # Overall Architecture
 
 This document records the architectural position the roadmap is built on.
-Every decision below is provisional until it is written up as an ADR
-(`docs/adr/NNNN-*.md`) in step 1.02, where the alternatives get re-examined.
+Each decision is recorded as a binding [architecture decision record](adr/README.md)
+(ADR), which lists the alternatives considered and the consequences. If this
+document and an ADR disagree, the ADR wins.
 Where a decision is deferred, the roadmap step that decides it is named.
 
 ---
