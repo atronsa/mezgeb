@@ -162,7 +162,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 1.02 | [Architecture Decision Records and Repository Restructure](phase-1-core-engine/02-architecture-decisions.md) | 2 | Done ([evidence](../evidence/1.02-architecture-decisions.md)) |
 | 1.03 | [Invariant Catalogue, Threat Model v0, Regulatory Applicability](phase-1-core-engine/03-invariants-threat-model-and-regulation.md) | 3 | Done ([evidence](../evidence/1.03-invariants-threat-model-and-regulation.md); regulatory answers pending) |
 | 1.04 | [Money, Currency and Identifier Types](phase-1-core-engine/04-money-and-identifier-types.md) | 4 | Done ([evidence](../evidence/1.04-money-and-identifier-types.md)) |
-| 1.05 | [Chart of Accounts and the Account Model](phase-1-core-engine/05-chart-of-accounts.md) | 5 | Not started |
+| 1.05 | [Chart of Accounts and the Account Model](phase-1-core-engine/05-chart-of-accounts.md) | 5 | Done ([evidence](../evidence/1.05-chart-of-accounts.md); accounting review pending) |
 | 1.06 | [Journal Entries and Posting Rules (Pure Core)](phase-1-core-engine/06-journal-entries-and-posting-rules.md) | 6 | Not started |
 | 1.07 | [In-Memory Reference Ledger (the Oracle)](phase-1-core-engine/07-reference-ledger-oracle.md) | 7 | Not started |
 | 1.08 | [PostgreSQL Schema v1, Constraints and Roles](phase-1-core-engine/08-postgresql-schema.md) | 8 | Not started |

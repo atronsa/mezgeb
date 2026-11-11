@@ -110,6 +110,7 @@ Full details and the reasoning behind each decision are in
 | `crates/api` | The REST service (Axum) |
 | `crates/sim` | Deterministic simulator that checks every invariant |
 | `crates/cli` | Operator command line: verification, imports |
+| `charts/` | Example charts of accounts, loaded as data (`wallet-provider.toml`) |
 | `migrations/` | PostgreSQL schema migrations |
 | `docs/` | Documentation: start at [docs/README.md](docs/README.md) |
 | `docs/spec.md` | Specification |

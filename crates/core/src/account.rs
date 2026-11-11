@@ -1,38 +1,414 @@
-//! Accounts (spec §3.4).
+//! Accounts and their lifecycle.
 //!
-//! **Scaffold, to be replaced.** This module follows the draft one-debit,
-//! one-credit transfer model. ADR-0003 (multi-line journal entries) and
-//! ADR-0004 (holds as postings) replace it in steps 1.04–1.06.
+//! An account is opened from a [`Chart`] reference such as `"1010"` or
+//! `"2010:cust-abebe"`, so its type, normal side and negative-balance rule
+//! always come from the chart and can never disagree with it.
 
-use crate::id::{Amount, LedgerId, Timestamp};
+use std::fmt;
+
+use crate::chart::{AccountCode, AccountType, Chart, ChartError, Side};
+use crate::currency::Currency;
 use crate::ids::AccountId;
+use crate::money::Money;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct AccountFlags(pub u16);
+/// Where an account is in its lifecycle.
+///
+/// ```text
+/// Open ⇄ Frozen
+///   └──────┴──▶ Closed   (only at zero balance; never reopened)
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AccountStatus {
+    /// Accepts postings.
+    Open,
+    /// Temporarily blocked, for example during an investigation. Accepts no
+    /// postings; can be reopened.
+    Frozen,
+    /// Permanently closed. Accepts no postings and can never reopen.
+    Closed,
+}
 
-impl AccountFlags {
-    pub const DEBITS_MUST_NOT_EXCEED_CREDITS: u16 = 1 << 0;
-    pub const CREDITS_MUST_NOT_EXCEED_DEBITS: u16 = 1 << 1;
-    pub const CLOSED: u16 = 1 << 2;
-    pub const HISTORY: u16 = 1 << 3;
+/// Why a status change was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusError {
+    /// The account is already in that status.
+    Unchanged(AccountStatus),
+    /// A closed account can never change status again.
+    AccountClosed,
+    /// An account can only be closed when its balance is zero.
+    BalanceNotZero,
+}
 
-    pub fn contains(self, flag: u16) -> bool {
-        self.0 & flag == flag
+impl fmt::Display for AccountStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            AccountStatus::Open => "open",
+            AccountStatus::Frozen => "frozen",
+            AccountStatus::Closed => "closed",
+        })
     }
 }
 
+impl fmt::Display for StatusError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            StatusError::Unchanged(status) => write!(f, "account is already {status}"),
+            StatusError::AccountClosed => f.write_str("a closed account cannot change status"),
+            StatusError::BalanceNotZero => f.write_str("an account can only close at zero balance"),
+        }
+    }
+}
+
+impl std::error::Error for StatusError {}
+
+impl AccountStatus {
+    /// Every status.
+    pub const ALL: [AccountStatus; 3] = [
+        AccountStatus::Open,
+        AccountStatus::Frozen,
+        AccountStatus::Closed,
+    ];
+
+    /// The status after changing to `to`, or why the change is refused.
+    pub fn transition(
+        self,
+        to: AccountStatus,
+        balance_is_zero: bool,
+    ) -> Result<AccountStatus, StatusError> {
+        if self == to {
+            return Err(StatusError::Unchanged(to));
+        }
+        match (self, to) {
+            (AccountStatus::Closed, _) => Err(StatusError::AccountClosed),
+            (_, AccountStatus::Closed) if !balance_is_zero => Err(StatusError::BalanceNotZero),
+            _ => Ok(to),
+        }
+    }
+
+    /// Only open accounts accept postings (INV-24).
+    pub const fn accepts_postings(self) -> bool {
+        matches!(self, AccountStatus::Open)
+    }
+}
+
+/// An account's balance on its normal side: positive when the balance sits
+/// on the side its type normally carries, negative otherwise. `None` only if
+/// the result does not fit in an `i64`, which cannot happen for the
+/// non-negative totals the ledger stores.
+pub const fn balance(normal_side: Side, debits_total: i64, credits_total: i64) -> Option<i64> {
+    match normal_side {
+        Side::Debit => debits_total.checked_sub(credits_total),
+        Side::Credit => credits_total.checked_sub(debits_total),
+    }
+}
+
+/// A ledger account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
-    pub id: AccountId,
-    pub ledger: LedgerId,
-    /// Client-defined category (chart of accounts).
-    pub code: u16,
-    pub flags: AccountFlags,
-    pub debits_pending: Amount,
-    pub debits_posted: Amount,
-    pub credits_pending: Amount,
-    pub credits_posted: Amount,
-    /// Opaque reference back to the client's own records.
-    pub user_data: u128,
-    pub created_at: Timestamp,
+    id: AccountId,
+    code: AccountCode,
+    sub_account: Option<String>,
+    name: String,
+    account_type: AccountType,
+    currency: Currency,
+    allow_negative: bool,
+    status: AccountStatus,
+    /// Both totals are in `0..=i64::MAX`, so their difference always fits
+    /// in an `i64` (ADR-0012).
+    debits_total: i64,
+    credits_total: i64,
+}
+
+impl Account {
+    /// Opens a new account, with zero totals, for a chart reference.
+    pub fn open(id: AccountId, chart: &Chart, reference: &str) -> Result<Account, ChartError> {
+        let (template, sub_account) = chart.resolve(reference)?;
+        Ok(Account {
+            id,
+            code: template.code(),
+            sub_account: sub_account.map(str::to_owned),
+            name: template.name().to_owned(),
+            account_type: template.account_type(),
+            currency: chart.currency(),
+            allow_negative: template.allow_negative(),
+            status: AccountStatus::Open,
+            debits_total: 0,
+            credits_total: 0,
+        })
+    }
+
+    pub const fn id(&self) -> AccountId {
+        self.id
+    }
+
+    pub const fn code(&self) -> AccountCode {
+        self.code
+    }
+
+    /// The sub-account, such as `cust-abebe`, for an account under a
+    /// control account.
+    pub fn sub_account(&self) -> Option<&str> {
+        self.sub_account.as_deref()
+    }
+
+    /// The reference as written in the worked entries: `"1010"` or
+    /// `"2010:cust-abebe"`.
+    pub fn reference(&self) -> String {
+        match &self.sub_account {
+            Some(sub) => format!("{}:{sub}", self.code),
+            None => self.code.to_string(),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub const fn account_type(&self) -> AccountType {
+        self.account_type
+    }
+
+    pub const fn normal_side(&self) -> Side {
+        self.account_type.normal_side()
+    }
+
+    pub const fn currency(&self) -> Currency {
+        self.currency
+    }
+
+    pub const fn allow_negative(&self) -> bool {
+        self.allow_negative
+    }
+
+    pub const fn status(&self) -> AccountStatus {
+        self.status
+    }
+
+    pub const fn debits_total(&self) -> i64 {
+        self.debits_total
+    }
+
+    pub const fn credits_total(&self) -> i64 {
+        self.credits_total
+    }
+
+    /// The balance on the account's normal side, in its currency.
+    pub const fn balance(&self) -> Money {
+        // Totals are non-negative, so this subtraction cannot overflow.
+        let amount = match self.normal_side() {
+            Side::Debit => self.debits_total - self.credits_total,
+            Side::Credit => self.credits_total - self.debits_total,
+        };
+        Money::from_minor(amount, self.currency)
+    }
+
+    /// Changes the status, following [`AccountStatus::transition`].
+    pub fn set_status(&mut self, to: AccountStatus) -> Result<(), StatusError> {
+        self.status = self.status.transition(to, self.balance().is_zero())?;
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use AccountStatus::*;
+
+    const CHART: &str = r#"
+name = "Test"
+currency = "ETB"
+
+[[accounts]]
+code = 1010
+name = "Bank: customer funds account"
+type = "asset"
+kind = "system"
+status = "active"
+
+[[accounts]]
+code = 2010
+name = "Customer wallets"
+type = "liability"
+kind = "control"
+prefix = "cust"
+status = "active"
+"#;
+
+    fn id() -> Result<AccountId, crate::ids::IdError> {
+        "017f22e2-79b0-7cc3-98c4-dc0c0c07398f".parse()
+    }
+
+    #[test]
+    fn every_status_transition() {
+        // (from, to, balance is zero, expected)
+        let cases = [
+            (Open, Open, true, Err(StatusError::Unchanged(Open))),
+            (Open, Frozen, true, Ok(Frozen)),
+            (Open, Frozen, false, Ok(Frozen)),
+            (Open, Closed, true, Ok(Closed)),
+            (Open, Closed, false, Err(StatusError::BalanceNotZero)),
+            (Frozen, Open, true, Ok(Open)),
+            (Frozen, Open, false, Ok(Open)),
+            (Frozen, Frozen, true, Err(StatusError::Unchanged(Frozen))),
+            (Frozen, Closed, true, Ok(Closed)),
+            (Frozen, Closed, false, Err(StatusError::BalanceNotZero)),
+            (Closed, Open, true, Err(StatusError::AccountClosed)),
+            (Closed, Frozen, true, Err(StatusError::AccountClosed)),
+            (Closed, Closed, true, Err(StatusError::Unchanged(Closed))),
+        ];
+        for (from, to, zero, expected) in cases {
+            assert_eq!(
+                from.transition(to, zero),
+                expected,
+                "{from} -> {to}, zero: {zero}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_open_accounts_accept_postings() {
+        assert!(Open.accepts_postings());
+        assert!(!Frozen.accepts_postings());
+        assert!(!Closed.accepts_postings());
+    }
+
+    #[test]
+    fn opens_accounts_from_the_chart() -> Result<(), Box<dyn std::error::Error>> {
+        let chart = Chart::from_toml(CHART)?;
+        let wallet = Account::open(id()?, &chart, "2010:cust-abebe")?;
+        assert_eq!(wallet.id(), id()?);
+        assert_eq!(wallet.code().value(), 2010);
+        assert_eq!(wallet.sub_account(), Some("cust-abebe"));
+        assert_eq!(wallet.reference(), "2010:cust-abebe");
+        assert_eq!(wallet.name(), "Customer wallets");
+        assert_eq!(wallet.account_type(), AccountType::Liability);
+        assert_eq!(wallet.normal_side(), Side::Credit);
+        assert_eq!(wallet.currency(), Currency::ETB);
+        assert!(!wallet.allow_negative());
+        assert_eq!(wallet.status(), Open);
+        assert_eq!((wallet.debits_total(), wallet.credits_total()), (0, 0));
+        assert_eq!(wallet.balance(), Money::zero(Currency::ETB));
+
+        let bank = Account::open(id()?, &chart, "1010")?;
+        assert_eq!(bank.reference(), "1010");
+        assert_eq!(bank.sub_account(), None);
+        assert_eq!(bank.normal_side(), Side::Debit);
+
+        assert_eq!(
+            Account::open(id()?, &chart, "2010"),
+            Err(ChartError::SubAccountRequired(2010))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn balance_follows_the_normal_side() -> Result<(), Box<dyn std::error::Error>> {
+        let chart = Chart::from_toml(CHART)?;
+        let mut bank = Account::open(id()?, &chart, "1010")?;
+        let mut wallet = Account::open(id()?, &chart, "2010:cust-abebe")?;
+        // E01: Dr 1010 1,000 / Cr 2010:cust-abebe 1,000.
+        bank.debits_total = 100_000;
+        wallet.credits_total = 100_000;
+        assert_eq!(bank.balance(), Money::from_minor(100_000, Currency::ETB));
+        assert_eq!(wallet.balance(), Money::from_minor(100_000, Currency::ETB));
+        // A wallet debited more than credited is negative on its normal side.
+        wallet.debits_total = 100_001;
+        assert_eq!(wallet.balance(), Money::from_minor(-1, Currency::ETB));
+        Ok(())
+    }
+
+    #[test]
+    fn accounts_close_only_at_zero() -> Result<(), Box<dyn std::error::Error>> {
+        let chart = Chart::from_toml(CHART)?;
+        let mut wallet = Account::open(id()?, &chart, "2010:cust-abebe")?;
+        wallet.credits_total = 500;
+        assert_eq!(wallet.set_status(Closed), Err(StatusError::BalanceNotZero));
+        wallet.set_status(Frozen)?;
+        wallet.set_status(Open)?;
+        wallet.debits_total = 500;
+        wallet.set_status(Closed)?;
+        assert_eq!(wallet.status(), Closed);
+        assert_eq!(wallet.set_status(Open), Err(StatusError::AccountClosed));
+        Ok(())
+    }
+
+    #[test]
+    fn errors_have_messages() {
+        assert_eq!(
+            StatusError::Unchanged(Frozen).to_string(),
+            "account is already frozen"
+        );
+        assert_eq!(
+            StatusError::AccountClosed.to_string(),
+            "a closed account cannot change status"
+        );
+        assert_eq!(
+            StatusError::BalanceNotZero.to_string(),
+            "an account can only close at zero balance"
+        );
+        let names: Vec<String> = AccountStatus::ALL.iter().map(|s| s.to_string()).collect();
+        assert_eq!(names, ["open", "frozen", "closed"]);
+    }
+}
+
+#[cfg(test)]
+mod properties {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    /// The normal-balance table from docs/accounting/README.md, written out
+    /// by hand so the code is checked against the documentation rather than
+    /// against itself.
+    const NORMAL_BALANCE_TABLE: [(AccountType, Side); 5] = [
+        (AccountType::Asset, Side::Debit),
+        (AccountType::Liability, Side::Credit),
+        (AccountType::Equity, Side::Credit),
+        (AccountType::Revenue, Side::Credit),
+        (AccountType::Expense, Side::Debit),
+    ];
+
+    fn account_type() -> impl Strategy<Value = AccountType> {
+        proptest::sample::select(AccountType::ALL.as_slice())
+    }
+
+    proptest! {
+        #[test]
+        fn balance_agrees_with_the_normal_balance_table(
+            account_type in account_type(),
+            debits in 0..=i64::MAX,
+            credits in 0..=i64::MAX,
+        ) {
+            let increases_with = NORMAL_BALANCE_TABLE
+                .iter()
+                .find(|(t, _)| *t == account_type)
+                .map(|(_, side)| *side);
+            let expected = match increases_with {
+                Some(Side::Debit) => debits - credits,
+                Some(Side::Credit) => credits - debits,
+                None => return Err(TestCaseError::fail("type missing from table")),
+            };
+            prop_assert_eq!(balance(account_type.normal_side(), debits, credits), Some(expected));
+        }
+
+        #[test]
+        fn posting_on_the_normal_side_increases_the_balance(
+            account_type in account_type(),
+            start in 0..=i64::MAX / 2,
+            amount in 1..=i64::MAX / 2,
+        ) {
+            let side = account_type.normal_side();
+            let before = balance(side, start, start);
+            let after = match side {
+                Side::Debit => balance(side, start + amount, start),
+                Side::Credit => balance(side, start, start + amount),
+            };
+            prop_assert_eq!(before.zip(after).map(|(b, a)| a - b), Some(amount));
+        }
+
+        #[test]
+        fn closed_is_final(to in proptest::sample::select(AccountStatus::ALL.as_slice()), zero in any::<bool>()) {
+            prop_assert!(AccountStatus::Closed.transition(to, zero).is_err());
+        }
+    }
 }
