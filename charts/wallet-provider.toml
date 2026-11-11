@@ -1,0 +1,153 @@
+# Chart of accounts v0 for a wallet provider.
+#
+# Source: docs/accounting/chart-of-accounts.md. Every account used by the
+# worked entries (docs/accounting/entries/) is here, and a test checks that
+# this file and the documentation agree.
+#
+# Fields:
+#   code            four digits; the first digit gives the type (9xxx: any)
+#   type            asset, liability, equity, revenue or expense
+#   kind            control (posted through sub-accounts) or system
+#   prefix          sub-account prefix, control accounts only
+#   allow_negative  default false (INV-8)
+#   status          active, or reserved (cannot be opened yet)
+
+name = "Wallet provider v0"
+currency = "ETB"
+
+# Assets
+
+[[accounts]]
+code = 1010
+name = "Bank: customer funds account"
+type = "asset"
+kind = "system"
+status = "active"
+description = "The account at the partner bank that holds customer and merchant money, plus fees not yet swept."
+
+[[accounts]]
+code = 1020
+name = "Bank: operating account"
+type = "asset"
+kind = "system"
+status = "active"
+description = "The platform's own money. Never mixed with customer funds."
+
+# Liabilities
+
+[[accounts]]
+code = 2010
+name = "Customer wallets"
+type = "liability"
+kind = "control"
+prefix = "cust"
+status = "active"
+description = "Money the platform owes each customer, spendable online."
+
+[[accounts]]
+code = 2020
+name = "Pending withdrawals"
+type = "liability"
+kind = "control"
+prefix = "wd"
+status = "active"
+description = "Customer money committed to a bank payout that has not been sent yet. Each sub-account returns to zero."
+
+[[accounts]]
+code = 2030
+name = "Merchant balances"
+type = "liability"
+kind = "control"
+prefix = "merch"
+status = "active"
+description = "Money owed to each merchant for payments received, net of fees."
+
+[[accounts]]
+code = 2040
+name = "Pending merchant settlements"
+type = "liability"
+kind = "control"
+prefix = "stl"
+status = "active"
+description = "Merchant money committed to a settlement payout that has not been sent yet. Each sub-account returns to zero."
+
+[[accounts]]
+code = 2050
+name = "Offline escrow"
+type = "liability"
+kind = "control"
+prefix = "vch"
+status = "active"
+description = "Customer money reserved for offline spending on one device. Each sub-account returns to zero when its voucher expires."
+
+# Equity
+
+[[accounts]]
+code = 3010
+name = "Owner's capital"
+type = "equity"
+kind = "system"
+status = "active"
+description = "Money the platform's owners put into the business."
+
+# Revenue
+
+[[accounts]]
+code = 4010
+name = "Payment fee revenue"
+type = "revenue"
+kind = "system"
+status = "active"
+description = "Fees earned on merchant payments, online and offline. Reduced by fees given back on refunds."
+
+[[accounts]]
+code = 4020
+name = "Service fee revenue"
+type = "revenue"
+kind = "system"
+status = "reserved"
+description = "Fees for services such as withdrawals or instant settlement. Decided in step 2.02."
+
+# Expenses
+
+[[accounts]]
+code = 5010
+name = "Customer compensation expense"
+type = "expense"
+kind = "system"
+status = "active"
+description = "Goodwill credits and compensation paid from the platform's own money."
+
+[[accounts]]
+code = 5020
+name = "Bank charges"
+type = "expense"
+kind = "system"
+status = "reserved"
+description = "Fees the partner bank charges for transfers and returns. Decided in step 2.02."
+
+[[accounts]]
+code = 5030
+name = "Offline settlement losses"
+type = "expense"
+kind = "system"
+status = "reserved"
+description = "Receipts paid out after their escrow was returned, under the loss policy. Decided in step 2.13."
+
+# Suspense and clearing
+
+[[accounts]]
+code = 9010
+name = "Suspense: unidentified funds"
+type = "liability"
+kind = "system"
+status = "reserved"
+description = "Money in the bank that cannot yet be matched to a customer or merchant. Decided in step 2.02."
+
+[[accounts]]
+code = 9020
+name = "Clearing: deposits in transit"
+type = "asset"
+kind = "system"
+status = "reserved"
+description = "Deposits confirmed by the bank but not yet settled into 1010. Decided in step 2.02."
