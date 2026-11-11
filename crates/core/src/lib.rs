@@ -1,32 +1,32 @@
-//! Pure double-entry accounting engine.
+//! Pure double-entry accounting core.
 //!
-//! No I/O, no clocks, no randomness: given the same state and the same batch,
-//! the result is always the same. That property is what lets `mezgeb-sim`
-//! test the engine deterministically. See `docs/spec.md`.
+//! No I/O, no clocks, no randomness: given the same inputs, the result is
+//! always the same. That property is what lets `mezgeb-sim` test the ledger
+//! deterministically. See `docs/spec.md` and `docs/adr/`.
 //!
-//! The `id`, `error`, `transfer` and `state` modules are the draft scaffold
-//! and are replaced in step 1.06 (ADR-0003, ADR-0004).
+//! - [`money`], [`currency`], [`ids`], [`time`]: the value types.
+//! - [`chart`], [`account`]: the chart of accounts and accounts.
+//! - [`entry`], [`validate`], [`error`]: journal entries and posting rules.
+//!   A [`BalancedEntry`] can only be created by [`validate`].
 
 pub mod account;
 pub mod chart;
 pub mod currency;
+pub mod entry;
+pub mod error;
 pub mod ids;
 pub mod money;
-
-pub mod error;
-pub mod id;
-pub mod state;
-pub mod transfer;
+pub mod time;
+pub mod validate;
 
 pub use account::{Account, AccountStatus, StatusError, balance};
 pub use chart::{
     AccountCode, AccountKind, AccountTemplate, AccountType, Chart, ChartError, ChartStatus, Side,
 };
 pub use currency::{Currency, UnknownCurrency};
+pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
+pub use error::PostingError;
 pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
 pub use money::{Money, MoneyError, ParseMoneyError, PositiveAmount};
-
-pub use error::{CreateAccountError, CreateTransferError};
-pub use id::{Amount, LedgerId, Timestamp, TransferId};
-pub use state::{Engine, StateView};
-pub use transfer::{Transfer, TransferFlags};
+pub use time::Timestamp;
+pub use validate::validate;

@@ -1,6 +1,6 @@
 //! Offline allowance issued while online (spec §5.3).
 
-use mezgeb_core::{AccountId, Amount, LedgerId, Timestamp, TransferId};
+use mezgeb_core::{AccountId, EntryId, PositiveAmount, Timestamp};
 
 /// Device trust tier; each tier has its own limit and expiry (spec §5.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,10 +22,9 @@ pub struct Voucher {
     pub account_id: AccountId,
     /// The escrow account holding the reserved funds for this device.
     pub reserved_account_id: AccountId,
-    /// The pending transfer that created the reservation.
-    pub reservation_transfer_id: TransferId,
-    pub ledger: LedgerId,
-    pub amount: Amount,
+    /// The entry that moved the allowance into escrow (E16).
+    pub reservation_entry_id: EntryId,
+    pub amount: PositiveAmount,
     /// First counter value this voucher authorises.
     pub counter_start: u64,
     pub expires_at: Timestamp,

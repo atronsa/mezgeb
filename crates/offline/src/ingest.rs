@@ -2,7 +2,6 @@
 
 use crate::receipt::Receipt;
 use crate::voucher::Voucher;
-use mezgeb_core::StateView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IngestOutcome {
@@ -24,10 +23,6 @@ pub enum IngestOutcome {
 
 /// Ingest one receipt. Must give the same final state regardless of upload
 /// order, uploader (payer or payee), or repetition (INV-9, INV-10, INV-11).
-pub fn ingest_receipt<S: StateView>(
-    _state: &mut S,
-    _voucher: &Voucher,
-    _receipt: &Receipt,
-) -> IngestOutcome {
+pub fn ingest_receipt(_voucher: &Voucher, _receipt: &Receipt) -> IngestOutcome {
     todo!("spec §5.5")
 }
