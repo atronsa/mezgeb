@@ -602,3 +602,112 @@ fn planted_bug_is_caught_and_shrunk() -> Result<(), String> {
         other => Err(format!("planted bug was not caught: {other:?}")),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Additions for step 1.09
+// ---------------------------------------------------------------------------
+
+#[test]
+fn one_account_per_chart_reference() -> TestResult {
+    let chart = chart()?;
+    let mut ledger = MemLedger::new();
+    ledger.open_account(slot(0), &chart, "1010")?;
+    assert_eq!(
+        ledger.open_account(slot(1), &chart, "1010").err(),
+        Some(LedgerError::DuplicateReference("1010".into()))
+    );
+    assert_eq!(
+        LedgerError::DuplicateReference("1010".into()).to_string(),
+        "an account for 1010 already exists"
+    );
+    assert_eq!(
+        LedgerError::Storage("disk full".into()).to_string(),
+        "storage error: disk full"
+    );
+    Ok(())
+}
+
+/// Found by the step 1.09 differential test: an entry that debits and
+/// credits the same account nets to zero and must post, even on an account
+/// that cannot go negative.
+#[test]
+fn the_same_account_on_both_sides_posts() -> TestResult {
+    let chart = chart()?;
+    let mut ledger = MemLedger::new();
+    ledger.open_account(slot(4), &chart, "3010")?;
+    let draft = EntryDraft::default()
+        .debit(slot(4), etb(1))
+        .credit(slot(4), etb(1));
+    ledger.post(entry_id(1), draft)?;
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn the_ledger_trait_matches_the_inherent_methods() -> TestResult {
+    use std::future::Future;
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    // MemLedger's futures are always ready, so one poll completes them.
+    fn now<T>(future: impl Future<Output = T>) -> Result<T, &'static str> {
+        let mut context = Context::from_waker(Waker::noop());
+        match pin!(future).poll(&mut context) {
+            Poll::Ready(value) => Ok(value),
+            Poll::Pending => Err("future was not ready"),
+        }
+    }
+
+    let chart = chart()?;
+    let mut ledger = MemLedger::new();
+    let bank = now(Ledger::open_account(&mut ledger, slot(0), &chart, "1010"))??;
+    now(Ledger::open_account(
+        &mut ledger,
+        slot(1),
+        &chart,
+        "2010:cust-a",
+    ))??;
+    let draft = EntryDraft::default()
+        .debit(slot(0), etb(10))
+        .credit(slot(1), etb(10));
+    let posted = now(Ledger::post(&mut ledger, entry_id(1), draft))??;
+    let reversal = now(Ledger::reverse(&mut ledger, entry_id(1), entry_id(2)))??;
+    now(Ledger::set_status(
+        &mut ledger,
+        slot(1),
+        AccountStatus::Frozen,
+    ))??;
+
+    assert_eq!(bank.reference(), "1010");
+    assert_eq!(reversal.reverses(), Some(posted.id()));
+    assert_eq!(
+        now(Ledger::get_account(&mut ledger, slot(1)))??.map(|a| a.status()),
+        Some(AccountStatus::Frozen)
+    );
+    assert_eq!(now(Ledger::all_accounts(&mut ledger))??.len(), 2);
+    assert_eq!(
+        now(Ledger::all_entries(&mut ledger))??,
+        ledger.entries().to_vec()
+    );
+    let rebuilt = PostedEntry::new(
+        posted.id(),
+        posted.sequence(),
+        posted.lines().to_vec(),
+        posted.reverses(),
+        posted.metadata().clone(),
+        posted.event_time(),
+    );
+    assert_eq!(rebuilt, posted);
+    let line = &posted.lines()[0];
+    assert_eq!(
+        PostedLine::new(
+            line.account(),
+            line.side(),
+            line.amount(),
+            line.debits_after(),
+            line.credits_after()
+        ),
+        *line
+    );
+    Ok(())
+}

@@ -1,119 +1,28 @@
 //! Database tests for schema v1 (step 1.08).
 //!
-//! Each test creates its own database, owned by `mezgeb_owner`, runs the
-//! migrations as `mezgeb_owner`, then acts as `mezgeb_app`, the role the
-//! service runs as. They need PostgreSQL with the roles from
-//! `db/init/01-roles.sql`:
-//!
-//! ```sh
-//! docker compose up -d
-//! MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
-//!     cargo test -p mezgeb-engine
-//! ```
-//!
-//! The URL is a superuser's, used only to create and drop the throwaway
-//! databases. Role passwords default to the role names (the local and CI
-//! setup) and can be overridden with `MEZGEB_TEST_<ROLE>_PASSWORD`.
-//!
-//! Without `MEZGEB_TEST_DATABASE_URL` each test prints that it was skipped
-//! and passes, except on CI (where `CI` is set), where it fails.
+//! Each test creates its own migrated database, then acts as `mezgeb_app`,
+//! the role the service runs as. See `support/mod.rs` for how to run them.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+mod support;
+
+use sqlx::{Connection, Executor, PgConnection, Row};
+use support::{Server, TestDb, TestResult, exec};
 
 use mezgeb_engine::MIGRATOR;
-use sqlx::postgres::PgConnectOptions;
-use sqlx::{Connection, Executor, PgConnection, Row};
-
-type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 const CLIENT: &str = "00000000-0000-7000-8000-00000000c11e";
 
 /// A UUIDv7-shaped ID built from a number.
 fn id(n: u32) -> String {
-    format!("00000000-0000-7000-8000-{n:012x}")
+    support::uuid7(u64::from(n))
 }
 
-/// One throwaway database, migrated, with connections for each role.
-struct TestDb {
-    name: String,
-    admin: PgConnectOptions,
-}
-
-impl TestDb {
-    async fn create() -> Result<Option<TestDb>, Box<dyn std::error::Error>> {
-        let Ok(url) = std::env::var("MEZGEB_TEST_DATABASE_URL") else {
-            // On CI the database tests must run, never be skipped silently.
-            if std::env::var_os("CI").is_some() {
-                return Err("MEZGEB_TEST_DATABASE_URL must be set on CI".into());
-            }
-            eprintln!("skipped: MEZGEB_TEST_DATABASE_URL is not set");
-            return Ok(None);
-        };
-        static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let name = format!(
-            "mezgeb_test_{}_{}",
-            std::process::id(),
-            COUNTER.fetch_add(1, Ordering::SeqCst)
-        );
-        let admin: PgConnectOptions = url.parse()?;
-        let mut conn = PgConnection::connect_with(&admin).await?;
-        exec(
-            &mut conn,
-            format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"),
-        )
-        .await?;
-        exec(
-            &mut conn,
-            format!("CREATE DATABASE {name} OWNER mezgeb_owner"),
-        )
-        .await?;
-        let db = TestDb { name, admin };
-        MIGRATOR.run(&mut db.owner().await?).await?;
-        Ok(Some(db))
+/// A fresh migrated database, or `None` when the tests are skipped.
+async fn database() -> Result<Option<TestDb>, Box<dyn std::error::Error>> {
+    match Server::from_env()? {
+        Some(server) => Ok(Some(server.migrated().await?)),
+        None => Ok(None),
     }
-
-    async fn connect(&self, role: &str) -> Result<PgConnection, sqlx::Error> {
-        let password = std::env::var(format!("MEZGEB_TEST_{}_PASSWORD", role.to_uppercase()))
-            .unwrap_or_else(|_| role.to_owned());
-        let options = self
-            .admin
-            .clone()
-            .database(&self.name)
-            .username(role)
-            .password(&password);
-        PgConnection::connect_with(&options).await
-    }
-
-    async fn owner(&self) -> Result<PgConnection, sqlx::Error> {
-        self.connect("mezgeb_owner").await
-    }
-
-    async fn app(&self) -> Result<PgConnection, sqlx::Error> {
-        self.connect("mezgeb_app").await
-    }
-
-    async fn readonly(&self) -> Result<PgConnection, sqlx::Error> {
-        self.connect("mezgeb_readonly").await
-    }
-
-    async fn drop(self) -> Result<(), sqlx::Error> {
-        let mut conn = PgConnection::connect_with(&self.admin).await?;
-        exec(
-            &mut conn,
-            format!("DROP DATABASE {} WITH (FORCE)", self.name),
-        )
-        .await?;
-        Ok(())
-    }
-}
-
-/// Runs one SQL statement that the test builds at run time. Only test
-/// constants and generated IDs go into it, never outside input.
-async fn exec(conn: &mut PgConnection, sql: String) -> Result<(), sqlx::Error> {
-    sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
-        .execute(conn)
-        .await
-        .map(|_| ())
 }
 
 /// The SQLSTATE of a database error, such as `23514` or `MZ002`.
@@ -234,7 +143,7 @@ async fn balance(conn: &mut PgConnection, account: u32) -> Result<(i64, i64), sq
 
 #[tokio::test]
 async fn a_valid_posting_commits() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -257,7 +166,7 @@ async fn a_valid_posting_commits() -> TestResult {
 /// with one line, and an entry with no lines, at commit.
 #[tokio::test]
 async fn unbalanced_entries_fail_at_commit() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -289,7 +198,7 @@ async fn unbalanced_entries_fail_at_commit() -> TestResult {
 /// INV-1: a zero or negative amount is rejected immediately.
 #[tokio::test]
 async fn line_amounts_must_be_positive() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -305,7 +214,7 @@ async fn line_amounts_must_be_positive() -> TestResult {
 /// the journal, and the triggers stop even the owner.
 #[tokio::test]
 async fn journal_history_cannot_change() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -341,7 +250,7 @@ async fn journal_history_cannot_change() -> TestResult {
 /// The service may change only totals, version and status of an account.
 #[tokio::test]
 async fn the_app_role_cannot_change_account_identity() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -380,7 +289,7 @@ async fn the_app_role_cannot_change_account_identity() -> TestResult {
 /// INV-8: the CHECK refuses a balance below zero on the normal side.
 #[tokio::test]
 async fn a_wallet_cannot_go_negative() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -411,7 +320,7 @@ async fn a_wallet_cannot_go_negative() -> TestResult {
 /// Running totals never go down.
 #[tokio::test]
 async fn totals_only_increase() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -432,7 +341,7 @@ async fn totals_only_increase() -> TestResult {
 /// INV-14: one reversal per entry, never of a reversal, always a mirror.
 #[tokio::test]
 async fn reversal_rules() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -479,7 +388,7 @@ async fn reversal_rules() -> TestResult {
 /// INV-13: an idempotency key is used once per client, and well formed.
 #[tokio::test]
 async fn idempotency_keys_are_unique_per_client() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -513,7 +422,7 @@ async fn idempotency_keys_are_unique_per_client() -> TestResult {
 /// belongs to an existing entry.
 #[tokio::test]
 async fn lines_reference_their_entry_and_account_currency() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -543,7 +452,7 @@ async fn lines_reference_their_entry_and_account_currency() -> TestResult {
 /// account, closing only at zero, never reopening.
 #[tokio::test]
 async fn account_status_rules() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut app = db.app().await?;
@@ -581,7 +490,7 @@ async fn account_status_rules() -> TestResult {
 /// The read-only role reads and nothing else.
 #[tokio::test]
 async fn the_readonly_role_only_reads() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     funded(&mut db.app().await?).await?;
@@ -601,7 +510,7 @@ async fn the_readonly_role_only_reads() -> TestResult {
 /// Migrations run up, down and up again on an empty database.
 #[tokio::test]
 async fn migrations_go_up_down_and_up() -> TestResult {
-    let Some(db) = TestDb::create().await? else {
+    let Some(db) = database().await? else {
         return Ok(());
     };
     let mut owner = db.owner().await?;

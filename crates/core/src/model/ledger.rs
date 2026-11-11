@@ -27,6 +27,23 @@ pub struct PostedLine {
 }
 
 impl PostedLine {
+    /// A posted line as stored, for rebuilding history from a database.
+    pub const fn new(
+        account: AccountId,
+        side: Side,
+        amount: PositiveAmount,
+        debits_after: i64,
+        credits_after: i64,
+    ) -> PostedLine {
+        PostedLine {
+            account,
+            side,
+            amount,
+            debits_after,
+            credits_after,
+        }
+    }
+
     pub const fn account(&self) -> AccountId {
         self.account
     }
@@ -62,6 +79,27 @@ pub struct PostedEntry {
 }
 
 impl PostedEntry {
+    /// A posted entry as stored, for rebuilding history from a database.
+    /// It is a record of what was posted, not a guarantee: `validate` and
+    /// the database constraints are what make posted entries correct.
+    pub fn new(
+        id: EntryId,
+        sequence: u64,
+        lines: Vec<PostedLine>,
+        reverses: Option<EntryId>,
+        metadata: BTreeMap<String, String>,
+        event_time: Option<Timestamp>,
+    ) -> PostedEntry {
+        PostedEntry {
+            id,
+            sequence,
+            lines,
+            reverses,
+            metadata,
+            event_time,
+        }
+    }
+
     pub const fn id(&self) -> EntryId {
         self.id
     }
@@ -95,6 +133,8 @@ impl PostedEntry {
 pub enum LedgerError {
     Chart(ChartError),
     DuplicateAccount(AccountId),
+    /// An account already exists for this chart reference, such as `"1010"`.
+    DuplicateReference(String),
     AccountNotFound(AccountId),
     Status(StatusError),
     DuplicateEntry(EntryId),
@@ -104,6 +144,9 @@ pub enum LedgerError {
     AlreadyReversed(EntryId),
     /// A reversal can never itself be reversed (INV-14).
     CannotReverseReversal(EntryId),
+    /// The storage behind a ledger failed, or returned data that breaks the
+    /// ledger's rules. Never produced by `MemLedger`.
+    Storage(String),
 }
 
 impl fmt::Display for LedgerError {
@@ -111,6 +154,9 @@ impl fmt::Display for LedgerError {
         match self {
             LedgerError::Chart(e) => e.fmt(f),
             LedgerError::DuplicateAccount(id) => write!(f, "account {id} already exists"),
+            LedgerError::DuplicateReference(reference) => {
+                write!(f, "an account for {reference} already exists")
+            }
             LedgerError::AccountNotFound(id) => write!(f, "account {id} not found"),
             LedgerError::Status(e) => e.fmt(f),
             LedgerError::DuplicateEntry(id) => write!(f, "entry {id} already exists"),
@@ -120,6 +166,7 @@ impl fmt::Display for LedgerError {
             LedgerError::CannotReverseReversal(id) => {
                 write!(f, "entry {id} is a reversal and cannot be reversed")
             }
+            LedgerError::Storage(message) => write!(f, "storage error: {message}"),
         }
     }
 }
@@ -161,6 +208,10 @@ impl MemLedger {
             return Err(LedgerError::DuplicateAccount(id));
         }
         let account = Account::open(id, chart, reference).map_err(LedgerError::Chart)?;
+        let reference = account.reference();
+        if self.accounts.values().any(|a| a.reference() == reference) {
+            return Err(LedgerError::DuplicateReference(reference));
+        }
         Ok(self.accounts.entry(id).or_insert(account))
     }
 

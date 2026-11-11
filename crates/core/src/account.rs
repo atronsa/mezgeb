@@ -41,11 +41,7 @@ pub enum StatusError {
 
 impl fmt::Display for AccountStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            AccountStatus::Open => "open",
-            AccountStatus::Frozen => "frozen",
-            AccountStatus::Closed => "closed",
-        })
+        f.write_str(self.as_str())
     }
 }
 
@@ -62,6 +58,20 @@ impl fmt::Display for StatusError {
 impl std::error::Error for StatusError {}
 
 impl AccountStatus {
+    /// The name used in storage and the API: `"open"`, `"frozen"`, `"closed"`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AccountStatus::Open => "open",
+            AccountStatus::Frozen => "frozen",
+            AccountStatus::Closed => "closed",
+        }
+    }
+
+    /// The inverse of [`AccountStatus::as_str`].
+    pub fn from_name(name: &str) -> Option<AccountStatus> {
+        AccountStatus::ALL.into_iter().find(|s| s.as_str() == name)
+    }
+
     /// Every status.
     pub const ALL: [AccountStatus; 3] = [
         AccountStatus::Open,
@@ -102,6 +112,45 @@ pub const fn balance(normal_side: Side, debits_total: i64, credits_total: i64) -
     }
 }
 
+/// An account as stored, for rebuilding an [`Account`] from a database row
+/// with [`Account::from_record`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountRecord {
+    pub id: AccountId,
+    pub code: AccountCode,
+    pub sub_account: Option<String>,
+    pub name: String,
+    pub account_type: AccountType,
+    pub currency: Currency,
+    pub allow_negative: bool,
+    pub status: AccountStatus,
+    pub debits_total: i64,
+    pub credits_total: i64,
+}
+
+/// A stored account that breaks the account rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordError {
+    /// A total is below zero.
+    NegativeTotal,
+    /// The balance is below zero and the account does not allow it (INV-8).
+    NegativeBalance,
+    /// A closed account has a non-zero balance.
+    ClosedWithBalance,
+}
+
+impl fmt::Display for RecordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            RecordError::NegativeTotal => "stored account has a negative total",
+            RecordError::NegativeBalance => "stored account has a forbidden negative balance",
+            RecordError::ClosedWithBalance => "stored closed account has a balance",
+        })
+    }
+}
+
+impl std::error::Error for RecordError {}
+
 /// A ledger account.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -135,6 +184,34 @@ impl Account {
             debits_total: 0,
             credits_total: 0,
         })
+    }
+
+    /// Rebuilds an account from storage, refusing a record that breaks the
+    /// account rules, so a corrupted row can never be used for posting.
+    pub fn from_record(record: AccountRecord) -> Result<Account, RecordError> {
+        if record.debits_total < 0 || record.credits_total < 0 {
+            return Err(RecordError::NegativeTotal);
+        }
+        let account = Account {
+            id: record.id,
+            code: record.code,
+            sub_account: record.sub_account,
+            name: record.name,
+            account_type: record.account_type,
+            currency: record.currency,
+            allow_negative: record.allow_negative,
+            status: record.status,
+            debits_total: record.debits_total,
+            credits_total: record.credits_total,
+        };
+        let balance = account.balance();
+        if balance.is_negative() && !account.allow_negative {
+            return Err(RecordError::NegativeBalance);
+        }
+        if account.status == AccountStatus::Closed && !balance.is_zero() {
+            return Err(RecordError::ClosedWithBalance);
+        }
+        Ok(account)
     }
 
     pub const fn id(&self) -> AccountId {
@@ -341,6 +418,70 @@ status = "active"
         wallet.set_status(Closed)?;
         assert_eq!(wallet.status(), Closed);
         assert_eq!(wallet.set_status(Open), Err(StatusError::AccountClosed));
+        Ok(())
+    }
+
+    #[test]
+    fn status_names_round_trip() {
+        for status in AccountStatus::ALL {
+            assert_eq!(AccountStatus::from_name(status.as_str()), Some(status));
+        }
+        assert_eq!(AccountStatus::from_name("Open"), None);
+    }
+
+    #[test]
+    fn records_are_checked_when_restored() -> Result<(), Box<dyn std::error::Error>> {
+        let chart = Chart::from_toml(CHART)?;
+        let wallet = Account::open(id()?, &chart, "2010:cust-abebe")?;
+        let record = |debits: i64, credits: i64, status: AccountStatus, allow_negative: bool| {
+            AccountRecord {
+                id: wallet.id(),
+                code: wallet.code(),
+                sub_account: wallet.sub_account().map(str::to_owned),
+                name: wallet.name().to_owned(),
+                account_type: wallet.account_type(),
+                currency: wallet.currency(),
+                allow_negative,
+                status,
+                debits_total: debits,
+                credits_total: credits,
+            }
+        };
+        let restored = Account::from_record(record(300, 1_000, Open, false))?;
+        assert_eq!(restored.balance(), Money::from_minor(700, Currency::ETB));
+        assert_eq!(
+            Account::from_record(record(-1, 0, Open, false)),
+            Err(RecordError::NegativeTotal)
+        );
+        assert_eq!(
+            Account::from_record(record(0, -1, Open, false)),
+            Err(RecordError::NegativeTotal)
+        );
+        assert_eq!(
+            Account::from_record(record(5, 0, Open, false)),
+            Err(RecordError::NegativeBalance)
+        );
+        assert!(Account::from_record(record(5, 0, Open, true)).is_ok());
+        assert_eq!(
+            Account::from_record(record(0, 5, Closed, false)),
+            Err(RecordError::ClosedWithBalance)
+        );
+        for (error, message) in [
+            (
+                RecordError::NegativeTotal,
+                "stored account has a negative total",
+            ),
+            (
+                RecordError::NegativeBalance,
+                "stored account has a forbidden negative balance",
+            ),
+            (
+                RecordError::ClosedWithBalance,
+                "stored closed account has a balance",
+            ),
+        ] {
+            assert_eq!(error.to_string(), message);
+        }
         Ok(())
     }
 

@@ -146,7 +146,8 @@ MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
     cargo test -p mezgeb-engine
 ```
 
-There is no service to run yet: the posting engine is built in step 1.09.
+The posting engine works on PostgreSQL (`mezgeb-engine`); there is no API
+service to run yet (steps 2.06–2.07).
 
 ## Roadmap
 

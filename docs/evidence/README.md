@@ -19,3 +19,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.06 | [Journal entries and posting rules](1.06-journal-entries-and-posting-rules.md) | Passed |
 | 1.07 | [Reference ledger (the oracle)](1.07-reference-ledger-oracle.md) | Passed |
 | 1.08 | [PostgreSQL schema v1](1.08-postgresql-schema.md) | Passed |
+| 1.09 | [Atomic posting](1.09-atomic-posting.md) | Passed |
