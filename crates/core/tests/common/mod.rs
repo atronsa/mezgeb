@@ -130,3 +130,42 @@ pub fn fixtures() -> Result<Vec<Fixture>, String> {
     }
     Ok(fixtures)
 }
+
+pub const TRIAL_BALANCE: &str = include_str!("../../../../docs/accounting/trial-balance.md");
+
+/// The rows of the trial balance after E18: each account reference and its
+/// balance on its normal side, as printed in `docs/accounting/trial-balance.md`.
+pub fn trial_balance() -> Result<Vec<(String, Money)>, String> {
+    let start = TRIAL_BALANCE
+        .find("## Trial balance after E18")
+        .ok_or("no trial balance section")?;
+    let section = &TRIAL_BALANCE[start..];
+    let section = &section[..section.find("## Checks").unwrap_or(section.len())];
+    let mut rows = Vec::new();
+    for row in section.lines().filter_map(cells) {
+        let reference = row.first().copied().unwrap_or_default();
+        let code = reference.split(':').next().unwrap_or_default();
+        if code.len() != 4 || !is_digits(code) {
+            continue;
+        }
+        let amount = |i: usize| -> Result<i64, String> {
+            match row.get(i).copied().unwrap_or_default() {
+                "" => Ok(0),
+                text => parse_etb(text)
+                    .map(Money::amount)
+                    .ok_or_else(|| format!("bad amount {text:?} for {reference}")),
+            }
+        };
+        let (dr, cr) = (amount(4)?, amount(5)?);
+        let balance = match row.get(3).copied() {
+            Some("Dr") => dr - cr,
+            Some("Cr") => cr - dr,
+            other => return Err(format!("bad normal side {other:?} for {reference}")),
+        };
+        rows.push((
+            reference.to_owned(),
+            Money::from_minor(balance, Currency::ETB),
+        ));
+    }
+    Ok(rows)
+}
