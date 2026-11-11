@@ -4,7 +4,8 @@
 //! one-credit transfer model. ADR-0003 (multi-line journal entries) and
 //! ADR-0004 (holds as postings) replace it in steps 1.04–1.06.
 
-use crate::id::{AccountId, Amount, LedgerId, Timestamp, TransferId};
+use crate::id::{Amount, LedgerId, Timestamp, TransferId};
+use crate::ids::AccountId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TransferFlags(pub u16);
