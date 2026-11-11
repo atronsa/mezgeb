@@ -88,8 +88,9 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   numeric code (`crates/core/src/error.rs`): too few lines (1001), too many
   lines (1002), metadata too large (1003), amount not positive (1004),
   account not found (1005), account not open (1006), currency mismatch
-  (1007), duplicate line (1008), amount overflow (1009), unbalanced (1010).
-  Codes are never renumbered.
+  (1007), duplicate line (1008), amount overflow (1009), unbalanced (1010),
+  account total overflow (1011), insufficient funds (1012, INV-8). Codes
+  are never renumbered.
 - **4.2 Posting.** One entry posts in one database transaction, all lines or
   none (step 1.09).
 - **4.3 Holds.** A hold is a posting into a held sub-account, then a capture

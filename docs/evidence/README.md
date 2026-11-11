@@ -17,3 +17,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.04 | [Money, currency and identifier types](1.04-money-and-identifier-types.md) | Passed |
 | 1.05 | [Chart of accounts and account model](1.05-chart-of-accounts.md) | Passed; accounting review pending |
 | 1.06 | [Journal entries and posting rules](1.06-journal-entries-and-posting-rules.md) | Passed |
+| 1.07 | [Reference ledger (the oracle)](1.07-reference-ledger-oracle.md) | Passed |
