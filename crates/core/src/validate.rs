@@ -3,6 +3,8 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use crate::account::Account;
+use crate::chart::Side;
 use crate::currency::Currency;
 use crate::entry::{
     AccountsView, BalancedEntry, EntryDraft, MAX_LINES, MAX_METADATA_BYTES, MAX_METADATA_KEYS,
@@ -30,6 +32,9 @@ pub fn validate<V: AccountsView + ?Sized>(
     }
 
     let mut lines = Vec::with_capacity(draft.lines.len());
+    // Each account's debits and credits in this entry, in order of first
+    // appearance, with the index of the first line that touches it.
+    let mut effects: Vec<(&Account, i128, i128, usize)> = Vec::new();
     for (line, requested) in draft.lines.iter().enumerate() {
         let amount = PositiveAmount::new(requested.amount)
             .map_err(|_| PostingError::AmountNotPositive { line })?;
@@ -54,6 +59,18 @@ pub fn validate<V: AccountsView + ?Sized>(
             requested.side,
             amount,
         ));
+        let effect = match effects.iter().position(|(a, ..)| a.id() == account.id()) {
+            Some(index) => &mut effects[index],
+            None => {
+                effects.push((account, 0, 0, line));
+                let last = effects.len() - 1;
+                &mut effects[last]
+            }
+        };
+        match requested.side {
+            Side::Debit => effect.1 += i128::from(amount.amount()),
+            Side::Credit => effect.2 += i128::from(amount.amount()),
+        }
     }
 
     if !draft.allow_duplicate_lines {
@@ -72,8 +89,8 @@ pub fn validate<V: AccountsView + ?Sized>(
         let amount = l.amount();
         let (debits, credits) = sums.entry(amount.currency()).or_insert((0, 0));
         match l.side() {
-            crate::chart::Side::Debit => *debits += i128::from(amount.amount()),
-            crate::chart::Side::Credit => *credits += i128::from(amount.amount()),
+            Side::Debit => *debits += i128::from(amount.amount()),
+            Side::Credit => *credits += i128::from(amount.amount()),
         }
     }
     let mut totals = Vec::with_capacity(sums.len());
@@ -89,6 +106,24 @@ pub fn validate<V: AccountsView + ?Sized>(
             debits,
             credits,
         });
+    }
+
+    // Applying the entry must leave every account storable and, unless it
+    // allows it, not below zero on its normal side (INV-8).
+    let max = i128::from(i64::MAX);
+    for (account, debits, credits, line) in effects {
+        let new_debits = i128::from(account.debits_total()) + debits;
+        let new_credits = i128::from(account.credits_total()) + credits;
+        if new_debits > max || new_credits > max {
+            return Err(PostingError::AccountTotalOverflow { line });
+        }
+        let balance = match account.normal_side() {
+            Side::Debit => new_debits - new_credits,
+            Side::Credit => new_credits - new_debits,
+        };
+        if balance < 0 && !account.allow_negative() {
+            return Err(PostingError::InsufficientFunds { line });
+        }
     }
 
     Ok(BalancedEntry::new(lines, draft.metadata, draft.event_time))
@@ -115,12 +150,14 @@ pub(crate) mod test_support {
 
     fn chart(currency: Currency) -> Option<Chart> {
         Chart::from_toml(&format!(
-            "name = \"T\"\ncurrency = \"{currency}\"\n[[accounts]]\ncode = 2010\nname = \"Wallets\"\ntype = \"liability\"\nkind = \"control\"\nprefix = \"cust\"\nstatus = \"active\"\n"
+            "name = \"T\"\ncurrency = \"{currency}\"\n[[accounts]]\ncode = 2010\nname = \"Wallets\"\ntype = \"liability\"\nkind = \"control\"\nprefix = \"cust\"\nallow_negative = true\nstatus = \"active\"\n"
         ))
         .ok()
     }
 
-    /// `n` open wallet accounts per currency, with IDs `account_id(0..)`.
+    /// One open wallet account per currency given, with IDs `account_id(0..)`.
+    /// They allow negative balances, so tests of the other rules do not
+    /// need to fund them first.
     pub fn accounts(currencies: &[Currency]) -> HashMap<AccountId, Account> {
         let mut map = HashMap::new();
         for (i, currency) in currencies.iter().enumerate() {
@@ -354,6 +391,73 @@ mod tests {
         );
         // The largest single amount is fine.
         assert!(validate(transfer(i64::MAX), &view).is_ok());
+    }
+
+    /// An account that does not allow negative balances, with the given
+    /// totals.
+    fn strict_wallet(id: u64, debits: i64, credits: i64) -> Option<Account> {
+        let chart = crate::chart::Chart::from_toml(
+            "name = \"T\"
+currency = \"ETB\"
+[[accounts]]
+code = 2010
+name = \"Wallets\"
+type = \"liability\"
+kind = \"control\"
+prefix = \"cust\"
+status = \"active\"
+",
+        )
+        .ok()?;
+        let mut account = Account::open(account_id(id), &chart, "2010:cust-x").ok()?;
+        account.record(Side::Debit, debits)?;
+        account.record(Side::Credit, credits)?;
+        Some(account)
+    }
+
+    #[test]
+    fn rule_account_total_overflow() {
+        let mut view = accounts(&[ETB, ETB]);
+        if let Some(account) = view.get_mut(&account_id(1)) {
+            account.record(Side::Credit, i64::MAX);
+        }
+        assert_eq!(
+            validate(transfer(1), &view),
+            Err(PostingError::AccountTotalOverflow { line: 1 })
+        );
+        let mut view = accounts(&[ETB, ETB]);
+        if let Some(account) = view.get_mut(&account_id(0)) {
+            account.record(Side::Debit, i64::MAX);
+        }
+        assert_eq!(
+            validate(transfer(1), &view),
+            Err(PostingError::AccountTotalOverflow { line: 0 })
+        );
+    }
+
+    #[test]
+    fn rule_insufficient_funds() {
+        let mut view = accounts(&[ETB, ETB]);
+        let funded = strict_wallet(0, 0, 500);
+        assert!(funded.is_some());
+        if let Some(account) = funded {
+            view.insert(account_id(0), account);
+        }
+        // Spending exactly the balance is fine; one santim more is not.
+        assert!(validate(transfer(500), &view).is_ok());
+        assert_eq!(
+            validate(transfer(501), &view),
+            Err(PostingError::InsufficientFunds { line: 0 })
+        );
+        // The rule looks at the account's net effect, not line by line.
+        let net = EntryDraft {
+            allow_duplicate_lines: true,
+            ..EntryDraft::default()
+        }
+        .debit(account_id(0), etb(800))
+        .credit(account_id(0), etb(300))
+        .credit(account_id(1), etb(500));
+        assert!(validate(net, &view).is_ok());
     }
 
     #[test]

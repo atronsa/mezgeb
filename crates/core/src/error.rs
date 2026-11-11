@@ -15,9 +15,13 @@
 //! | 1008 | `DuplicateLine` | No two lines share an account and side, unless allowed |
 //! | 1009 | `AmountOverflow` | Each currency's debits and credits fit in an `i64` |
 //! | 1010 | `Unbalanced` | Debits equal credits in every currency |
+//! | 1011 | `AccountTotalOverflow` | Each account's totals still fit in an `i64` after the entry |
+//! | 1012 | `InsufficientFunds` | No account goes below zero on its normal side, unless it allows it (INV-8) |
 //!
 //! Rules are checked in this order, and lines in their order in the entry,
-//! so the same invalid entry always gets the same error.
+//! so the same invalid entry always gets the same error. Rules 1011 and 1012
+//! are checked per account, in the order accounts first appear, and report
+//! the first line that touches the account.
 //!
 //! [`MAX_LINES`]: crate::entry::MAX_LINES
 //! [`MAX_METADATA_KEYS`]: crate::entry::MAX_METADATA_KEYS
@@ -61,6 +65,12 @@ pub enum PostingError {
         debits: i64,
         credits: i64,
     },
+    AccountTotalOverflow {
+        line: usize,
+    },
+    InsufficientFunds {
+        line: usize,
+    },
 }
 
 impl PostingError {
@@ -77,6 +87,8 @@ impl PostingError {
             PostingError::DuplicateLine { .. } => 1008,
             PostingError::AmountOverflow { .. } => 1009,
             PostingError::Unbalanced { .. } => 1010,
+            PostingError::AccountTotalOverflow { .. } => 1011,
+            PostingError::InsufficientFunds { .. } => 1012,
         }
     }
 }
@@ -129,6 +141,12 @@ impl fmt::Display for Message<'_> {
                 f,
                 "{currency} debits ({debits}) do not equal credits ({credits})"
             ),
+            PostingError::AccountTotalOverflow { line } => {
+                write!(f, "line {line}: account totals would overflow")
+            }
+            PostingError::InsufficientFunds { line } => {
+                write!(f, "line {line}: account would go below zero")
+            }
         }
     }
 }
@@ -205,6 +223,16 @@ mod tests {
                 },
                 1010,
                 "[1010] ETB debits (100) do not equal credits (99)",
+            ),
+            (
+                PostingError::AccountTotalOverflow { line: 0 },
+                1011,
+                "[1011] line 0: account totals would overflow",
+            ),
+            (
+                PostingError::InsufficientFunds { line: 1 },
+                1012,
+                "[1012] line 1: account would go below zero",
             ),
         ];
         for (error, code, message) in cases {

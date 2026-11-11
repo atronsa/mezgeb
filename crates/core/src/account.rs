@@ -207,6 +207,18 @@ impl Account {
         self.status = self.status.transition(to, self.balance().is_zero())?;
         Ok(())
     }
+
+    /// Adds one posted line to the totals. Only ledgers inside this crate
+    /// call it, after `validate` has checked the entry; the totals stay in
+    /// `0..=i64::MAX` or nothing changes.
+    pub(crate) fn record(&mut self, side: Side, amount: i64) -> Option<()> {
+        let total = match side {
+            Side::Debit => &mut self.debits_total,
+            Side::Credit => &mut self.credits_total,
+        };
+        *total = total.checked_add(amount).filter(|t| *t >= 0)?;
+        Some(())
+    }
 }
 
 #[cfg(test)]
