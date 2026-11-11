@@ -3,8 +3,10 @@
 [Accounting model](README.md) · Used by: [worked entries](entries/README.md)
 
 Every account a worked entry posts to is listed here, and every active account
-here is used by at least one worked entry. Step 1.05 turns this table into a
-data file that the engine loads and checks.
+here is used by at least one worked entry. The same chart is a data file the
+engine loads, [`charts/wallet-provider.toml`](../../charts/wallet-provider.toml).
+A test (`crates/core/tests/wallet_provider_chart.rs`) fails if this page, the
+data file and the worked entries ever disagree, so change all three together.
 
 ## Code scheme
 

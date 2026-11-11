@@ -15,3 +15,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.02 | [Architecture decisions](1.02-architecture-decisions.md) | Passed |
 | 1.03 | [Invariants, threat model and regulation](1.03-invariants-threat-model-and-regulation.md) | Passed; regulatory answers pending |
 | 1.04 | [Money, currency and identifier types](1.04-money-and-identifier-types.md) | Passed |
+| 1.05 | [Chart of accounts and account model](1.05-chart-of-accounts.md) | Passed; accounting review pending |
