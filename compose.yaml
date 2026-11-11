@@ -1,0 +1,22 @@
+# Local PostgreSQL for development and database tests.
+#
+#   docker compose up -d        start (first start creates the roles)
+#   docker compose down         stop and delete the data
+#
+# Port 55432 avoids clashing with a PostgreSQL already on 5432.
+# The passwords here are for local development only.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432"
+    volumes:
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
