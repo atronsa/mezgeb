@@ -8,8 +8,13 @@
 //!
 //! Migrations live in the top-level `migrations/` directory.
 
-pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
+mod post;
+mod rows;
+mod store;
+pub mod verify;
 
-pub struct PgStore {
-    pub pool: sqlx::PgPool,
-}
+pub use post::{PostRequest, post_entry, reverse_entry};
+pub use store::PgStore;
+pub use verify::{IntegrityReport, integrity_report};
+
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
