@@ -7,7 +7,8 @@
 
 use crate::account::Account;
 use crate::error::{CreateAccountError, CreateTransferError};
-use crate::id::{AccountId, Timestamp, TransferId};
+use crate::id::{Timestamp, TransferId};
+use crate::ids::AccountId;
 use crate::transfer::Transfer;
 
 /// Read/write access to ledger state inside one atomic batch.

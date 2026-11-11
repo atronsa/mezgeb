@@ -1,8 +1,7 @@
-//! Identifiers and scalar types (spec §3.1, §3.2, §3.6).
-
-/// Client-generated 128-bit account ID. Zero is reserved and invalid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct AccountId(pub u128);
+//! Scaffold scalar types (spec §3.1, §3.2, §3.6).
+//!
+//! **Scaffold, to be replaced.** Used only by the draft transfer model. New
+//! code uses [`crate::ids`] and [`crate::money`]. Removed in steps 1.05–1.06.
 
 /// Client-generated 128-bit transfer ID; the idempotency key. Zero is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
