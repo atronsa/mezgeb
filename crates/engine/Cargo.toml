@@ -9,5 +9,8 @@ license.workspace = true
 mezgeb-core.workspace = true
 sqlx.workspace = true
 
+[dev-dependencies]
+tokio.workspace = true
+
 [lints]
 workspace = true
