@@ -1,6 +1,6 @@
 //! Signed proof of one offline payment (spec §5.4).
 
-use mezgeb_core::{AccountId, Amount, Timestamp};
+use mezgeb_core::{AccountId, PositiveAmount, Timestamp};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Receipt {
@@ -11,7 +11,7 @@ pub struct Receipt {
     /// Hash of the previous receipt from this device (hash chain).
     pub prev_receipt_hash: [u8; 32],
     pub payee_account_id: AccountId,
-    pub amount: Amount,
+    pub amount: PositiveAmount,
     /// Device-claimed time. Validated against bounds, never trusted for order.
     pub event_time: Timestamp,
     pub payer_signature: Vec<u8>,
