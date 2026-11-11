@@ -187,11 +187,15 @@ evidence, not a third ledger column.
 
 ## 8. Storage (PostgreSQL)
 
-- Schema, indexes, partitioning (journal lines by month).
-- Isolation level and lock ordering; deadlock avoidance.
-- Hot accounts: contention strategy.
-- Constraints and triggers as a second line of defence for INV-1..INV-7.
-- Migrations policy: forward-only, reviewed, tested on a copy of real data.
+- Schema v1, its constraints and roles: [db-schema.md](db-schema.md). The
+  database enforces INV-1, 3, 4, 8, 9, 13, 14 and 24 on its own, as a
+  second line of defence behind `crates/core`.
+- Isolation level and lock ordering; deadlock avoidance
+  ([ADR-0007](adr/0007-read-committed-ordered-row-locks.md), step 1.10).
+- Indexes and partitioning (journal lines by month): steps 3.02, 3.04.
+- Hot accounts: contention strategy (step 3.03).
+- Migrations policy: `up` and `down` files, tested up → down → up; once
+  applied outside development, never edited (a change is a new migration).
 
 ## 9. API
 
