@@ -32,7 +32,42 @@ pub enum AccountType {
     Expense,
 }
 
+impl Side {
+    /// The name used in storage and the API: `"debit"` or `"credit"`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Side::Debit => "debit",
+            Side::Credit => "credit",
+        }
+    }
+
+    /// The inverse of [`Side::as_str`].
+    pub fn from_name(name: &str) -> Option<Side> {
+        match name {
+            "debit" => Some(Side::Debit),
+            "credit" => Some(Side::Credit),
+            _ => None,
+        }
+    }
+}
+
 impl AccountType {
+    /// The name used in charts, storage and the API, such as `"liability"`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            AccountType::Asset => "asset",
+            AccountType::Liability => "liability",
+            AccountType::Equity => "equity",
+            AccountType::Revenue => "revenue",
+            AccountType::Expense => "expense",
+        }
+    }
+
+    /// The inverse of [`AccountType::as_str`].
+    pub fn from_name(name: &str) -> Option<AccountType> {
+        AccountType::ALL.into_iter().find(|t| t.as_str() == name)
+    }
+
     /// Every account type.
     pub const ALL: [AccountType; 5] = [
         AccountType::Asset,
@@ -452,6 +487,21 @@ status = "active"
         format!(
             "[[accounts]]\ncode = {code}\nname = \"X\"\ntype = \"{account_type}\"\nkind = \"{kind}\"\nstatus = \"active\"\n{extra}\n"
         )
+    }
+
+    #[test]
+    fn names_round_trip() {
+        for account_type in AccountType::ALL {
+            assert_eq!(
+                AccountType::from_name(account_type.as_str()),
+                Some(account_type)
+            );
+        }
+        assert_eq!(AccountType::from_name("Asset"), None);
+        for side in [Side::Debit, Side::Credit] {
+            assert_eq!(Side::from_name(side.as_str()), Some(side));
+        }
+        assert_eq!(Side::from_name("dr"), None);
     }
 
     #[test]

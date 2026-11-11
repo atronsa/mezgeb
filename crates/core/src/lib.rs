@@ -21,7 +21,7 @@ pub mod money;
 pub mod time;
 pub mod validate;
 
-pub use account::{Account, AccountStatus, StatusError, balance};
+pub use account::{Account, AccountRecord, AccountStatus, RecordError, StatusError, balance};
 pub use chart::{
     AccountCode, AccountKind, AccountTemplate, AccountType, Chart, ChartError, ChartStatus, Side,
 };
@@ -30,7 +30,7 @@ pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
 pub use error::PostingError;
 pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
 pub use model::{
-    InvariantViolation, LedgerError, MemLedger, PostedEntry, PostedLine, check_invariants,
+    InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine, check_invariants,
 };
 pub use money::{Money, MoneyError, ParseMoneyError, PositiveAmount};
 pub use time::Timestamp;
