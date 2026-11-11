@@ -111,7 +111,9 @@ Full details and the reasoning behind each decision are in
 | `crates/sim` | Deterministic simulator that checks every invariant |
 | `crates/cli` | Operator command line: verification, imports |
 | `charts/` | Example charts of accounts, loaded as data (`wallet-provider.toml`) |
-| `migrations/` | PostgreSQL schema migrations |
+| `migrations/` | PostgreSQL schema migrations ([docs/db-schema.md](docs/db-schema.md)) |
+| `db/init/` | Database roles, created once per PostgreSQL cluster |
+| `compose.yaml` | Local PostgreSQL for development and database tests |
 | `docs/` | Documentation: start at [docs/README.md](docs/README.md) |
 | `docs/spec.md` | Specification |
 | `docs/architecture.md` | Architecture overview |
@@ -126,7 +128,7 @@ them: `core` ← `engine` ← `ops` ← `api` ([ADR-0002](docs/adr/0002-three-la
 
 ## Getting started
 
-Requirements: Rust 1.96+, Docker (for PostgreSQL in later stages).
+Requirements: Rust 1.96+, Docker (for the database tests).
 
 ```sh
 git clone <repo-url>
@@ -136,7 +138,15 @@ cargo test --workspace
 cargo run -p mezgeb-sim -- --seed 1 --steps 10000
 ```
 
-There is nothing to run against yet. The engine is not implemented.
+The database tests are skipped unless a database is available. To run them:
+
+```sh
+docker compose up -d
+MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
+    cargo test -p mezgeb-engine
+```
+
+There is no service to run yet: the posting engine is built in step 1.09.
 
 ## Roadmap
 
