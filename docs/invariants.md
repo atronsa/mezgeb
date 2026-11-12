@@ -140,7 +140,7 @@ Every invariant has at least one planned test. Test kinds:
 | T-12a | INV-12 | Concurrency | `recorded_time` is strictly increasing under parallel posting (measured in 1.10; guaranteed by the single commit order of the hash chain) | 2.09 |
 | T-13a | INV-13 | Unit | Same key and same request returns the original result | 1.11 |
 | T-13b | INV-13 | Unit | Same key and different request returns a conflict | 1.11 |
-| T-13c | INV-13 | Crash | A crash after commit, then a retry, posts nothing new | 1.15 |
+| T-13c | INV-13 | Crash | A crash after commit, then a retry, posts nothing new (first demonstrated in 1.11) | 1.15 |
 | T-14a | INV-14 | DB | A second reversal of the same entry is rejected | 1.12 |
 | T-14b | INV-14 | Property | Original plus reversal leaves every balance unchanged | 1.12 |
 | T-14c | INV-14 | Unit | Reversing a reversal is rejected | 1.12 |

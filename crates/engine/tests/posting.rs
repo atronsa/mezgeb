@@ -171,7 +171,7 @@ async fn a_refused_posting_writes_nothing() -> TestResult {
             line: 0
         }))
     );
-    // A second key reuse goes through the raw engine call.
+    // Reusing entry 1's idempotency key for a different request (step 1.11).
     let mut conn = db.app().await?;
     let reuse = post_entry(
         &mut conn,
@@ -186,7 +186,7 @@ async fn a_refused_posting_writes_nothing() -> TestResult {
         },
     )
     .await;
-    assert!(matches!(reuse, Err(LedgerError::Storage(_))), "{reuse:?}");
+    assert_eq!(reuse, Err(LedgerError::IdempotencyKeyReused));
 
     assert_eq!(store.all_accounts().await?, accounts_before);
     assert_eq!(store.all_entries().await?.len(), 1);

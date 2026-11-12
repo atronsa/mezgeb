@@ -15,7 +15,10 @@ mod store;
 pub mod verify;
 
 pub use concurrency::{Isolation, PostOptions, RetryStats};
-pub use post::{PostRequest, post_entry, post_entry_with, reverse_entry, reverse_entry_with};
+pub use post::{
+    PostRequest, lookup_by_idempotency_key, post_entry, post_entry_with, reverse_entry,
+    reverse_entry_with,
+};
 pub use store::PgStore;
 pub use verify::{IntegrityReport, integrity_report};
 

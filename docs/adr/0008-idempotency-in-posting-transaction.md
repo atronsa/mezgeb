@@ -71,3 +71,21 @@ On top of the key, the ledger enforces **business uniqueness**:
 
 **Makes out of date:** spec §4.7, which keys idempotency on the transfer ID.
 Rewritten in step 1.11.
+
+## Follow-up (step 1.11)
+
+The details this ADR left open, decided while implementing it:
+
+- **Where:** a table `idempotency_records` (client, key, fingerprint,
+  entry), written in the posting's transaction. The key is claimed before
+  any account is locked, so concurrent duplicates wait on the key, not on
+  the accounts.
+- **Fingerprint:** SHA-256 of a versioned, canonical encoding of the
+  request (`crates/core/src/fingerprint.rs`). The entry ID is not part of
+  it, because a retry is a new attempt and may carry a new ID.
+- **Stored response:** the entry itself, rebuilt on a repeat. Entries are
+  immutable, so the response is always identical.
+- **Failures are not recorded:** a refused posting rolls back its claim, so
+  retrying it later (for example after funding a wallet) can succeed.
+- **Retention:** records are kept as long as their entry, that is forever.
+  See [db-schema.md](../db-schema.md#idempotency-and-retention).
