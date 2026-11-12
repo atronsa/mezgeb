@@ -32,3 +32,13 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo run -p mezgeb-sim -- --seed 1 --steps 10000
+      # Every database test verifies its own ledger before dropping it. This
+      # step also verifies a ledger written by the engine and interrupted
+      # mid-posting, with the operator's command (step 1.13 exit gate).
+      - name: Verify a ledger written by the engine
+        run: |
+          cargo build -q -p mezgeb-cli
+          cargo build -q -p mezgeb-engine --example crash_writer
+          target/debug/examples/crash_writer setup postgres://mezgeb_owner:mezgeb_owner@localhost:5432/mezgeb
+          timeout -s KILL 10 target/debug/examples/crash_writer write postgres://mezgeb_app:mezgeb_app@localhost:5432/mezgeb || true
+          target/debug/mezgeb-cli verify --full --settle-seconds 0 --database-url postgres://mezgeb_verifier:mezgeb_verifier@localhost:5432/mezgeb
