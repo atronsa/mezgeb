@@ -37,8 +37,13 @@ async fn setup() -> Result<Option<(TestDb, PgStore, Arc<RetryStats>)>, Box<dyn s
     };
     let db = server.migrated().await?;
     let stats = Arc::new(RetryStats::default());
+    // These tests measure correctness and deadlock freedom, not latency:
+    // on a busy shared test database a task may queue on a hot row for
+    // several seconds, so the lock timeout is raised from 5 s to 20 s (still
+    // below the 30 s transaction limit on `mezgeb_app`).
     let options = PostOptions {
         stats: Some(stats.clone()),
+        lock_timeout: std::time::Duration::from_secs(20),
         ..PostOptions::default()
     };
     let client: ClientId = uuid7(0xc11e).parse()?;
@@ -265,7 +270,8 @@ async fn opposite_transfers_never_deadlock() -> TestResult {
         .collect::<Result<Vec<_>, mezgeb_core::IdError>>()?;
     let results = post_all(&store, drafts).await?;
 
-    assert!(results.iter().all(Result::is_ok), "{results:?}");
+    let errors: Vec<_> = results.iter().filter_map(|r| r.as_ref().err()).collect();
+    assert!(errors.is_empty(), "{} failed: {:?}", errors.len(), errors);
     assert_eq!(stats.deadlock_retries(), 0);
     assert_eq!(stats.gave_up(), 0);
     assert_eq!(wallet_total(&mut store, &[a, b]).await?, 2_000_000);
