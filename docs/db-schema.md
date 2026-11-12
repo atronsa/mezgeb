@@ -17,6 +17,8 @@ own, with constraints, triggers and role privileges.
 | `journal_lines` | Line of an entry | Account, side, amount, currency, and the account's totals right after the line (`debits_after`, `credits_after`) |
 | `idempotency_records` | Successfully posted request | Client, idempotency key, SHA-256 fingerprint of the request, the entry it created (migration 0002, step 1.11) |
 | `reason_codes` | Reason a correction may give | Code, the kind of entry it is for (reversal or adjustment), description; the same list as `REASON_CODES` in `crates/core` (migration 0003, step 1.12) |
+| `verification_runs` | Verification run | Scope (full or incremental), the entries it covered (`from_sequence` < sequence ≤ `to_sequence`), duration, lines checked, result and findings (migration 0004, step 1.13) |
+| `verification_checkpoints` | Account at a clean run's checkpoint | Each account's totals as of that run's `to_sequence`, the starting point for the next incremental run |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal` or `adjustment`), and corrections record `reason_code`,
@@ -98,6 +100,38 @@ records, if storage ever requires it, is decided with the journal's own
 archival (step 3.04), and must keep keys unique for at least the longest
 client retry window.
 
+## Verification
+
+`mezgeb-cli verify` (or `mezgeb_engine::verify`) proves that the stored
+balances equal the journal (step 1.13, ADR-0012). In one consistent snapshot
+it checks:
+
+| Check | Invariant | Reported with |
+|---|---|---|
+| Each entry balances per currency | INV-1 | the entry |
+| Each entry has at least two lines; no line lacks its entry | INV-1, INV-4 | the entry, or the entry and line |
+| Each line's stored totals continue its account's chain | INV-6 | the account, and the first line where the chain breaks |
+| Each account's totals equal its checkpoint plus every line after it | INV-5 | the account, stored and expected totals |
+| All debits equal all credits per currency | INV-2 | the currency |
+
+**Full and incremental.** A full run checks every entry. An incremental run
+checks the first three only for entries after the last clean run's
+checkpoint, and the last two for every account. A clean run stores each
+account's totals at its checkpoint; a dirty run does not, so the next run
+starts at the same place. An incremental run does not re-check lines it has
+already verified: tampering with an old line is found by a full run (run
+one regularly) and, from step 2.09, by the hash chain.
+
+**No entry is skipped.** A run checkpoints only entries recorded at least
+60 seconds before it starts (`--settle-seconds`), and the service role
+`mezgeb_app` has `transaction_timeout = 30s`. An entry's sequence number is
+taken when it is inserted, so any entry with a lower sequence was inserted
+earlier, and its transaction has finished, committed or rolled back, by the
+time the checkpoint is taken. No entry can commit late below a checkpoint.
+
+**Recorded.** Every run is a row in `verification_runs`, with its findings;
+both verification tables are append-only.
+
 ## Error codes
 
 Triggers raise Mezgeb's own SQLSTATE codes so callers and tests can tell
@@ -125,6 +159,12 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
 | `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status` only. No DELETE anywhere. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
+| `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
+
+`mezgeb_app` also has `transaction_timeout = 30s`, which verification
+relies on (see [Verification](#verification)). Both are set in
+[`db/init/02-verifier.sql`](../db/init/02-verifier.sql); a database created
+before step 1.13 needs that file run once.
 
 The triggers apply to every role, including the owner. Privileges are a
 second, independent layer for the service.
