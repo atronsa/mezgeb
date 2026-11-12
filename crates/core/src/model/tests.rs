@@ -8,7 +8,8 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRng, TestRunner};
 
 use super::invariants::{
-    check_balances, check_entries, check_global_balance, check_reversals, check_running_totals,
+    check_balances, check_entries, check_global_balance, check_holds, check_reversals,
+    check_running_totals,
 };
 use super::*;
 use crate::account::{AccountStatus, StatusError};
@@ -17,8 +18,10 @@ use crate::chart::{Chart, ChartError, Side};
 use crate::currency::Currency;
 use crate::entry::EntryDraft;
 use crate::error::PostingError;
-use crate::ids::{AccountId, EntryId};
+use crate::hold::{Hold, HoldStatus};
+use crate::ids::{AccountId, EntryId, HoldId};
 use crate::money::{Money, PositiveAmount};
+use crate::time::Timestamp;
 use crate::validate::test_support::account_id;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -69,6 +72,14 @@ name = "Suspense"
 type = "liability"
 kind = "system"
 allow_negative = true
+status = "active"
+
+[[accounts]]
+code = 2020
+name = "Held funds"
+type = "liability"
+kind = "control"
+prefix = "hold"
 status = "active"
 "#;
 
@@ -480,6 +491,22 @@ enum Op {
     /// Reverse the entry at this index (modulo the number of entries).
     Reverse(usize),
     Status(usize, AccountStatus),
+    /// Place a hold on a slot's account, expiring `ttl` ticks from now.
+    PlaceHold {
+        account: usize,
+        amount: i64,
+        ttl: i64,
+    },
+    /// Capture part or all of the hold at this index into a slot's account.
+    Capture {
+        hold: usize,
+        destination: usize,
+        amount: i64,
+    },
+    ReleaseHold(usize),
+    ExpireHold(usize),
+    /// Let time pass.
+    Tick(i64),
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -496,7 +523,27 @@ fn op() -> impl Strategy<Value = Op> {
         2 => any::<usize>().prop_map(Op::Reverse),
         1 => (slot(), proptest::sample::select(AccountStatus::ALL.as_slice()))
             .prop_map(|(s, status)| Op::Status(s, status)),
+        3 => (slot(), 1..600i64, 1..5i64)
+            .prop_map(|(account, amount, ttl)| Op::PlaceHold { account, amount, ttl }),
+        3 => (any::<usize>(), slot(), 1..700i64)
+            .prop_map(|(hold, destination, amount)| Op::Capture { hold, destination, amount }),
+        1 => any::<usize>().prop_map(Op::ReleaseHold),
+        1 => any::<usize>().prop_map(Op::ExpireHold),
+        1 => (1..3i64).prop_map(Op::Tick),
     ]
+}
+
+fn hold_id(n: u64) -> HoldId {
+    let mut bytes = [0u8; 16];
+    bytes[8..].copy_from_slice(&n.to_be_bytes());
+    bytes[6] = 0x70;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    HoldId::from_uuid(uuid::Uuid::from_bytes(bytes))
+        .unwrap_or_else(|_| unreachable!("version and variant bits are set"))
+}
+
+fn positive(amount: i64) -> Result<PositiveAmount, TestCaseError> {
+    PositiveAmount::new(etb(amount)).map_err(|e| TestCaseError::fail(e.to_string()))
 }
 
 /// Runs the operations and checks every invariant after each one. A refused
@@ -508,8 +555,11 @@ fn run(ops: &[Op], planted_bug: bool) -> Result<(), TestCaseError> {
         ..MemLedger::default()
     };
     let mut next_entry = 0;
+    let mut now = 0i64;
+    let mut holds: Vec<HoldId> = Vec::new();
+    let mut attempts = 0u64;
     for (step, op) in ops.iter().enumerate() {
-        let before = ledger.clone();
+        let mut before = ledger.clone();
         next_entry += 1;
         let id = entry_id(next_entry);
         let result = match op {
@@ -553,6 +603,62 @@ fn run(ops: &[Op], planted_bug: bool) -> Result<(), TestCaseError> {
                 }
             },
             Op::Status(s, status) => ledger.set_status(slot(*s), *status),
+            Op::PlaceHold {
+                account,
+                amount,
+                ttl,
+            } => {
+                // Each attempt gets its own, freshly opened held account.
+                attempts += 1;
+                let n = attempts;
+                let held = account_id(10_000 + n);
+                ledger
+                    .open_account(held, &chart, &format!("2020:hold-{n}"))
+                    .map_err(|e| TestCaseError::fail(e.to_string()))?;
+                before = ledger.clone();
+                let placed = ledger.place_hold(
+                    hold_id(n),
+                    id,
+                    slot(*account),
+                    held,
+                    positive(*amount)?,
+                    Timestamp::from_micros(now + ttl),
+                );
+                if placed.is_ok() {
+                    holds.push(hold_id(n));
+                }
+                placed.map(|_| ())
+            }
+            Op::Capture {
+                hold,
+                destination,
+                amount,
+            } => match holds.len() {
+                0 => Ok(()),
+                n => ledger
+                    .capture_hold(
+                        holds[hold % n],
+                        id,
+                        slot(*destination),
+                        positive(*amount)?,
+                        Timestamp::from_micros(now),
+                    )
+                    .map(|_| ()),
+            },
+            Op::ReleaseHold(hold) => match holds.len() {
+                0 => Ok(()),
+                n => ledger.release_hold(holds[hold % n], id).map(|_| ()),
+            },
+            Op::ExpireHold(hold) => match holds.len() {
+                0 => Ok(()),
+                n => ledger
+                    .expire_hold(holds[hold % n], id, Timestamp::from_micros(now))
+                    .map(|_| ()),
+            },
+            Op::Tick(ticks) => {
+                now += ticks;
+                Ok(())
+            }
         };
         if result.is_err() {
             prop_assert_eq!(
@@ -925,4 +1031,322 @@ proptest! {
         }
         check_invariants(&ledger).map_err(|v| TestCaseError::fail(v.to_string()))?;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.14: holds
+// ---------------------------------------------------------------------------
+
+/// The funded ledger plus the merchant (slot 2 is wallet b) and a held
+/// account for hold 1.
+fn with_held_account() -> Result<(MemLedger, AccountId), Box<dyn std::error::Error>> {
+    let mut ledger = funded()?;
+    let chart = chart()?;
+    let held = account_id(10_000);
+    ledger.open_account(held, &chart, "2020:hold-1")?;
+    Ok((ledger, held))
+}
+
+fn at(micros: i64) -> Timestamp {
+    Timestamp::from_micros(micros)
+}
+
+fn amount(value: i64) -> Result<PositiveAmount, crate::money::MoneyError> {
+    PositiveAmount::new(etb(value))
+}
+
+#[test]
+fn a_hold_reduces_what_can_be_spent() -> TestResult {
+    let (mut ledger, held) = with_held_account()?;
+    let hold = ledger.place_hold(
+        hold_id(1),
+        entry_id(2),
+        slot(1),
+        held,
+        amount(600)?,
+        at(100),
+    )?;
+    assert_eq!(hold.status(), HoldStatus::Active);
+    assert_eq!(ledger.account(slot(1)).map(|a| a.balance()), Some(etb(400)));
+    assert_eq!(ledger.account(held).map(|a| a.balance()), Some(etb(600)));
+    // Only 400 is left to spend.
+    let spend = EntryDraft::default()
+        .debit(slot(1), etb(500))
+        .credit(slot(2), etb(500));
+    assert_eq!(
+        ledger.post(entry_id(3), spend).err(),
+        Some(LedgerError::Posting(PostingError::InsufficientFunds {
+            line: 0
+        }))
+    );
+    let entry = ledger.entry(entry_id(2)).map(|e| e.metadata().clone());
+    assert_eq!(
+        entry.and_then(|m| m.get("hold_action").cloned()),
+        Some("place".to_owned())
+    );
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn a_hold_is_captured_once_and_a_partial_capture_returns_the_rest() -> TestResult {
+    let (mut ledger, held) = with_held_account()?;
+    ledger.place_hold(
+        hold_id(1),
+        entry_id(2),
+        slot(1),
+        held,
+        amount(600)?,
+        at(100),
+    )?;
+    let captured = ledger.capture_hold(hold_id(1), entry_id(3), slot(2), amount(250)?, at(10))?;
+    assert_eq!(captured.status(), HoldStatus::Captured);
+    assert_eq!(captured.captured(), 250);
+    assert_eq!(captured.close_entry(), Some(entry_id(3)));
+    // 250 to the destination, 350 back to the wallet: 600 in all.
+    assert_eq!(ledger.account(slot(2)).map(|a| a.balance()), Some(etb(250)));
+    assert_eq!(ledger.account(slot(1)).map(|a| a.balance()), Some(etb(750)));
+    assert_eq!(ledger.account(held).map(|a| a.balance()), Some(etb(0)));
+    assert_eq!(
+        ledger
+            .capture_hold(hold_id(1), entry_id(4), slot(2), amount(1)?, at(10))
+            .err(),
+        Some(LedgerError::HoldNotActive {
+            hold: hold_id(1),
+            status: HoldStatus::Captured
+        })
+    );
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn release_and_expiry_return_everything() -> TestResult {
+    let chart = chart()?;
+    let (mut ledger, held) = with_held_account()?;
+    ledger.place_hold(
+        hold_id(1),
+        entry_id(2),
+        slot(1),
+        held,
+        amount(600)?,
+        at(100),
+    )?;
+    let released = ledger.release_hold(hold_id(1), entry_id(3))?;
+    assert_eq!(released.status(), HoldStatus::Released);
+    assert_eq!(
+        ledger.account(slot(1)).map(|a| a.balance()),
+        Some(etb(1_000))
+    );
+
+    let second = account_id(10_001);
+    ledger.open_account(second, &chart, "2020:hold-2")?;
+    ledger.place_hold(
+        hold_id(2),
+        entry_id(4),
+        slot(1),
+        second,
+        amount(300)?,
+        at(100),
+    )?;
+    assert_eq!(
+        ledger.expire_hold(hold_id(2), entry_id(5), at(99)).err(),
+        Some(LedgerError::HoldNotExpired(hold_id(2)))
+    );
+    assert_eq!(
+        ledger
+            .capture_hold(hold_id(2), entry_id(5), slot(2), amount(1)?, at(100))
+            .err(),
+        Some(LedgerError::HoldExpired(hold_id(2)))
+    );
+    let expired = ledger.expire_hold(hold_id(2), entry_id(5), at(100))?;
+    assert_eq!(expired.status(), HoldStatus::Expired);
+    assert_eq!(
+        ledger.account(slot(1)).map(|a| a.balance()),
+        Some(etb(1_000))
+    );
+    assert_eq!(
+        ledger.release_hold(hold_id(2), entry_id(6)).err(),
+        Some(LedgerError::HoldNotActive {
+            hold: hold_id(2),
+            status: HoldStatus::Expired
+        })
+    );
+    assert_eq!(ledger.holds().count(), 2);
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn held_accounts_are_protected() -> TestResult {
+    let chart = chart()?;
+    let (mut ledger, held) = with_held_account()?;
+    // Unusable held accounts: the account itself, one with money, one of
+    // another type.
+    assert_eq!(
+        ledger
+            .place_hold(hold_id(1), entry_id(2), slot(1), slot(1), amount(1)?, at(9))
+            .err(),
+        Some(LedgerError::InvalidHeldAccount(slot(1)))
+    );
+    assert_eq!(
+        ledger
+            .place_hold(hold_id(1), entry_id(2), slot(1), slot(0), amount(1)?, at(9))
+            .err(),
+        Some(LedgerError::InvalidHeldAccount(slot(0)))
+    );
+    assert_eq!(
+        ledger
+            .place_hold(
+                hold_id(1),
+                entry_id(2),
+                slot(1),
+                account_id(77),
+                amount(1)?,
+                at(9)
+            )
+            .err(),
+        Some(LedgerError::AccountNotFound(account_id(77)))
+    );
+
+    ledger.place_hold(hold_id(1), entry_id(2), slot(1), held, amount(100)?, at(9))?;
+    assert_eq!(
+        ledger
+            .place_hold(hold_id(1), entry_id(3), slot(1), held, amount(1)?, at(9))
+            .err(),
+        Some(LedgerError::DuplicateHold(hold_id(1)))
+    );
+    let second = account_id(10_001);
+    ledger.open_account(second, &chart, "2020:hold-2")?;
+    assert_eq!(
+        ledger
+            .place_hold(hold_id(2), entry_id(3), held, second, amount(1)?, at(9))
+            .err(),
+        Some(LedgerError::AccountIsHeld(held))
+    );
+    // Nobody posts to a held account except its hold.
+    let raid = EntryDraft::default()
+        .debit(held, etb(100))
+        .credit(slot(2), etb(100));
+    assert_eq!(
+        ledger.post(entry_id(3), raid).err(),
+        Some(LedgerError::AccountIsHeld(held))
+    );
+    assert_eq!(
+        ledger.reverse(entry_id(2), entry_id(3), why()).err(),
+        Some(LedgerError::AccountIsHeld(held))
+    );
+    assert_eq!(
+        ledger
+            .capture_hold(hold_id(1), entry_id(3), held, amount(1)?, at(1))
+            .err(),
+        Some(LedgerError::AccountIsHeld(held))
+    );
+    assert_eq!(
+        ledger
+            .capture_hold(hold_id(1), entry_id(3), slot(2), amount(101)?, at(1))
+            .err(),
+        Some(LedgerError::CaptureExceedsHold(hold_id(1)))
+    );
+    assert_eq!(
+        ledger.release_hold(hold_id(9), entry_id(3)).err(),
+        Some(LedgerError::HoldNotFound(hold_id(9)))
+    );
+    assert_eq!(ledger.hold(hold_id(1)).map(Hold::held_account), Some(held));
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn hold_errors_have_messages() {
+    let (hold, account) = (hold_id(1), account_id(1));
+    let cases = [
+        (
+            LedgerError::DuplicateHold(hold),
+            format!("hold {hold} already exists"),
+        ),
+        (
+            LedgerError::HoldNotFound(hold),
+            format!("hold {hold} not found"),
+        ),
+        (
+            LedgerError::HoldNotActive {
+                hold,
+                status: HoldStatus::Released,
+            },
+            format!("hold {hold} is already released"),
+        ),
+        (
+            LedgerError::HoldExpired(hold),
+            format!("hold {hold} has expired"),
+        ),
+        (
+            LedgerError::HoldNotExpired(hold),
+            format!("hold {hold} has not expired yet"),
+        ),
+        (
+            LedgerError::CaptureExceedsHold(hold),
+            format!("the capture is larger than hold {hold}"),
+        ),
+        (
+            LedgerError::InvalidHeldAccount(account),
+            format!(
+                "account {account} cannot hold money: it must be unused, empty and of the same type"
+            ),
+        ),
+        (
+            LedgerError::AccountIsHeld(account),
+            format!("account {account} belongs to a hold and only its hold may post to it"),
+        ),
+    ];
+    for (error, message) in cases {
+        assert_eq!(error.to_string(), message);
+    }
+}
+
+#[test]
+fn detects_hold_corruption() -> TestResult {
+    let (mut ledger, held) = with_held_account()?;
+    ledger.place_hold(
+        hold_id(1),
+        entry_id(2),
+        slot(1),
+        held,
+        amount(600)?,
+        at(100),
+    )?;
+    check_holds(&ledger)?;
+
+    let mut l = ledger.clone();
+    if let Some(hold) = l.holds.get_mut(&hold_id(1)) {
+        hold.close(HoldStatus::Released, 0, entry_id(9));
+    }
+    assert_eq!(violated(check_holds(&l)), Some("INV-18"));
+
+    let mut l = ledger.clone();
+    if let Some(hold) = l.holds.get_mut(&hold_id(1)) {
+        *hold = Hold::new(
+            hold.id(),
+            hold.account(),
+            hold.held_account(),
+            hold.amount(),
+            0,
+            HoldStatus::Released,
+            hold.expires_at(),
+            hold.place_entry(),
+            None,
+        );
+    }
+    assert_eq!(violated(check_holds(&l)), Some("INV-16"));
+
+    let mut l = ledger.clone();
+    if let Some(hold) = l.holds.get_mut(&hold_id(1)) {
+        hold.close(HoldStatus::Captured, 700, entry_id(9));
+    }
+    assert_eq!(violated(check_holds(&l)), Some("INV-17"));
+
+    let mut l = ledger.clone();
+    l.accounts.remove(&held);
+    assert_eq!(violated(check_holds(&l)), Some("INV-18"));
+    Ok(())
 }

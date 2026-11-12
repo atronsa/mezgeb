@@ -2,8 +2,8 @@
 //! applies to the ledger so far, checked from the stored data alone.
 //!
 //! Checked: INV-1, INV-2, INV-3, INV-5, INV-6, INV-7, INV-8, INV-12,
-//! INV-14, INV-24 (accounts exist), INV-25, and the status rule that a
-//! closed account has a zero balance. Later steps add the rest (holds, periods,
+//! INV-14, INV-16, INV-17, INV-18, INV-24 (accounts exist), INV-25, and
+//! the status rule that a closed account has a zero balance. Later steps add the rest (holds, periods,
 //! idempotency, offline).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -43,7 +43,53 @@ pub fn check_invariants(ledger: &MemLedger) -> Result<(), InvariantViolation> {
     check_global_balance(ledger)?;
     check_balances(ledger)?;
     check_reversals(ledger)?;
-    check_authorizations(ledger)
+    check_authorizations(ledger)?;
+    check_holds(ledger)
+}
+
+/// INV-16 (a hold ends at most once, recorded by one closing entry), INV-17
+/// (a capture never exceeds the hold) and INV-18 (a held account holds
+/// exactly its active hold's amount, and nothing once the hold has ended).
+pub(super) fn check_holds(ledger: &MemLedger) -> Result<(), InvariantViolation> {
+    use crate::hold::HoldStatus;
+    for hold in ledger.holds() {
+        let id = hold.id();
+        let ended = hold.status() != HoldStatus::Active;
+        if ended != hold.close_entry().is_some() {
+            return fail(
+                "INV-16",
+                format!(
+                    "hold {id} is {} but its closing entry is {:?}",
+                    hold.status(),
+                    hold.close_entry()
+                ),
+            );
+        }
+        if hold.captured() < 0
+            || hold.captured() > hold.amount().amount()
+            || (hold.captured() > 0) != (hold.status() == HoldStatus::Captured)
+        {
+            return fail(
+                "INV-17",
+                format!("hold {id} records a capture of {}", hold.captured()),
+            );
+        }
+        let Some(held) = ledger.account(hold.held_account()) else {
+            return fail("INV-18", format!("hold {id}'s held account is missing"));
+        };
+        if held.balance().amount() != hold.held_balance() {
+            return fail(
+                "INV-18",
+                format!(
+                    "hold {id} is {}: its held account holds {}, not {}",
+                    hold.status(),
+                    held.balance().amount(),
+                    hold.held_balance()
+                ),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// INV-25 and INV-14: a reversal has a reversal reason and a requester; an

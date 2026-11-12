@@ -12,7 +12,8 @@ use crate::authorization::{Authorization, EntryKind};
 use crate::chart::{Chart, ChartError, Side};
 use crate::entry::{AccountsView, BalancedEntry, EntryDraft, LineDraft};
 use crate::error::PostingError;
-use crate::ids::{AccountId, EntryId};
+use crate::hold::{Hold, HoldStatus};
+use crate::ids::{AccountId, EntryId, HoldId};
 use crate::money::PositiveAmount;
 use crate::time::Timestamp;
 use crate::validate::validate;
@@ -184,6 +185,26 @@ pub enum LedgerError {
     ReasonNotAllowed(String),
     /// The approver is the same person as the requester (INV-25).
     MakerIsChecker,
+    /// A hold with this ID already exists.
+    DuplicateHold(HoldId),
+    HoldNotFound(HoldId),
+    /// The hold has already ended (INV-16).
+    HoldNotActive {
+        hold: HoldId,
+        status: HoldStatus,
+    },
+    /// The hold's expiry time has passed: it can only be expired now.
+    HoldExpired(HoldId),
+    /// The hold's expiry time has not passed yet.
+    HoldNotExpired(HoldId),
+    /// The capture is larger than the hold (INV-17).
+    CaptureExceedsHold(HoldId),
+    /// The held account must be a different, unused account of the same
+    /// type, with a zero balance.
+    InvalidHeldAccount(AccountId),
+    /// The account is a hold's held account: only that hold's own entries
+    /// may post to it (INV-18).
+    AccountIsHeld(AccountId),
 }
 
 impl fmt::Display for LedgerError {
@@ -229,6 +250,26 @@ impl fmt::Display for LedgerError {
             LedgerError::MakerIsChecker => {
                 f.write_str("the approver must be a different person from the requester")
             }
+            LedgerError::DuplicateHold(id) => write!(f, "hold {id} already exists"),
+            LedgerError::HoldNotFound(id) => write!(f, "hold {id} not found"),
+            LedgerError::HoldNotActive { hold, status } => {
+                write!(f, "hold {hold} is already {status}")
+            }
+            LedgerError::HoldExpired(id) => write!(f, "hold {id} has expired"),
+            LedgerError::HoldNotExpired(id) => write!(f, "hold {id} has not expired yet"),
+            LedgerError::CaptureExceedsHold(id) => {
+                write!(f, "the capture is larger than hold {id}")
+            }
+            LedgerError::InvalidHeldAccount(id) => write!(
+                f,
+                "account {id} cannot hold money: it must be unused, empty and of the same type"
+            ),
+            LedgerError::AccountIsHeld(id) => {
+                write!(
+                    f,
+                    "account {id} belongs to a hold and only its hold may post to it"
+                )
+            }
         }
     }
 }
@@ -242,6 +283,9 @@ pub struct MemLedger {
     pub(super) entries: Vec<PostedEntry>,
     pub(super) index: HashMap<EntryId, usize>,
     pub(super) reversed_by: HashMap<EntryId, EntryId>,
+    pub(super) holds: BTreeMap<HoldId, Hold>,
+    /// Each held account, and the hold it belongs to.
+    pub(super) held_accounts: BTreeMap<AccountId, HoldId>,
     /// Test only: skip the totals update of each entry's last line, to prove
     /// the invariant checker and the state-machine test catch it.
     #[cfg(test)]
@@ -291,6 +335,7 @@ impl MemLedger {
         if self.index.contains_key(&id) {
             return Err(LedgerError::DuplicateEntry(id));
         }
+        self.refuse_held(draft.lines.iter().map(|l| l.account))?;
         let entry = validate(draft, self).map_err(LedgerError::Posting)?;
         let position = self.apply(id, entry, None, EntryKind::Standard, None)?;
         self.posted(id, position)
@@ -309,6 +354,7 @@ impl MemLedger {
             return Err(LedgerError::DuplicateEntry(id));
         }
         Authorization::check(EntryKind::Adjustment, Some(&authorization))?;
+        self.refuse_held(draft.lines.iter().map(|l| l.account))?;
         let entry = validate(draft, self).map_err(LedgerError::Posting)?;
         let position = self.apply(id, entry, None, EntryKind::Adjustment, Some(authorization))?;
         self.posted(id, position)
@@ -338,6 +384,7 @@ impl MemLedger {
         if self.reversed_by.contains_key(&original) {
             return Err(LedgerError::AlreadyReversed(original));
         }
+        self.refuse_held(entry.lines.iter().map(|l| l.account))?;
         let mirror = EntryDraft {
             lines: entry
                 .lines
@@ -467,6 +514,254 @@ impl MemLedger {
             .flat_map(|e| e.lines.iter().map(move |l| (e, l)))
             .filter(|(_, l)| l.account == account)
             .collect()
+    }
+}
+
+impl MemLedger {
+    /// Refuses ordinary postings to a hold's held account (INV-18).
+    fn refuse_held(
+        &self,
+        mut accounts: impl Iterator<Item = AccountId>,
+    ) -> Result<(), LedgerError> {
+        match accounts.find(|a| self.held_accounts.contains_key(a)) {
+            Some(account) => Err(LedgerError::AccountIsHeld(account)),
+            None => Ok(()),
+        }
+    }
+
+    /// Validates and posts one of a hold's own entries, tagged with the hold
+    /// and the action in its metadata.
+    fn post_hold_entry(
+        &mut self,
+        id: EntryId,
+        hold: HoldId,
+        action: &str,
+        lines: Vec<LineDraft>,
+    ) -> Result<(), LedgerError> {
+        if self.index.contains_key(&id) {
+            return Err(LedgerError::DuplicateEntry(id));
+        }
+        let draft = EntryDraft {
+            lines,
+            metadata: BTreeMap::from([
+                ("hold".to_owned(), hold.to_string()),
+                ("hold_action".to_owned(), action.to_owned()),
+            ]),
+            // A capture back to the reserving account repeats its side.
+            allow_duplicate_lines: true,
+            ..EntryDraft::default()
+        };
+        let entry = validate(draft, self).map_err(LedgerError::Posting)?;
+        self.apply(id, entry, None, EntryKind::Standard, None)?;
+        Ok(())
+    }
+
+    /// The active hold `id`, or why it cannot be used.
+    fn active_hold(&self, id: HoldId) -> Result<Hold, LedgerError> {
+        let hold = self.holds.get(&id).ok_or(LedgerError::HoldNotFound(id))?;
+        if hold.status() != HoldStatus::Active {
+            return Err(LedgerError::HoldNotActive {
+                hold: id,
+                status: hold.status(),
+            });
+        }
+        Ok(hold.clone())
+    }
+
+    /// The side on which an account's balance increases.
+    fn increase_side(&self, account: AccountId) -> Result<Side, LedgerError> {
+        self.accounts
+            .get(&account)
+            .map(Account::normal_side)
+            .ok_or(LedgerError::AccountNotFound(account))
+    }
+
+    /// Places a hold: moves `amount` from `account` into `held`, the hold's
+    /// own account (E02, E16). `held` must be open, unused, empty and of the
+    /// same type as `account`.
+    pub fn place_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        account: AccountId,
+        held: AccountId,
+        amount: PositiveAmount,
+        expires_at: Timestamp,
+    ) -> Result<&Hold, LedgerError> {
+        if self.holds.contains_key(&id) {
+            return Err(LedgerError::DuplicateHold(id));
+        }
+        self.refuse_held([account].into_iter())?;
+        let source = self
+            .accounts
+            .get(&account)
+            .ok_or(LedgerError::AccountNotFound(account))?;
+        let target = self
+            .accounts
+            .get(&held)
+            .ok_or(LedgerError::AccountNotFound(held))?;
+        let usable = held != account
+            && !self.held_accounts.contains_key(&held)
+            && target.debits_total() == 0
+            && target.credits_total() == 0
+            && target.account_type() == source.account_type();
+        if !usable {
+            return Err(LedgerError::InvalidHeldAccount(held));
+        }
+        let side = source.normal_side();
+        let money = amount.money();
+        self.post_hold_entry(
+            entry,
+            id,
+            "place",
+            vec![
+                LineDraft {
+                    account,
+                    side: opposite(side),
+                    amount: money,
+                },
+                LineDraft {
+                    account: held,
+                    side,
+                    amount: money,
+                },
+            ],
+        )?;
+        self.holds.insert(
+            id,
+            Hold::new(
+                id,
+                account,
+                held,
+                amount,
+                0,
+                HoldStatus::Active,
+                expires_at,
+                entry,
+                None,
+            ),
+        );
+        self.held_accounts.insert(held, id);
+        self.holds.get(&id).ok_or(LedgerError::HoldNotFound(id))
+    }
+
+    /// Captures `amount` of an active, unexpired hold into `destination`
+    /// (E03, E17). Whatever is not captured goes back to the account in the
+    /// same entry, so a hold is captured at most once (INV-16, INV-17).
+    pub fn capture_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        destination: AccountId,
+        amount: PositiveAmount,
+        now: Timestamp,
+    ) -> Result<&Hold, LedgerError> {
+        let hold = self.active_hold(id)?;
+        if now >= hold.expires_at() {
+            return Err(LedgerError::HoldExpired(id));
+        }
+        if amount.amount() > hold.amount().amount() {
+            return Err(LedgerError::CaptureExceedsHold(id));
+        }
+        self.refuse_held([destination].into_iter())?;
+        let side = self.increase_side(hold.held_account())?;
+        let total = hold.amount().money();
+        let remainder = hold.amount().amount() - amount.amount();
+        let mut lines = vec![
+            LineDraft {
+                account: hold.held_account(),
+                side: opposite(side),
+                amount: total,
+            },
+            LineDraft {
+                account: destination,
+                side,
+                amount: amount.money(),
+            },
+        ];
+        if remainder > 0 {
+            lines.push(LineDraft {
+                account: hold.account(),
+                side,
+                amount: crate::money::Money::from_minor(remainder, total.currency()),
+            });
+        }
+        self.post_hold_entry(entry, id, "capture", lines)?;
+        self.close_hold(id, HoldStatus::Captured, amount.amount(), entry)
+    }
+
+    /// Releases an active hold: everything goes back to the account (E04).
+    pub fn release_hold(&mut self, id: HoldId, entry: EntryId) -> Result<&Hold, LedgerError> {
+        let hold = self.active_hold(id)?;
+        self.return_hold(&hold, entry, "release")?;
+        self.close_hold(id, HoldStatus::Released, 0, entry)
+    }
+
+    /// Expires an active hold whose expiry time has passed: everything goes
+    /// back to the account (E18).
+    pub fn expire_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        now: Timestamp,
+    ) -> Result<&Hold, LedgerError> {
+        let hold = self.active_hold(id)?;
+        if now < hold.expires_at() {
+            return Err(LedgerError::HoldNotExpired(id));
+        }
+        self.return_hold(&hold, entry, "expire")?;
+        self.close_hold(id, HoldStatus::Expired, 0, entry)
+    }
+
+    fn return_hold(
+        &mut self,
+        hold: &Hold,
+        entry: EntryId,
+        action: &str,
+    ) -> Result<(), LedgerError> {
+        let side = self.increase_side(hold.held_account())?;
+        let money = hold.amount().money();
+        self.post_hold_entry(
+            entry,
+            hold.id(),
+            action,
+            vec![
+                LineDraft {
+                    account: hold.held_account(),
+                    side: opposite(side),
+                    amount: money,
+                },
+                LineDraft {
+                    account: hold.account(),
+                    side,
+                    amount: money,
+                },
+            ],
+        )
+    }
+
+    fn close_hold(
+        &mut self,
+        id: HoldId,
+        status: HoldStatus,
+        captured: i64,
+        entry: EntryId,
+    ) -> Result<&Hold, LedgerError> {
+        let hold = self
+            .holds
+            .get_mut(&id)
+            .ok_or(LedgerError::HoldNotFound(id))?;
+        hold.close(status, captured, entry);
+        Ok(hold)
+    }
+
+    pub fn hold(&self, id: HoldId) -> Option<&Hold> {
+        self.holds.get(&id)
+    }
+
+    /// Every hold, by ID.
+    pub fn holds(&self) -> impl Iterator<Item = &Hold> {
+        self.holds.values()
     }
 }
 
