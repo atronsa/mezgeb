@@ -8,8 +8,8 @@ mod support;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mezgeb_core::{
-    AccountId, Chart, ClientId, Currency, EntryDraft, EntryId, IdempotencyKey, Ledger, LedgerError,
-    Money, PostedEntry, PostingError,
+    AccountId, ActorId, Authorization, Chart, ClientId, Currency, EntryDraft, EntryId,
+    IdempotencyKey, Ledger, LedgerError, Money, PostedEntry, PostingError, ReasonCode,
 };
 use mezgeb_engine::{
     PgStore, PostOptions, PostRequest, integrity_report, lookup_by_idempotency_key, post_entry,
@@ -28,6 +28,15 @@ fn account(n: u64) -> Result<AccountId, mezgeb_core::IdError> {
 
 fn client(n: u64) -> Result<ClientId, mezgeb_core::IdError> {
     uuid7(0xc11e_0000 + n).parse()
+}
+
+/// A reversal's authorization: a booking error, requested by operations.
+fn why() -> Result<Authorization, mezgeb_core::NameError> {
+    Ok(Authorization {
+        reason: ReasonCode::new("booking_error")?,
+        requested_by: ActorId::new("ops:1")?,
+        approved_by: None,
+    })
 }
 
 fn etb(amount: i64) -> Money {
@@ -57,7 +66,7 @@ fn request(
         client_id: client(client_n)?,
         idempotency_key: IdempotencyKey::new(key)?,
         draft,
-        reverses: None,
+        authorization: None,
     })
 }
 
@@ -292,12 +301,12 @@ async fn reversals_are_idempotent() -> TestResult {
     let paid = post_entry(&mut conn, request(1, "pay-r", payment(40)?)?).await?;
     let other = post_entry(&mut conn, request(1, "pay-s", payment(60)?)?).await?;
 
-    let reversal = request(1, "reverse-r", EntryDraft::default())?;
+    let reversal = request(1, "reverse-r", EntryDraft::default())?.authorized(why()?);
     let first = reverse_entry(&mut conn, paid.id(), reversal).await?;
-    let again = request(1, "reverse-r", EntryDraft::default())?;
+    let again = request(1, "reverse-r", EntryDraft::default())?.authorized(why()?);
     assert_eq!(reverse_entry(&mut conn, paid.id(), again).await?, first);
 
-    let wrong = request(1, "reverse-r", EntryDraft::default())?;
+    let wrong = request(1, "reverse-r", EntryDraft::default())?.authorized(why()?);
     assert_eq!(
         reverse_entry(&mut conn, other.id(), wrong).await,
         Err(LedgerError::IdempotencyKeyReused)

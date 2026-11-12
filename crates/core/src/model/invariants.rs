@@ -2,14 +2,15 @@
 //! applies to the ledger so far, checked from the stored data alone.
 //!
 //! Checked: INV-1, INV-2, INV-3, INV-5, INV-6, INV-7, INV-8, INV-12,
-//! INV-14, INV-24 (accounts exist), and the status rule that a closed
-//! account has a zero balance. Later steps add the rest (holds, periods,
+//! INV-14, INV-24 (accounts exist), INV-25, and the status rule that a
+//! closed account has a zero balance. Later steps add the rest (holds, periods,
 //! idempotency, offline).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 
 use crate::account::AccountStatus;
+use crate::authorization::{Authorization, EntryKind};
 use crate::chart::Side;
 use crate::currency::Currency;
 use crate::ids::AccountId;
@@ -41,7 +42,27 @@ pub fn check_invariants(ledger: &MemLedger) -> Result<(), InvariantViolation> {
     check_running_totals(ledger)?;
     check_global_balance(ledger)?;
     check_balances(ledger)?;
-    check_reversals(ledger)
+    check_reversals(ledger)?;
+    check_authorizations(ledger)
+}
+
+/// INV-25 and INV-14: a reversal has a reversal reason and a requester; an
+/// adjustment has an adjustment reason and a different requester and
+/// approver; a standard entry has neither; only reversals reverse.
+pub(super) fn check_authorizations(ledger: &MemLedger) -> Result<(), InvariantViolation> {
+    for entry in ledger.entries() {
+        let id = entry.id();
+        if (entry.kind() == EntryKind::Reversal) != entry.reverses().is_some() {
+            return fail(
+                "INV-14",
+                format!("entry {id} is marked {} wrongly", entry.kind()),
+            );
+        }
+        if let Err(error) = Authorization::check(entry.kind(), entry.authorization()) {
+            return fail("INV-25", format!("entry {id}: {error}"));
+        }
+    }
+    Ok(())
 }
 
 /// INV-1 (every entry has 2+ lines and balances per currency), INV-3 (line

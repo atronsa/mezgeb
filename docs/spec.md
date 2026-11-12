@@ -95,8 +95,15 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   none (step 1.09).
 - **4.3 Holds.** A hold is a posting into a held sub-account, then a capture
   or release ([ADR-0004](adr/0004-holds-as-postings.md), step 1.14).
-- **4.4 Reversals.** A new entry that mirrors the original exactly, at most
-  once, never itself reversed (INV-14, step 1.12).
+- **4.4 Corrections.** History is never edited (INV-9).
+  - A **reversal** is a new entry that mirrors the original exactly, at most
+    once, never itself reversed (INV-14). It carries a reversal reason
+    (such as `booking_error`) and its requester. A reversal that would take
+    an account below zero is refused ([ADR-0013](adr/0013-reversals-never-overdraw.md)).
+  - An **adjustment** is a manual correction or compensation, such as E14's
+    goodwill credit. It carries an adjustment reason (such as
+    `goodwill_credit`), a requester and a **different** approver (INV-25).
+  - Both rules are enforced by the engine and again by the database.
 - **4.5 Idempotency.** Every write carries a client idempotency key. The
   same key with the same request (same SHA-256 fingerprint) returns the
   original entry; the same key with a different request is refused with

@@ -7,6 +7,7 @@
 use std::future::{Future, ready};
 
 use crate::account::{Account, AccountStatus};
+use crate::authorization::Authorization;
 use crate::chart::Chart;
 use crate::entry::EntryDraft;
 use crate::ids::{AccountId, EntryId};
@@ -39,11 +40,20 @@ pub trait Ledger {
         draft: EntryDraft,
     ) -> impl Future<Output = Result<PostedEntry, LedgerError>> + Send;
 
-    /// Posts the exact mirror of `original` (INV-14).
+    /// Posts an adjustment, approved by a second person (INV-25).
+    fn post_adjustment(
+        &mut self,
+        id: EntryId,
+        draft: EntryDraft,
+        authorization: Authorization,
+    ) -> impl Future<Output = Result<PostedEntry, LedgerError>> + Send;
+
+    /// Posts the exact mirror of `original`, with a reason (INV-14).
     fn reverse(
         &mut self,
         original: EntryId,
         id: EntryId,
+        authorization: Authorization,
     ) -> impl Future<Output = Result<PostedEntry, LedgerError>> + Send;
 
     /// Reads one account.
@@ -86,12 +96,22 @@ impl Ledger for MemLedger {
         ready(MemLedger::post(self, id, draft).cloned())
     }
 
+    fn post_adjustment(
+        &mut self,
+        id: EntryId,
+        draft: EntryDraft,
+        authorization: Authorization,
+    ) -> impl Future<Output = Result<PostedEntry, LedgerError>> + Send {
+        ready(MemLedger::post_adjustment(self, id, draft, authorization).cloned())
+    }
+
     fn reverse(
         &mut self,
         original: EntryId,
         id: EntryId,
+        authorization: Authorization,
     ) -> impl Future<Output = Result<PostedEntry, LedgerError>> + Send {
-        ready(MemLedger::reverse(self, original, id).cloned())
+        ready(MemLedger::reverse(self, original, id, authorization).cloned())
     }
 
     fn get_account(

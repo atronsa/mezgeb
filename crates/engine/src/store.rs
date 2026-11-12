@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use mezgeb_core::{
-    Account, AccountId, AccountStatus, Chart, ClientId, EntryDraft, EntryId, IdempotencyKey,
-    Ledger, LedgerError, PostedEntry, PostedLine,
+    Account, AccountId, AccountStatus, Authorization, Chart, ClientId, EntryDraft, EntryId,
+    IdempotencyKey, Ledger, LedgerError, PostedEntry, PostedLine,
 };
 use sqlx::{PgConnection, PgPool, Row};
 
@@ -139,13 +139,19 @@ impl Ledger for PgStore {
 
     async fn post(&mut self, id: EntryId, draft: EntryDraft) -> Result<PostedEntry, LedgerError> {
         let mut conn = self.pool.acquire().await.map_err(db)?;
-        let request = PostRequest {
-            entry_id: id,
-            client_id: self.client,
-            idempotency_key: PgStore::key_for(id)?,
-            draft,
-            reverses: None,
-        };
+        let request = PostRequest::new(id, self.client, PgStore::key_for(id)?, draft);
+        post_entry_with(&mut conn, request, &self.options).await
+    }
+
+    async fn post_adjustment(
+        &mut self,
+        id: EntryId,
+        draft: EntryDraft,
+        authorization: Authorization,
+    ) -> Result<PostedEntry, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        let request = PostRequest::new(id, self.client, PgStore::key_for(id)?, draft)
+            .authorized(authorization);
         post_entry_with(&mut conn, request, &self.options).await
     }
 
@@ -153,15 +159,16 @@ impl Ledger for PgStore {
         &mut self,
         original: EntryId,
         id: EntryId,
+        authorization: Authorization,
     ) -> Result<PostedEntry, LedgerError> {
         let mut conn = self.pool.acquire().await.map_err(db)?;
-        let request = PostRequest {
-            entry_id: id,
-            client_id: self.client,
-            idempotency_key: PgStore::key_for(id)?,
-            draft: EntryDraft::default(),
-            reverses: Some(original),
-        };
+        let request = PostRequest::new(
+            id,
+            self.client,
+            PgStore::key_for(id)?,
+            EntryDraft::default(),
+        )
+        .authorized(authorization);
         reverse_entry_with(&mut conn, original, request, &self.options).await
     }
 
@@ -201,7 +208,8 @@ impl Ledger for PgStore {
         }
         let entry_rows = sqlx::query(
             "SELECT id, sequence, reverses_entry_id, metadata::text AS metadata,
-                    (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros
+                    (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros,
+                    kind, reason_code, requested_by, approved_by
                FROM journal_entries ORDER BY sequence",
         )
         .fetch_all(&self.pool)

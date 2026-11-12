@@ -8,6 +8,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use crate::account::{Account, AccountStatus, StatusError};
+use crate::authorization::{Authorization, EntryKind};
 use crate::chart::{Chart, ChartError, Side};
 use crate::entry::{AccountsView, BalancedEntry, EntryDraft, LineDraft};
 use crate::error::PostingError;
@@ -76,12 +77,15 @@ pub struct PostedEntry {
     pub(super) reverses: Option<EntryId>,
     pub(super) metadata: BTreeMap<String, String>,
     pub(super) event_time: Option<Timestamp>,
+    pub(super) kind: EntryKind,
+    pub(super) authorization: Option<Authorization>,
 }
 
 impl PostedEntry {
     /// A posted entry as stored, for rebuilding history from a database.
     /// It is a record of what was posted, not a guarantee: `validate` and
     /// the database constraints are what make posted entries correct.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: EntryId,
         sequence: u64,
@@ -89,6 +93,8 @@ impl PostedEntry {
         reverses: Option<EntryId>,
         metadata: BTreeMap<String, String>,
         event_time: Option<Timestamp>,
+        kind: EntryKind,
+        authorization: Option<Authorization>,
     ) -> PostedEntry {
         PostedEntry {
             id,
@@ -97,6 +103,8 @@ impl PostedEntry {
             reverses,
             metadata,
             event_time,
+            kind,
+            authorization,
         }
     }
 
@@ -125,6 +133,16 @@ impl PostedEntry {
 
     pub const fn event_time(&self) -> Option<Timestamp> {
         self.event_time
+    }
+
+    /// Standard, reversal or adjustment.
+    pub const fn kind(&self) -> EntryKind {
+        self.kind
+    }
+
+    /// Who asked for and approved a reversal or adjustment, and why.
+    pub fn authorization(&self) -> Option<&Authorization> {
+        self.authorization.as_ref()
     }
 }
 
@@ -157,6 +175,15 @@ pub enum LedgerError {
     /// The idempotency key was already used by this client for a different
     /// request (ADR-0008, INV-13). Never produced by `MemLedger`.
     IdempotencyKeyReused,
+    /// A reversal or adjustment needs a reason and a requester, and an
+    /// adjustment also an approver (INV-25).
+    AuthorizationRequired,
+    /// A standard entry carries no reason or approver.
+    AuthorizationNotAllowed,
+    /// The reason code is unknown, or not for this kind of entry.
+    ReasonNotAllowed(String),
+    /// The approver is the same person as the requester (INV-25).
+    MakerIsChecker,
 }
 
 impl fmt::Display for LedgerError {
@@ -186,6 +213,21 @@ impl fmt::Display for LedgerError {
             LedgerError::Busy => f.write_str("accounts are busy; retry later"),
             LedgerError::IdempotencyKeyReused => {
                 f.write_str("the idempotency key was already used for a different request")
+            }
+            LedgerError::AuthorizationRequired => f.write_str(
+                "a reason and a requester (and, for an adjustment, an approver) are required",
+            ),
+            LedgerError::AuthorizationNotAllowed => {
+                f.write_str("a standard entry has no reason or approver")
+            }
+            LedgerError::ReasonNotAllowed(code) => {
+                write!(
+                    f,
+                    "reason {code:?} is unknown or not for this kind of entry"
+                )
+            }
+            LedgerError::MakerIsChecker => {
+                f.write_str("the approver must be a different person from the requester")
             }
         }
     }
@@ -250,17 +292,43 @@ impl MemLedger {
             return Err(LedgerError::DuplicateEntry(id));
         }
         let entry = validate(draft, self).map_err(LedgerError::Posting)?;
-        let position = self.apply(id, entry, None)?;
+        let position = self.apply(id, entry, None, EntryKind::Standard, None)?;
+        self.posted(id, position)
+    }
+
+    /// Validates and posts an adjustment: a manual correction with a reason
+    /// and a different requester and approver (INV-25), such as E14's
+    /// goodwill credit.
+    pub fn post_adjustment(
+        &mut self,
+        id: EntryId,
+        draft: EntryDraft,
+        authorization: Authorization,
+    ) -> Result<&PostedEntry, LedgerError> {
+        if self.index.contains_key(&id) {
+            return Err(LedgerError::DuplicateEntry(id));
+        }
+        Authorization::check(EntryKind::Adjustment, Some(&authorization))?;
+        let entry = validate(draft, self).map_err(LedgerError::Posting)?;
+        let position = self.apply(id, entry, None, EntryKind::Adjustment, Some(authorization))?;
         self.posted(id, position)
     }
 
     /// Posts the exact mirror of `original`: same accounts and amounts,
-    /// opposite sides (INV-14). The reversal itself must pass every posting
-    /// rule, so it fails if, for example, the money was already spent.
-    pub fn reverse(&mut self, original: EntryId, id: EntryId) -> Result<&PostedEntry, LedgerError> {
+    /// opposite sides (INV-14), with a reason and a requester. The reversal
+    /// itself must pass every posting rule, so it fails if, for example, the
+    /// money was already spent; that mistake is then corrected with an
+    /// adjustment (ADR-0013).
+    pub fn reverse(
+        &mut self,
+        original: EntryId,
+        id: EntryId,
+        authorization: Authorization,
+    ) -> Result<&PostedEntry, LedgerError> {
         if self.index.contains_key(&id) {
             return Err(LedgerError::DuplicateEntry(id));
         }
+        Authorization::check(EntryKind::Reversal, Some(&authorization))?;
         let entry = self
             .entry(original)
             .ok_or(LedgerError::EntryNotFound(original))?;
@@ -286,7 +354,13 @@ impl MemLedger {
             ..EntryDraft::default()
         };
         let reversal = validate(mirror, self).map_err(LedgerError::Posting)?;
-        let position = self.apply(id, reversal, Some(original))?;
+        let position = self.apply(
+            id,
+            reversal,
+            Some(original),
+            EntryKind::Reversal,
+            Some(authorization),
+        )?;
         self.reversed_by.insert(original, id);
         self.posted(id, position)
     }
@@ -305,6 +379,8 @@ impl MemLedger {
         id: EntryId,
         entry: BalancedEntry,
         reverses: Option<EntryId>,
+        kind: EntryKind,
+        authorization: Option<Authorization>,
     ) -> Result<usize, LedgerError> {
         let mut updated: BTreeMap<AccountId, Account> = BTreeMap::new();
         let mut lines = Vec::with_capacity(entry.lines().len());
@@ -344,6 +420,8 @@ impl MemLedger {
             reverses,
             metadata: entry.metadata().clone(),
             event_time: entry.event_time(),
+            kind,
+            authorization,
         });
         self.index.insert(id, position);
         Ok(position)

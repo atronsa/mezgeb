@@ -11,6 +11,7 @@
 //! - [`model`]: the in-memory reference ledger and invariant checker.
 
 pub mod account;
+pub mod authorization;
 pub mod chart;
 pub mod currency;
 pub mod entry;
@@ -23,13 +24,14 @@ pub mod time;
 pub mod validate;
 
 pub use account::{Account, AccountRecord, AccountStatus, RecordError, StatusError, balance};
+pub use authorization::{ActorId, Authorization, EntryKind, NameError, REASON_CODES, ReasonCode};
 pub use chart::{
     AccountCode, AccountKind, AccountTemplate, AccountType, Chart, ChartError, ChartStatus, Side,
 };
 pub use currency::{Currency, UnknownCurrency};
 pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
 pub use error::PostingError;
-pub use fingerprint::{Fingerprint, reversal_fingerprint};
+pub use fingerprint::{Fingerprint, adjustment_fingerprint, reversal_fingerprint};
 pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
 pub use model::{
     InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine, check_invariants,
