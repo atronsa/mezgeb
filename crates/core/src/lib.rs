@@ -17,6 +17,7 @@ pub mod currency;
 pub mod entry;
 pub mod error;
 pub mod fingerprint;
+pub mod hold;
 pub mod ids;
 pub mod model;
 pub mod money;
@@ -32,6 +33,7 @@ pub use currency::{Currency, UnknownCurrency};
 pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
 pub use error::PostingError;
 pub use fingerprint::{Fingerprint, adjustment_fingerprint, reversal_fingerprint};
+pub use hold::{Hold, HoldStatus};
 pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
 pub use model::{
     InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine, check_invariants,
