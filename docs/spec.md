@@ -97,8 +97,12 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   or release ([ADR-0004](adr/0004-holds-as-postings.md), step 1.14).
 - **4.4 Reversals.** A new entry that mirrors the original exactly, at most
   once, never itself reversed (INV-14, step 1.12).
-- **4.5 Idempotency.** Same key and same request returns the original
-  result; same key and a different request is rejected (INV-13, step 1.11).
+- **4.5 Idempotency.** Every write carries a client idempotency key. The
+  same key with the same request (same SHA-256 fingerprint) returns the
+  original entry; the same key with a different request is refused with
+  `IdempotencyKeyReused`. A refused posting does not use up its key. A
+  client that lost a response can look up the entry by its key
+  ([db-schema.md](db-schema.md#idempotency-and-retention), INV-13).
 
 ## 5. Offline sync
 

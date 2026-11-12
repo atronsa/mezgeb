@@ -15,6 +15,7 @@ own, with constraints, triggers and role privileges.
 | `accounts` | Account | Chart code and sub-account, type, currency, status, `allow_negative`, running totals (`debits_total`, `credits_total`), `version` |
 | `journal_entries` | Posted entry | `sequence` (posting order), client ID and idempotency key, `reverses_entry_id`, metadata, `event_time`, `recorded_time` |
 | `journal_lines` | Line of an entry | Account, side, amount, currency, and the account's totals right after the line (`debits_after`, `credits_after`) |
+| `idempotency_records` | Successfully posted request | Client, idempotency key, SHA-256 fingerprint of the request, the entry it created (migration 0002, step 1.11) |
 
 Amounts are `BIGINT` minor units ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
 IDs are `UUID` ([ADR-0006](adr/0006-uuidv7-identifiers.md)). Status, type and
@@ -38,6 +39,9 @@ This is the step 1.08 exit gate: every constraint names its invariant
 | `journal_entries_append_only`, `journal_lines_append_only`, `*_no_truncate` → `mezgeb_reject_change()` | Triggers | INV-9: history is never updated, deleted or truncated, even by the owner | `journal_history_cannot_change` |
 | Role privileges: `mezgeb_app` has no UPDATE, DELETE or TRUNCATE on the journal | Privileges | INV-9, second layer | `journal_history_cannot_change` |
 | `journal_entries_idempotency_unique (client_id, idempotency_key)` | UNIQUE | INV-13: an idempotency key is used once per client | `idempotency_keys_are_unique_per_client` |
+| `idempotency_records` primary key `(client_id, idempotency_key)` | PRIMARY KEY | INV-13: claimed before any account is locked; a concurrent request with the same key waits on it | `fifty_concurrent_repeats_post_once` (`tests/idempotency.rs`) |
+| `idempotency_records_entry_fk` → `journal_entries (id, client_id, idempotency_key)`, deferred | Foreign key | INV-13: a record and its entry always share client and key | `ten_sequential_repeats_post_once` |
+| `idempotency_records_append_only` → `mezgeb_reject_change()`; `mezgeb_app` has no UPDATE or DELETE | Trigger, privileges | INV-9, INV-13: a record never changes | `idempotency_records_are_append_only` |
 | `journal_entries.reverses_entry_id` UNIQUE | UNIQUE | INV-14: an entry is reversed at most once | `reversal_rules` |
 | `journal_entries_reversal_target` → `mezgeb_check_reversal_target()` | Trigger | INV-14: a reversal is never reversed | `reversal_rules` |
 | `journal_entries_reversal_mirror` → `mezgeb_check_reversal_mirror()` | Deferred constraint trigger | INV-14: a reversal mirrors its original exactly | `reversal_rules` |
@@ -61,6 +65,32 @@ Their tables do not exist yet. Each step adds the constraint and its test.
 | INV-19, INV-20 | Voucher escrow cap; one settlement per `(device_id, counter)` | 2.12 |
 | INV-25 | Maker and checker are different people | 1.12 |
 | INV-26 | One signed ledger receipt per entry | 2.09 |
+
+## Idempotency and retention
+
+How a posting uses its key (ADR-0008, step 1.11):
+
+1. In the posting's transaction, before any account is locked, the key is
+   claimed with `INSERT … ON CONFLICT DO NOTHING` on `idempotency_records`.
+2. If the key was free, the posting goes ahead; the record commits with the
+   entry, or both roll back. A refused posting therefore never uses up its
+   key.
+3. If the key is taken, the stored fingerprint is compared with the
+   request's: the same fingerprint returns the original entry, a different
+   one is refused (`IdempotencyKeyReused`). Nothing is written either way.
+4. If another transaction holds the key and has not finished, PostgreSQL
+   makes this one wait on the primary key, then applies step 3.
+
+The response is rebuilt from the stored entry. Entries are immutable
+(INV-9), so it is always identical; no separate copy is kept that could
+drift.
+
+**Retention.** Records are kept as long as their entry, which is forever:
+a key stays unique per client permanently, so a late retry, however late,
+can never post twice. That costs about 100 bytes per entry. Archival of old
+records, if storage ever requires it, is decided with the journal's own
+archival (step 3.04), and must keep keys unique for at least the longest
+client retry window.
 
 ## Error codes
 
