@@ -6,11 +6,12 @@ use mezgeb_core::{
     Account, AccountId, AccountStatus, Chart, ClientId, EntryDraft, EntryId, IdempotencyKey,
     Ledger, LedgerError, PostedEntry, PostedLine,
 };
-use sqlx::{Acquire, PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row};
 
-use crate::post::{PostRequest, post_entry, reverse_entry};
+use crate::concurrency::PostOptions;
+use crate::post::{PostRequest, post_entry_with, reverse_entry_with};
 use crate::rows::{
-    ACCOUNT_COLUMNS, account_from_row, constraint_violation, entry_from_row, entry_id,
+    ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, entry_from_row, entry_id,
     line_from_row, storage,
 };
 
@@ -21,11 +22,21 @@ use crate::rows::{
 pub struct PgStore {
     pool: PgPool,
     client: ClientId,
+    options: PostOptions,
 }
 
 impl PgStore {
     pub fn new(pool: PgPool, client: ClientId) -> PgStore {
-        PgStore { pool, client }
+        PgStore::with_options(pool, client, PostOptions::default())
+    }
+
+    /// A store with explicit concurrency options (step 1.10).
+    pub fn with_options(pool: PgPool, client: ClientId, options: PostOptions) -> PgStore {
+        PgStore {
+            pool,
+            client,
+            options,
+        }
     }
 
     pub fn pool(&self) -> &PgPool {
@@ -37,6 +48,35 @@ impl PgStore {
     fn key_for(id: EntryId) -> Result<IdempotencyKey, LedgerError> {
         IdempotencyKey::new(format!("entry-{id}")).map_err(storage)
     }
+
+    /// One attempt at a status change: lock the account, apply the
+    /// lifecycle rules from `mezgeb-core`, write the new status.
+    async fn set_status_once(
+        &self,
+        conn: &mut PgConnection,
+        id: AccountId,
+        to: AccountStatus,
+    ) -> Result<(), LedgerError> {
+        let mut tx = self.options.begin(conn).await?;
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = $1{}",
+            self.options.lock_clause()
+        )))
+        .bind(id.as_uuid())
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db)?
+        .ok_or(LedgerError::AccountNotFound(id))?;
+        let mut account = account_from_row(&row)?;
+        account.set_status(to).map_err(LedgerError::Status)?;
+        sqlx::query("UPDATE accounts SET status = $2, version = version + 1 WHERE id = $1")
+            .bind(id.as_uuid())
+            .bind(to.as_str())
+            .execute(&mut *tx)
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)
+    }
 }
 
 impl Ledger for PgStore {
@@ -46,13 +86,13 @@ impl Ledger for PgStore {
         chart: &Chart,
         reference: &str,
     ) -> Result<Account, LedgerError> {
-        let mut conn = self.pool.acquire().await.map_err(storage)?;
+        let mut conn = self.pool.acquire().await.map_err(db)?;
         let exists: bool =
             sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM accounts WHERE id = $1)")
                 .bind(id.as_uuid())
                 .fetch_one(&mut *conn)
                 .await
-                .map_err(storage)?;
+                .map_err(db)?;
         if exists {
             return Err(LedgerError::DuplicateAccount(id));
         }
@@ -81,35 +121,24 @@ impl Ledger for PgStore {
             Some((code, constraint)) if code == "23505" && constraint == "accounts_pkey" => {
                 LedgerError::DuplicateAccount(id)
             }
-            _ => storage(e),
+            _ => db(e),
         })?;
         Ok(account)
     }
 
     async fn set_status(&mut self, id: AccountId, to: AccountStatus) -> Result<(), LedgerError> {
-        let mut conn = self.pool.acquire().await.map_err(storage)?;
-        let mut tx = conn.begin().await.map_err(storage)?;
-        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = $1 FOR UPDATE"
-        )))
-        .bind(id.as_uuid())
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(storage)?
-        .ok_or(LedgerError::AccountNotFound(id))?;
-        let mut account = account_from_row(&row)?;
-        account.set_status(to).map_err(LedgerError::Status)?;
-        sqlx::query("UPDATE accounts SET status = $2, version = version + 1 WHERE id = $1")
-            .bind(id.as_uuid())
-            .bind(to.as_str())
-            .execute(&mut *tx)
-            .await
-            .map_err(storage)?;
-        tx.commit().await.map_err(storage)
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        let mut attempt = 1;
+        loop {
+            match self.set_status_once(&mut conn, id, to).await {
+                Err(error) if self.options.retry_after(&error, attempt).await => attempt += 1,
+                other => return other,
+            }
+        }
     }
 
     async fn post(&mut self, id: EntryId, draft: EntryDraft) -> Result<PostedEntry, LedgerError> {
-        let mut conn = self.pool.acquire().await.map_err(storage)?;
+        let mut conn = self.pool.acquire().await.map_err(db)?;
         let request = PostRequest {
             entry_id: id,
             client_id: self.client,
@@ -117,7 +146,7 @@ impl Ledger for PgStore {
             draft,
             reverses: None,
         };
-        post_entry(&mut conn, request).await
+        post_entry_with(&mut conn, request, &self.options).await
     }
 
     async fn reverse(
@@ -125,7 +154,7 @@ impl Ledger for PgStore {
         original: EntryId,
         id: EntryId,
     ) -> Result<PostedEntry, LedgerError> {
-        let mut conn = self.pool.acquire().await.map_err(storage)?;
+        let mut conn = self.pool.acquire().await.map_err(db)?;
         let request = PostRequest {
             entry_id: id,
             client_id: self.client,
@@ -133,7 +162,7 @@ impl Ledger for PgStore {
             draft: EntryDraft::default(),
             reverses: Some(original),
         };
-        reverse_entry(&mut conn, original, request).await
+        reverse_entry_with(&mut conn, original, request, &self.options).await
     }
 
     async fn get_account(&mut self, id: AccountId) -> Result<Option<Account>, LedgerError> {
@@ -143,7 +172,7 @@ impl Ledger for PgStore {
         .bind(id.as_uuid())
         .fetch_optional(&self.pool)
         .await
-        .map_err(storage)?;
+        .map_err(db)?;
         row.as_ref().map(account_from_row).transpose()
     }
 
@@ -153,7 +182,7 @@ impl Ledger for PgStore {
         )))
         .fetch_all(&self.pool)
         .await
-        .map_err(storage)?;
+        .map_err(db)?;
         rows.iter().map(account_from_row).collect()
     }
 
@@ -164,10 +193,10 @@ impl Ledger for PgStore {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(storage)?;
+        .map_err(db)?;
         let mut lines: BTreeMap<EntryId, Vec<PostedLine>> = BTreeMap::new();
         for row in &line_rows {
-            let entry = entry_id(row.try_get("entry_id").map_err(storage)?)?;
+            let entry = entry_id(row.try_get("entry_id").map_err(db)?)?;
             lines.entry(entry).or_default().push(line_from_row(row)?);
         }
         let entry_rows = sqlx::query(
@@ -177,11 +206,11 @@ impl Ledger for PgStore {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(storage)?;
+        .map_err(db)?;
         entry_rows
             .iter()
             .map(|row| {
-                let id = entry_id(row.try_get("id").map_err(storage)?)?;
+                let id = entry_id(row.try_get("id").map_err(db)?)?;
                 entry_from_row(row, lines.remove(&id).unwrap_or_default())
             })
             .collect()

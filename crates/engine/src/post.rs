@@ -11,10 +11,11 @@ use mezgeb_core::{
     AccountId, ClientId, EntryDraft, EntryId, IdempotencyKey, LedgerError, LineDraft, PostedEntry,
     PostedLine, Side, validate,
 };
-use sqlx::{Acquire, PgConnection, Row};
+use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use crate::rows::{ACCOUNT_COLUMNS, account_from_row, constraint_violation, storage};
+use crate::concurrency::PostOptions;
+use crate::rows::{ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, storage};
 
 /// One request to post an entry.
 #[derive(Debug, Clone)]
@@ -29,28 +30,50 @@ pub struct PostRequest {
     pub reverses: Option<EntryId>,
 }
 
-/// Posts one entry atomically:
+/// Posts one entry atomically, with the default [`PostOptions`]
+/// (ADR-0007):
 ///
-/// 1. lock every account the entry touches, in ascending ID order
-///    (ADR-0007), so concurrent postings can never deadlock;
+/// 1. lock every account the entry touches with `FOR NO KEY UPDATE`, in
+///    ascending ID order, so concurrent postings queue per account and can
+///    never deadlock;
 /// 2. validate the entry against those locked rows, with the same
-///    `validate` as everywhere else (so the balance it checks cannot change
-///    before commit);
+///    `validate` as everywhere else, so the balance it checks cannot change
+///    before commit;
 /// 3. insert the entry;
 /// 4. add the entry's net effect to each account's totals, one update per
 ///    account, and work out each line's totals after it;
 /// 5. insert all lines in one statement;
 /// 6. commit.
 ///
-/// The database checks the result again at commit (docs/db-schema.md).
+/// A deadlock or serialization failure re-runs the whole transaction. The
+/// database checks the result again at commit (docs/db-schema.md).
 pub async fn post_entry(
     conn: &mut PgConnection,
     request: PostRequest,
 ) -> Result<PostedEntry, LedgerError> {
-    let mut tx = conn.begin().await.map_err(storage)?;
-    let posted = post_in_transaction(&mut tx, request).await?;
-    tx.commit().await.map_err(storage)?;
-    Ok(posted)
+    post_entry_with(conn, request, &PostOptions::default()).await
+}
+
+/// [`post_entry`] with explicit concurrency options.
+pub async fn post_entry_with(
+    conn: &mut PgConnection,
+    request: PostRequest,
+    options: &PostOptions,
+) -> Result<PostedEntry, LedgerError> {
+    let mut attempt = 1;
+    loop {
+        let result = async {
+            let mut tx = options.begin(conn).await?;
+            let posted = post_in_transaction(&mut tx, request.clone(), options).await?;
+            tx.commit().await.map_err(db)?;
+            Ok(posted)
+        }
+        .await;
+        match result {
+            Err(error) if options.retry_after(&error, attempt).await => attempt += 1,
+            other => return other,
+        }
+    }
 }
 
 /// Posts inside an open transaction, without committing. Used by
@@ -58,6 +81,7 @@ pub async fn post_entry(
 pub(crate) async fn post_in_transaction(
     conn: &mut PgConnection,
     request: PostRequest,
+    options: &PostOptions,
 ) -> Result<PostedEntry, LedgerError> {
     let PostRequest {
         entry_id,
@@ -71,16 +95,17 @@ pub(crate) async fn post_in_transaction(
         return Err(LedgerError::DuplicateEntry(entry_id));
     }
 
-    // 1. Lock the accounts, in ascending ID order.
+    // 1. Lock the accounts, in ascending ID order (ADR-0007).
     let ids: BTreeSet<AccountId> = draft.lines.iter().map(|l| l.account).collect();
     let uuids: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = ANY($1) ORDER BY id FOR UPDATE"
+        "SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = ANY($1) ORDER BY id{}",
+        options.lock_clause()
     )))
     .bind(&uuids)
     .fetch_all(&mut *conn)
     .await
-    .map_err(storage)?;
+    .map_err(db)?;
     let mut accounts = BTreeMap::new();
     for row in &rows {
         let account = account_from_row(row)?;
@@ -108,7 +133,7 @@ pub(crate) async fn post_in_transaction(
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| entry_insert_error(e, entry_id, reverses))?;
-    let sequence: i64 = inserted.try_get("sequence").map_err(storage)?;
+    let sequence: i64 = inserted.try_get("sequence").map_err(db)?;
 
     // 4. Apply the entry's net effect to each account: one update per
     //    account, in ascending ID order. Updating line by line would fail
@@ -139,9 +164,9 @@ pub(crate) async fn post_in_transaction(
         .bind(credits)
         .fetch_one(&mut *conn)
         .await
-        .map_err(storage)?;
-        let final_debits: i64 = totals.try_get("debits_total").map_err(storage)?;
-        let final_credits: i64 = totals.try_get("credits_total").map_err(storage)?;
+        .map_err(db)?;
+        let final_debits: i64 = totals.try_get("debits_total").map_err(db)?;
+        let final_credits: i64 = totals.try_get("credits_total").map_err(db)?;
         // The totals before this entry, as stored by the database.
         running.insert(*account, (final_debits - debits, final_credits - credits));
     }
@@ -230,7 +255,7 @@ async fn insert_lines(
     )
     .execute(&mut *conn)
     .await
-    .map_err(storage)?;
+    .map_err(db)?;
     Ok(())
 }
 
@@ -239,7 +264,7 @@ async fn entry_exists(conn: &mut PgConnection, id: EntryId) -> Result<bool, Ledg
         .bind(id.as_uuid())
         .fetch_one(conn)
         .await
-        .map_err(storage)
+        .map_err(db)
 }
 
 /// Maps a failed entry insert. Two concurrent reversals of one entry both
@@ -256,7 +281,7 @@ fn entry_insert_error(error: sqlx::Error, id: EntryId, reverses: Option<EntryId>
         {
             LedgerError::DuplicateEntry(id)
         }
-        _ => storage(error),
+        _ => db(error),
     }
 }
 
@@ -268,7 +293,33 @@ pub async fn reverse_entry(
     original: EntryId,
     request: PostRequest,
 ) -> Result<PostedEntry, LedgerError> {
-    let mut tx = conn.begin().await.map_err(storage)?;
+    reverse_entry_with(conn, original, request, &PostOptions::default()).await
+}
+
+/// [`reverse_entry`] with explicit concurrency options.
+pub async fn reverse_entry_with(
+    conn: &mut PgConnection,
+    original: EntryId,
+    request: PostRequest,
+    options: &PostOptions,
+) -> Result<PostedEntry, LedgerError> {
+    let mut attempt = 1;
+    loop {
+        let result = reverse_once(conn, original, request.clone(), options).await;
+        match result {
+            Err(error) if options.retry_after(&error, attempt).await => attempt += 1,
+            other => return other,
+        }
+    }
+}
+
+async fn reverse_once(
+    conn: &mut PgConnection,
+    original: EntryId,
+    request: PostRequest,
+    options: &PostOptions,
+) -> Result<PostedEntry, LedgerError> {
+    let mut tx = options.begin(conn).await?;
     if entry_exists(&mut tx, request.entry_id).await? {
         return Err(LedgerError::DuplicateEntry(request.entry_id));
     }
@@ -277,7 +328,7 @@ pub async fn reverse_entry(
             .bind(original.as_uuid())
             .fetch_optional(&mut *tx)
             .await
-            .map_err(storage)?;
+            .map_err(db)?;
     match target {
         None => return Err(LedgerError::EntryNotFound(original)),
         Some(Some(_)) => return Err(LedgerError::CannotReverseReversal(original)),
@@ -289,7 +340,7 @@ pub async fn reverse_entry(
     .bind(original.as_uuid())
     .fetch_one(&mut *tx)
     .await
-    .map_err(storage)?;
+    .map_err(db)?;
     if reversed {
         return Err(LedgerError::AlreadyReversed(original));
     }
@@ -301,7 +352,7 @@ pub async fn reverse_entry(
     .bind(original.as_uuid())
     .fetch_all(&mut *tx)
     .await
-    .map_err(storage)?;
+    .map_err(db)?;
     let mut mirror = EntryDraft {
         // The original passed the duplicate rule or allowed duplicates.
         allow_duplicate_lines: true,
@@ -326,8 +377,9 @@ pub async fn reverse_entry(
             reverses: Some(original),
             ..request
         },
+        options,
     )
     .await?;
-    tx.commit().await.map_err(storage)?;
+    tx.commit().await.map_err(db)?;
     Ok(posted)
 }

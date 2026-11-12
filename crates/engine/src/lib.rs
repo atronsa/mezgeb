@@ -8,12 +8,14 @@
 //!
 //! Migrations live in the top-level `migrations/` directory.
 
+mod concurrency;
 mod post;
 mod rows;
 mod store;
 pub mod verify;
 
-pub use post::{PostRequest, post_entry, reverse_entry};
+pub use concurrency::{Isolation, PostOptions, RetryStats};
+pub use post::{PostRequest, post_entry, post_entry_with, reverse_entry, reverse_entry_with};
 pub use store::PgStore;
 pub use verify::{IntegrityReport, integrity_report};
 
