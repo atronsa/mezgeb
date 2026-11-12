@@ -8,8 +8,8 @@
 mod support;
 
 use mezgeb_core::{
-    Account, AccountId, AccountStatus, Chart, ClientId, Currency, EntryDraft, EntryId, Ledger,
-    LedgerError, MemLedger, Money, PostedEntry, Side,
+    Account, AccountId, AccountStatus, ActorId, Authorization, Chart, ClientId, Currency,
+    EntryDraft, EntryId, Ledger, LedgerError, MemLedger, Money, PostedEntry, ReasonCode, Side,
 };
 use mezgeb_engine::{PgStore, integrity_report};
 use proptest::prelude::*;
@@ -94,6 +94,15 @@ enum Op {
     Raw(Vec<(usize, Side, i64)>),
     /// Reverse the entry at this index (modulo the number of entries).
     Reverse(usize),
+    /// An adjustment with one of `REASONS` (one of them a reversal reason,
+    /// so refused), approved by someone else or by the requester (refused).
+    Adjust {
+        debit: usize,
+        credit: usize,
+        amount: i64,
+        reason: usize,
+        self_approved: bool,
+    },
     Status(usize, AccountStatus),
 }
 
@@ -109,9 +118,24 @@ fn op() -> impl Strategy<Value = Op> {
         }),
         1 => proptest::collection::vec((slot(), side, -5..1_000i64), 0..5).prop_map(Op::Raw),
         2 => any::<usize>().prop_map(Op::Reverse),
+        2 => (slot(), slot(), 1..1_000i64, 0..REASONS.len(), proptest::bool::weighted(0.2))
+            .prop_map(|(debit, credit, amount, reason, self_approved)| Op::Adjust {
+                debit, credit, amount, reason, self_approved,
+            }),
         1 => (slot(), proptest::sample::select(AccountStatus::ALL.as_slice()))
             .prop_map(|(s, status)| Op::Status(s, status)),
     ]
+}
+
+const REASONS: [&str; 3] = ["goodwill_credit", "compensation", "booking_error"];
+
+fn authorization(reason: &str, approver: Option<&str>) -> Result<Authorization, String> {
+    let name = |e: mezgeb_core::NameError| e.to_string();
+    Ok(Authorization {
+        reason: ReasonCode::new(reason).map_err(name)?,
+        requested_by: ActorId::new("ops:1").map_err(name)?,
+        approved_by: approver.map(ActorId::new).transpose().map_err(name)?,
+    })
 }
 
 fn slot(n: usize) -> Result<AccountId, String> {
@@ -187,9 +211,32 @@ async fn apply<L: Ledger>(
             ledger.post(id, draft).await.map(Outcome::Posted)
         }
         Op::Reverse(_) => match reverse_target {
-            Some(original) => ledger.reverse(original, id).await.map(Outcome::Posted),
+            Some(original) => ledger
+                .reverse(original, id, authorization("booking_error", None)?)
+                .await
+                .map(Outcome::Posted),
             None => Ok(Outcome::Done),
         },
+        Op::Adjust {
+            debit,
+            credit,
+            amount,
+            reason,
+            self_approved,
+        } => {
+            let draft = EntryDraft {
+                lines: vec![
+                    line(*debit, Side::Debit, *amount)?,
+                    line(*credit, Side::Credit, *amount)?,
+                ],
+                ..EntryDraft::default()
+            };
+            let approver = if *self_approved { "ops:1" } else { "lead:2" };
+            ledger
+                .post_adjustment(id, draft, authorization(REASONS[*reason], Some(approver))?)
+                .await
+                .map(Outcome::Posted)
+        }
         Op::Status(s, status) => ledger
             .set_status(slot(*s)?, *status)
             .await

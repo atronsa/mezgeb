@@ -7,8 +7,9 @@ mod support;
 use std::collections::BTreeMap;
 
 use mezgeb_core::{
-    AccountId, AccountStatus, Chart, ClientId, Currency, EntryDraft, EntryId, IdempotencyKey,
-    Ledger, LedgerError, LineDraft, MemLedger, Money, PostingError, StatusError, Timestamp,
+    AccountId, AccountStatus, ActorId, Authorization, Chart, ClientId, Currency, EntryDraft,
+    EntryId, IdempotencyKey, Ledger, LedgerError, LineDraft, MemLedger, Money, PostingError,
+    ReasonCode, StatusError, Timestamp,
 };
 use mezgeb_engine::{PgStore, PostRequest, integrity_report, post_entry};
 use support::{Server, TestResult, uuid7};
@@ -23,6 +24,15 @@ fn account(n: u64) -> Result<AccountId, mezgeb_core::IdError> {
 
 fn entry(n: u64) -> Result<EntryId, mezgeb_core::IdError> {
     uuid7(1_000 + n).parse()
+}
+
+/// A reversal's authorization: a booking error, requested by operations.
+fn why() -> Result<Authorization, mezgeb_core::NameError> {
+    Ok(Authorization {
+        reason: ReasonCode::new("booking_error")?,
+        requested_by: ActorId::new("ops:1")?,
+        approved_by: None,
+    })
 }
 
 fn etb(amount: i64) -> Money {
@@ -182,7 +192,7 @@ async fn a_refused_posting_writes_nothing() -> TestResult {
             draft: EntryDraft::default()
                 .debit(account(1)?, etb(1))
                 .credit(account(2)?, etb(1)),
-            reverses: None,
+            authorization: None,
         },
     )
     .await;
@@ -258,22 +268,22 @@ impl<L: Ledger> LedgerProbe for L {
                 Err(LedgerError::DuplicateEntry(entry(1)?))
             );
 
-            let reversal = self.reverse(entry(1)?, entry(2)?).await?;
+            let reversal = self.reverse(entry(1)?, entry(2)?, why()?).await?;
             assert_eq!(reversal.reverses(), Some(entry(1)?));
             assert_eq!(
-                self.reverse(entry(1)?, entry(3)?).await,
+                self.reverse(entry(1)?, entry(3)?, why()?).await,
                 Err(LedgerError::AlreadyReversed(entry(1)?))
             );
             assert_eq!(
-                self.reverse(entry(2)?, entry(3)?).await,
+                self.reverse(entry(2)?, entry(3)?, why()?).await,
                 Err(LedgerError::CannotReverseReversal(entry(2)?))
             );
             assert_eq!(
-                self.reverse(entry(9)?, entry(3)?).await,
+                self.reverse(entry(9)?, entry(3)?, why()?).await,
                 Err(LedgerError::EntryNotFound(entry(9)?))
             );
             assert_eq!(
-                self.reverse(entry(1)?, entry(2)?).await,
+                self.reverse(entry(1)?, entry(2)?, why()?).await,
                 Err(LedgerError::DuplicateEntry(entry(2)?))
             );
 

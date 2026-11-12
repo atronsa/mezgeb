@@ -77,7 +77,7 @@ fn deposit(key: &str) -> Result<PostRequest> {
         draft: EntryDraft::default()
             .debit(bank()?, Money::from_minor(12_345, Currency::ETB))
             .credit(wallet()?, Money::from_minor(12_345, Currency::ETB)),
-        reverses: None,
+        authorization: None,
     })
 }
 
