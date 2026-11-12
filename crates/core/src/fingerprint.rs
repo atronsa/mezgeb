@@ -10,6 +10,7 @@
 
 use sha2::{Digest, Sha256};
 
+use crate::authorization::Authorization;
 use crate::chart::Side;
 use crate::entry::EntryDraft;
 use crate::ids::EntryId;
@@ -23,6 +24,7 @@ const VERSION: &[u8] = b"mezgeb.request.v1\0";
 
 const POST: u8 = 1;
 const REVERSE: u8 = 2;
+const ADJUSTMENT: u8 = 3;
 
 fn length(hasher: &mut Sha256, n: usize) {
     // Lengths are bounded by the posting limits, far below u32::MAX.
@@ -70,12 +72,36 @@ impl EntryDraft {
     }
 }
 
-/// The fingerprint of a request to reverse `original`.
-pub fn reversal_fingerprint(original: EntryId) -> Fingerprint {
+fn authorization(hasher: &mut Sha256, auth: &Authorization) {
+    text(hasher, auth.reason.as_str());
+    text(hasher, auth.requested_by.as_str());
+    match &auth.approved_by {
+        Some(approver) => {
+            hasher.update([1]);
+            text(hasher, approver.as_str());
+        }
+        None => hasher.update([0]),
+    }
+}
+
+/// The fingerprint of a request to reverse `original`, with its reason and
+/// requester.
+pub fn reversal_fingerprint(original: EntryId, auth: &Authorization) -> Fingerprint {
     let mut hasher = Sha256::new();
     hasher.update(VERSION);
     hasher.update([REVERSE]);
     hasher.update(original.as_uuid().as_bytes());
+    authorization(&mut hasher, auth);
+    hasher.finalize().into()
+}
+
+/// The fingerprint of a request to post `draft` as an adjustment.
+pub fn adjustment_fingerprint(draft: &EntryDraft, auth: &Authorization) -> Fingerprint {
+    let mut hasher = Sha256::new();
+    hasher.update(VERSION);
+    hasher.update([ADJUSTMENT]);
+    hasher.update(draft.fingerprint());
+    authorization(&mut hasher, auth);
     hasher.finalize().into()
 }
 
@@ -168,19 +194,54 @@ mod tests {
         assert_ne!(a.fingerprint(), b.fingerprint());
     }
 
+    fn auth(reason: &str, maker: &str, checker: Option<&str>) -> Authorization {
+        Authorization {
+            reason: crate::authorization::ReasonCode::new(reason)
+                .unwrap_or_else(|_| unreachable!("valid test reason")),
+            requested_by: crate::authorization::ActorId::new(maker)
+                .unwrap_or_else(|_| unreachable!("valid test actor")),
+            approved_by: checker.map(|c| {
+                crate::authorization::ActorId::new(c)
+                    .unwrap_or_else(|_| unreachable!("valid test actor"))
+            }),
+        }
+    }
+
     #[test]
     fn reversals_and_posts_never_share_a_fingerprint() -> Result<(), crate::ids::IdError> {
         let original: EntryId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f".parse()?;
         let other: EntryId = "017f22e2-79b0-7cc3-98c4-dc0c0c073990".parse()?;
+        let why = auth("booking_error", "ops:1", None);
         assert_eq!(
-            reversal_fingerprint(original),
-            reversal_fingerprint(original)
+            reversal_fingerprint(original, &why),
+            reversal_fingerprint(original, &why)
         );
-        assert_ne!(reversal_fingerprint(original), reversal_fingerprint(other));
         assert_ne!(
-            reversal_fingerprint(original),
+            reversal_fingerprint(original, &why),
+            reversal_fingerprint(other, &why)
+        );
+        assert_ne!(
+            reversal_fingerprint(original, &why),
+            reversal_fingerprint(original, &auth("duplicate_posting", "ops:1", None))
+        );
+        assert_ne!(
+            reversal_fingerprint(original, &why),
             EntryDraft::default().fingerprint()
         );
         Ok(())
+    }
+
+    #[test]
+    fn adjustments_include_who_and_why() {
+        let base = adjustment_fingerprint(&draft(), &auth("goodwill_credit", "a:1", Some("b:2")));
+        assert_ne!(base, draft().fingerprint());
+        for other in [
+            auth("compensation", "a:1", Some("b:2")),
+            auth("goodwill_credit", "a:9", Some("b:2")),
+            auth("goodwill_credit", "a:1", Some("b:9")),
+            auth("goodwill_credit", "a:1", None),
+        ] {
+            assert_ne!(adjustment_fingerprint(&draft(), &other), base);
+        }
     }
 }

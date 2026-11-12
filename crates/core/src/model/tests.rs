@@ -12,6 +12,7 @@ use super::invariants::{
 };
 use super::*;
 use crate::account::{AccountStatus, StatusError};
+use crate::authorization::{ActorId, Authorization, EntryKind, ReasonCode};
 use crate::chart::{Chart, ChartError, Side};
 use crate::currency::Currency;
 use crate::entry::EntryDraft;
@@ -98,6 +99,15 @@ fn entry_id(n: u64) -> EntryId {
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     EntryId::from_uuid(uuid::Uuid::from_bytes(bytes))
         .unwrap_or_else(|_| unreachable!("version and variant bits are set"))
+}
+
+/// A reversal's authorization: a booking error, requested by operations.
+fn why() -> Authorization {
+    Authorization {
+        reason: ReasonCode::new("booking_error").unwrap_or_else(|_| unreachable!("valid reason")),
+        requested_by: ActorId::new("ops:1").unwrap_or_else(|_| unreachable!("valid actor")),
+        approved_by: None,
+    }
 }
 
 fn etb(amount: i64) -> Money {
@@ -198,26 +208,26 @@ fn refused_posts_change_nothing() -> TestResult {
 #[test]
 fn reverses_exactly_once() -> TestResult {
     let mut ledger = funded()?;
-    let reversal = ledger.reverse(entry_id(1), entry_id(2))?;
+    let reversal = ledger.reverse(entry_id(1), entry_id(2), why())?;
     assert_eq!(reversal.reverses(), Some(entry_id(1)));
     assert_eq!(reversal.lines()[0].side(), Side::Credit);
     assert_eq!(ledger.reversal_of(entry_id(1)), Some(entry_id(2)));
     assert_eq!(ledger.account(slot(1)).map(|a| a.balance()), Some(etb(0)));
 
     assert_eq!(
-        ledger.reverse(entry_id(1), entry_id(3)).err(),
+        ledger.reverse(entry_id(1), entry_id(3), why()).err(),
         Some(LedgerError::AlreadyReversed(entry_id(1)))
     );
     assert_eq!(
-        ledger.reverse(entry_id(2), entry_id(3)).err(),
+        ledger.reverse(entry_id(2), entry_id(3), why()).err(),
         Some(LedgerError::CannotReverseReversal(entry_id(2)))
     );
     assert_eq!(
-        ledger.reverse(entry_id(9), entry_id(3)).err(),
+        ledger.reverse(entry_id(9), entry_id(3), why()).err(),
         Some(LedgerError::EntryNotFound(entry_id(9)))
     );
     assert_eq!(
-        ledger.reverse(entry_id(1), entry_id(2)).err(),
+        ledger.reverse(entry_id(1), entry_id(2), why()).err(),
         Some(LedgerError::DuplicateEntry(entry_id(2)))
     );
     check_invariants(&ledger)?;
@@ -236,7 +246,7 @@ fn a_reversal_of_spent_money_is_refused() -> TestResult {
     )?;
     let before = ledger.clone();
     assert_eq!(
-        ledger.reverse(entry_id(1), entry_id(3)).err(),
+        ledger.reverse(entry_id(1), entry_id(3), why()).err(),
         Some(LedgerError::Posting(PostingError::InsufficientFunds {
             line: 1
         }))
@@ -340,7 +350,7 @@ fn sample() -> Result<MemLedger, Box<dyn std::error::Error>> {
             .debit(slot(1), etb(100))
             .credit(slot(2), etb(100)),
     )?;
-    ledger.reverse(entry_id(2), entry_id(3))?;
+    ledger.reverse(entry_id(2), entry_id(3), why())?;
     check_invariants(&ledger)?;
     Ok(ledger)
 }
@@ -539,7 +549,7 @@ fn run(ops: &[Op], planted_bug: bool) -> Result<(), TestCaseError> {
                 0 => Ok(()),
                 n => {
                     let original = ledger.entries()[i % n].id();
-                    ledger.reverse(original, id).map(|_| ())
+                    ledger.reverse(original, id, why()).map(|_| ())
                 }
             },
             Op::Status(s, status) => ledger.set_status(slot(*s), *status),
@@ -697,7 +707,12 @@ fn the_ledger_trait_matches_the_inherent_methods() -> TestResult {
         .debit(slot(0), etb(10))
         .credit(slot(1), etb(10));
     let posted = now(Ledger::post(&mut ledger, entry_id(1), draft))??;
-    let reversal = now(Ledger::reverse(&mut ledger, entry_id(1), entry_id(2)))??;
+    let reversal = now(Ledger::reverse(
+        &mut ledger,
+        entry_id(1),
+        entry_id(2),
+        why(),
+    ))??;
     now(Ledger::set_status(
         &mut ledger,
         slot(1),
@@ -722,6 +737,8 @@ fn the_ledger_trait_matches_the_inherent_methods() -> TestResult {
         posted.reverses(),
         posted.metadata().clone(),
         posted.event_time(),
+        posted.kind(),
+        posted.authorization().cloned(),
     );
     assert_eq!(rebuilt, posted);
     let line = &posted.lines()[0];
@@ -736,4 +753,176 @@ fn the_ledger_trait_matches_the_inherent_methods() -> TestResult {
         *line
     );
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.12: adjustments, reasons and maker-checker
+// ---------------------------------------------------------------------------
+
+fn approval(reason: &str, maker: &str, checker: Option<&str>) -> Authorization {
+    Authorization {
+        reason: ReasonCode::new(reason).unwrap_or_else(|_| unreachable!("valid reason")),
+        requested_by: ActorId::new(maker).unwrap_or_else(|_| unreachable!("valid actor")),
+        approved_by: checker
+            .map(|c| ActorId::new(c).unwrap_or_else(|_| unreachable!("valid actor"))),
+    }
+}
+
+/// E14: a goodwill credit, proposed by an agent and approved by a lead.
+#[test]
+fn adjustments_need_a_reason_and_a_second_person() -> TestResult {
+    let mut ledger = funded()?;
+    let chart = chart()?;
+    ledger.open_account(slot(6), &chart, "5010")?;
+    let goodwill = || {
+        EntryDraft::default()
+            .debit(slot(6), etb(10))
+            .credit(slot(1), etb(10))
+    };
+
+    let refused = [
+        (
+            approval("goodwill_credit", "agent:1", Some("agent:1")),
+            LedgerError::MakerIsChecker,
+        ),
+        (
+            approval("goodwill_credit", "agent:1", None),
+            LedgerError::AuthorizationRequired,
+        ),
+        (
+            approval("booking_error", "agent:1", Some("lead:2")),
+            LedgerError::ReasonNotAllowed("booking_error".into()),
+        ),
+    ];
+    for (auth, error) in refused {
+        let before = ledger.clone();
+        assert_eq!(
+            ledger.post_adjustment(entry_id(2), goodwill(), auth).err(),
+            Some(error)
+        );
+        assert_eq!(ledger, before);
+    }
+
+    let auth = approval("goodwill_credit", "agent:1", Some("lead:2"));
+    let posted = ledger.post_adjustment(entry_id(2), goodwill(), auth.clone())?;
+    assert_eq!(posted.kind(), EntryKind::Adjustment);
+    assert_eq!(posted.authorization(), Some(&auth));
+    assert_eq!(
+        ledger.account(slot(1)).map(|a| a.balance()),
+        Some(etb(1_010))
+    );
+    assert_eq!(
+        ledger
+            .post_adjustment(entry_id(2), goodwill(), auth.clone())
+            .err(),
+        Some(LedgerError::DuplicateEntry(entry_id(2)))
+    );
+    check_invariants(&ledger)?;
+    Ok(())
+}
+
+#[test]
+fn reversals_record_their_reason() -> TestResult {
+    let mut ledger = funded()?;
+    let reversal = ledger.reverse(entry_id(1), entry_id(2), why())?.clone();
+    assert_eq!(reversal.kind(), EntryKind::Reversal);
+    assert_eq!(reversal.authorization(), Some(&why()));
+    assert_eq!(
+        ledger
+            .entry(entry_id(1))
+            .map(|e| (e.kind(), e.authorization().cloned())),
+        Some((EntryKind::Standard, None))
+    );
+    let goodwill = approval("goodwill_credit", "ops:1", None);
+    let mut fresh = funded()?;
+    assert_eq!(
+        fresh.reverse(entry_id(1), entry_id(2), goodwill).err(),
+        Some(LedgerError::ReasonNotAllowed("goodwill_credit".into()))
+    );
+    assert_eq!(
+        LedgerError::MakerIsChecker.to_string(),
+        "the approver must be a different person from the requester"
+    );
+    assert_eq!(
+        LedgerError::AuthorizationRequired.to_string(),
+        "a reason and a requester (and, for an adjustment, an approver) are required"
+    );
+    assert_eq!(
+        LedgerError::AuthorizationNotAllowed.to_string(),
+        "a standard entry has no reason or approver"
+    );
+    assert_eq!(
+        LedgerError::ReasonNotAllowed("x".into()).to_string(),
+        "reason \"x\" is unknown or not for this kind of entry"
+    );
+    Ok(())
+}
+
+#[test]
+fn detects_authorization_corruption() -> TestResult {
+    let mut l = sample()?;
+    l.entries[0].kind = EntryKind::Reversal;
+    assert_eq!(
+        violated(super::invariants::check_authorizations(&l)),
+        Some("INV-14")
+    );
+
+    let mut l = sample()?;
+    l.entries[2].authorization = None;
+    assert_eq!(
+        violated(super::invariants::check_authorizations(&l)),
+        Some("INV-25")
+    );
+
+    let mut l = funded()?;
+    let chart = chart()?;
+    l.open_account(slot(6), &chart, "5010")?;
+    l.post_adjustment(
+        entry_id(2),
+        EntryDraft::default()
+            .debit(slot(6), etb(1))
+            .credit(slot(1), etb(1)),
+        approval("goodwill_credit", "a:1", Some("b:2")),
+    )?;
+    check_invariants(&l)?;
+    l.entries[1].authorization = Some(approval("goodwill_credit", "a:1", Some("a:1")));
+    assert_eq!(violated(check_invariants(&l)), Some("INV-25"));
+    Ok(())
+}
+
+proptest! {
+    /// Posting an entry and then reversing it leaves every balance exactly
+    /// as it was (INV-14, T-14b).
+    #[test]
+    fn post_then_reverse_changes_nothing(
+        transfers in proptest::collection::vec((1usize..4, 1usize..4, 1..500i64), 1..10),
+    ) {
+        let chart = chart().map_err(|e| TestCaseError::fail(e.to_string()))?;
+        let mut ledger = MemLedger::new();
+        for (n, reference) in SLOTS.iter().enumerate().take(4) {
+            ledger.open_account(slot(n), &chart, reference)
+                .map_err(|e| TestCaseError::fail(e.to_string()))?;
+        }
+        // Fund the three wallets from the bank.
+        for wallet in 1..4u64 {
+            let draft = EntryDraft::default()
+                .debit(slot(0), etb(100_000))
+                .credit(slot(wallet as usize), etb(100_000));
+            ledger.post(entry_id(wallet), draft).map_err(|e| TestCaseError::fail(e.to_string()))?;
+        }
+        let mut next = 100;
+        for (from, to, amount) in transfers {
+            let before: Vec<_> = ledger.accounts().map(|a| a.balance()).collect();
+            let draft = EntryDraft::default()
+                .debit(slot(from), etb(amount))
+                .credit(slot(to), etb(amount));
+            ledger.post(entry_id(next), draft).map_err(|e| TestCaseError::fail(e.to_string()))?;
+            ledger.reverse(entry_id(next), entry_id(next + 1), why())
+                .map_err(|e| TestCaseError::fail(e.to_string()))?;
+            let after: Vec<_> = ledger.accounts().map(|a| a.balance()).collect();
+            prop_assert_eq!(before, after);
+            next += 2;
+        }
+        check_invariants(&ledger).map_err(|v| TestCaseError::fail(v.to_string()))?;
+    }
 }
