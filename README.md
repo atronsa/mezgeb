@@ -146,6 +146,13 @@ MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
     cargo test -p mezgeb-engine
 ```
 
+To prove a ledger's balances equal its journal:
+
+```sh
+cargo run -p mezgeb-cli -- verify --full \
+    --database-url postgres://mezgeb_verifier:mezgeb_verifier@localhost:55432/mezgeb
+```
+
 The posting engine works on PostgreSQL (`mezgeb-engine`); there is no API
 service to run yet (steps 2.06–2.07).
 
