@@ -9,6 +9,9 @@
 services:
   postgres:
     image: postgres:18-alpine
+    # Docker's default 64 MB of shared memory is too small for PostgreSQL's
+    # parallel queries on large tables (verification on a million lines).
+    shm_size: 1gb
     environment:
       POSTGRES_PASSWORD: postgres
     ports:
