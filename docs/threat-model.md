@@ -106,7 +106,7 @@ production or to the admin tools.
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
 | TM-11 | Edits or deletes journal rows directly in the database to hide a theft | T | A1, A3 | Update and delete blocked by trigger and role privileges (INV-9); hash chain (INV-11); signed receipts held by clients (INV-26); superuser access restricted and logged | Operator | 1.08, 2.09 |
-| TM-12 | Posts an adjustment that credits an account they control | E | A1 | Maker-checker with different people (INV-25), reason codes, limits per person, audit events | Maintainers | 1.12, 2.08 |
+| TM-12 | Posts an adjustment that credits an account they control | E | A1 | Maker-checker with different people (INV-25), reason codes, limits per person, audit events. **Built in 1.12:** maker ≠ checker and reason codes, in the engine and the database; see the [step 1.12 review](evidence/1.12-reversals-and-adjustments.md#exit-gate). | Maintainers | 1.12, 2.08 |
 | TM-13 | Reopens a closed period to change past figures | T | A1, A3 | Closed periods immutable (INV-10); reopening needs maker-checker and leaves an audit event | Maintainers | 2.05, 2.08 |
 | TM-14 | Copies the receipt or voucher signing key to forge receipts or offline allowances | S, T | A2 | Keys in a key management service or HSM, never in the database, code or environment files; key IDs and rotation; access logged | Operator | 3.12 |
 | TM-15 | Disables the verification job or its alerts so that a broken ledger goes unnoticed | R, T | A3 | A missing verification run raises its own alert; verification also runs in CI and from an independent schedule; separation of duties | Operator | 1.13, 3.09 |

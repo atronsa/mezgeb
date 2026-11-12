@@ -141,6 +141,9 @@ swapped:
 - What if Abebe had already spent some of the 500 ETB? The reversal would make
   the wallet negative. Is that allowed for reversals only (the debt is then
   collected), or must the reversal wait for manual handling?
+  **Decided in [ADR-0013](../../adr/0013-reversals-never-overdraw.md):** the
+  reversal is refused, and the mistake is corrected with an adjustment that a
+  second person approves.
 - Should deposits with uncertain references go to a suspense account first
   (see E01), so that mistakes like (a) are caught before reaching a wallet?
 - Who can trigger a reversal, and does it need a second approver?

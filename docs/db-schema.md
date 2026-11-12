@@ -16,6 +16,11 @@ own, with constraints, triggers and role privileges.
 | `journal_entries` | Posted entry | `sequence` (posting order), client ID and idempotency key, `reverses_entry_id`, metadata, `event_time`, `recorded_time` |
 | `journal_lines` | Line of an entry | Account, side, amount, currency, and the account's totals right after the line (`debits_after`, `credits_after`) |
 | `idempotency_records` | Successfully posted request | Client, idempotency key, SHA-256 fingerprint of the request, the entry it created (migration 0002, step 1.11) |
+| `reason_codes` | Reason a correction may give | Code, the kind of entry it is for (reversal or adjustment), description; the same list as `REASON_CODES` in `crates/core` (migration 0003, step 1.12) |
+
+Since migration 0003, every journal entry also has a `kind` (`standard`,
+`reversal` or `adjustment`), and corrections record `reason_code`,
+`requested_by` and `approved_by`.
 
 Amounts are `BIGINT` minor units ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
 IDs are `UUID` ([ADR-0006](adr/0006-uuidv7-identifiers.md)). Status, type and
@@ -42,6 +47,8 @@ This is the step 1.08 exit gate: every constraint names its invariant
 | `idempotency_records` primary key `(client_id, idempotency_key)` | PRIMARY KEY | INV-13: claimed before any account is locked; a concurrent request with the same key waits on it | `fifty_concurrent_repeats_post_once` (`tests/idempotency.rs`) |
 | `idempotency_records_entry_fk` → `journal_entries (id, client_id, idempotency_key)`, deferred | Foreign key | INV-13: a record and its entry always share client and key | `ten_sequential_repeats_post_once` |
 | `idempotency_records_append_only` → `mezgeb_reject_change()`; `mezgeb_app` has no UPDATE or DELETE | Trigger, privileges | INV-9, INV-13: a record never changes | `idempotency_records_are_append_only` |
+| `journal_entries_authorization` | CHECK | INV-14, INV-25: a standard entry has no reason or actors; a reversal has a reason and a requester (and an approver, if any, is someone else); an adjustment has a reason, a requester and a **different** approver | `adjustments_need_two_different_people` (`tests/corrections.rs`) |
+| `journal_entries_reason_fk` → `reason_codes (code, entry_kind)` | Foreign key | A reason exists and is meant for this kind of entry | `adjustments_need_two_different_people` |
 | `journal_entries.reverses_entry_id` UNIQUE | UNIQUE | INV-14: an entry is reversed at most once | `reversal_rules` |
 | `journal_entries_reversal_target` → `mezgeb_check_reversal_target()` | Trigger | INV-14: a reversal is never reversed | `reversal_rules` |
 | `journal_entries_reversal_mirror` → `mezgeb_check_reversal_mirror()` | Deferred constraint trigger | INV-14: a reversal mirrors its original exactly | `reversal_rules` |
@@ -63,7 +70,6 @@ Their tables do not exist yet. Each step adds the constraint and its test.
 | INV-12 | `recorded_time` strictly increasing under concurrency: measured in step 1.10 (no tie or inversion in 1,000 parallel postings), guaranteed by the hash chain's single commit order | 2.09 |
 | INV-16 | A hold resolves at most once | 1.14 |
 | INV-19, INV-20 | Voucher escrow cap; one settlement per `(device_id, counter)` | 2.12 |
-| INV-25 | Maker and checker are different people | 1.12 |
 | INV-26 | One signed ledger receipt per entry | 2.09 |
 
 ## Idempotency and retention
