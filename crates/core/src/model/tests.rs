@@ -5,7 +5,7 @@
 use std::cell::Cell;
 
 use proptest::prelude::*;
-use proptest::test_runner::{Config, TestError, TestRunner};
+use proptest::test_runner::{Config, TestError, TestRng, TestRunner};
 
 use super::invariants::{
     check_balances, check_entries, check_global_balance, check_reversals, check_running_totals,
@@ -570,13 +570,21 @@ proptest! {
 /// Plants a bug (the last line of every entry does not update its account's
 /// totals) and checks that the state-machine test catches it within 1,000
 /// cases and shrinks it to a minimal sequence.
+///
+/// The runner uses a fixed seed, so the result is the same on every machine.
+/// "Minimal" is checked directly rather than by length: removing any one
+/// operation from the shrunk sequence must make the bug disappear. (Which
+/// minimal sequence the shrinker reaches depends on the first failure it
+/// finds; a split payment, for example, needs three open accounts.)
 #[test]
 fn planted_bug_is_caught_and_shrunk() -> Result<(), String> {
-    let mut runner = TestRunner::new(Config {
+    let config = Config {
         cases: 1_000,
         failure_persistence: None,
         ..Config::default()
-    });
+    };
+    let rng = TestRng::deterministic_rng(config.rng_algorithm);
+    let mut runner = TestRunner::new_with_rng(config, rng);
     let cases_run = Cell::new(0u32);
     let first_failure = Cell::new(None);
     let result = runner.run(&proptest::collection::vec(op(), 1..=200), |ops| {
@@ -594,8 +602,14 @@ fn planted_bug_is_caught_and_shrunk() -> Result<(), String> {
                 first_failure.get(),
                 minimal.len()
             );
-            if minimal.len() > 3 {
-                return Err(format!("shrinking left {} operations", minimal.len()));
+            for skip in 0..minimal.len() {
+                let mut shorter = minimal.clone();
+                shorter.remove(skip);
+                if run(&shorter, true).is_err() {
+                    return Err(format!(
+                        "not minimal: still fails without operation {skip}: {shorter:?}"
+                    ));
+                }
             }
             Ok(())
         }
