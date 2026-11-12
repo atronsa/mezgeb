@@ -23,3 +23,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.10 | [Concurrency control](1.10-concurrency-control.md) | Passed |
 | 1.11 | [Idempotency](1.11-idempotency.md) | Passed |
 | 1.12 | [Reversals and adjustments](1.12-reversals-and-adjustments.md) | Passed |
+| 1.13 | [Balance verification](1.13-balance-verification.md) | Passed |
