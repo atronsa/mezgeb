@@ -20,7 +20,7 @@ serde_json = "1"
 toml = "0.9"
 sha2 = "0.10"
 proptest = "1"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "uuid"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "postgres", "macros", "migrate", "uuid", "time"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
