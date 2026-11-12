@@ -21,7 +21,7 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use mezgeb_engine::MIGRATOR;
+use mezgeb_engine::{MIGRATOR, Scope, VerifyOptions, verify};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Connection, PgConnection, PgPool};
 
@@ -129,6 +129,17 @@ impl TestDb {
         PgConnection::connect_with(&self.options("mezgeb_readonly")).await
     }
 
+    /// As `mezgeb_verifier`, the role that runs verification.
+    pub async fn verifier(&self) -> Result<PgConnection, sqlx::Error> {
+        PgConnection::connect_with(&self.options("mezgeb_verifier")).await
+    }
+
+    /// As the superuser, which can bypass triggers and constraints: only for
+    /// tests that corrupt the ledger on purpose.
+    pub async fn superuser(&self) -> Result<PgConnection, sqlx::Error> {
+        PgConnection::connect_with(&self.admin.clone().database(&self.name)).await
+    }
+
     /// A connection pool as `mezgeb_app`, the service's role.
     pub async fn app_pool(&self) -> Result<PgPool, sqlx::Error> {
         self.app_pool_of(2).await
@@ -146,8 +157,28 @@ impl TestDb {
             .await
     }
 
-    /// Drops the database, closing any connections still open to it.
-    pub async fn drop(self) -> Result<(), sqlx::Error> {
+    /// Verifies the whole ledger, then drops the database. Every test that
+    /// ends with `drop` therefore also proves the ledger it leaves behind is
+    /// clean (step 1.13 exit gate).
+    pub async fn drop(self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut verifier = self.verifier().await?;
+        let options = VerifyOptions {
+            scope: Scope::Full,
+            settle: std::time::Duration::ZERO,
+            record: true,
+        };
+        let report = verify(&mut verifier, &options).await?;
+        verifier.close().await?;
+        if !report.is_clean() {
+            return Err(format!("the ledger is not clean after the test:\n{report}").into());
+        }
+        self.drop_unverified().await?;
+        Ok(())
+    }
+
+    /// Drops the database without verifying it: only for tests that leave
+    /// a corrupted ledger on purpose.
+    pub async fn drop_unverified(self) -> Result<(), sqlx::Error> {
         let mut conn = PgConnection::connect_with(&self.admin).await?;
         exec(
             &mut conn,

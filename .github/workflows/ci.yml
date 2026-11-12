@@ -11,6 +11,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
+          --shm-size=1g
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s
           --health-timeout 5s
@@ -23,7 +24,10 @@ jobs:
         with:
           components: rustfmt, clippy
       - name: Create database roles
-        run: psql "$MEZGEB_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f db/init/01-roles.sql
+        run: |
+          for file in db/init/*.sql; do
+            psql "$MEZGEB_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

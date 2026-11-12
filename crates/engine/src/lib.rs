@@ -12,6 +12,7 @@ mod concurrency;
 mod post;
 mod rows;
 mod store;
+pub mod verification;
 pub mod verify;
 
 pub use concurrency::{Isolation, PostOptions, RetryStats};
@@ -20,6 +21,7 @@ pub use post::{
     reverse_entry_with,
 };
 pub use store::PgStore;
+pub use verification::{Finding, Scope, VerificationReport, VerifyOptions, verify};
 pub use verify::{IntegrityReport, integrity_report};
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");

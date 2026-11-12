@@ -21,6 +21,7 @@ test-hooks = []
 mezgeb-engine = { path = ".", features = ["test-hooks"] }
 tokio.workspace = true
 proptest.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true
