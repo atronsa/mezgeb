@@ -20,3 +20,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.07 | [Reference ledger (the oracle)](1.07-reference-ledger-oracle.md) | Passed |
 | 1.08 | [PostgreSQL schema v1](1.08-postgresql-schema.md) | Passed |
 | 1.09 | [Atomic posting](1.09-atomic-posting.md) | Passed |
+| 1.10 | [Concurrency control](1.10-concurrency-control.md) | Passed |
