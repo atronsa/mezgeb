@@ -147,6 +147,13 @@ pub enum LedgerError {
     /// The storage behind a ledger failed, or returned data that breaks the
     /// ledger's rules. Never produced by `MemLedger`.
     Storage(String),
+    /// The operation conflicted with concurrent operations (a deadlock or a
+    /// serialization failure, with its SQLSTATE) and still failed after the
+    /// engine's retries. Safe to retry later. Never produced by `MemLedger`.
+    Contention(String),
+    /// An account stayed locked by other operations longer than the lock
+    /// timeout. Safe to retry later. Never produced by `MemLedger`.
+    Busy,
 }
 
 impl fmt::Display for LedgerError {
@@ -167,6 +174,13 @@ impl fmt::Display for LedgerError {
                 write!(f, "entry {id} is a reversal and cannot be reversed")
             }
             LedgerError::Storage(message) => write!(f, "storage error: {message}"),
+            LedgerError::Contention(code) => {
+                write!(
+                    f,
+                    "conflicted with concurrent operations ({code}); retry later"
+                )
+            }
+            LedgerError::Busy => f.write_str("accounts are busy; retry later"),
         }
     }
 }

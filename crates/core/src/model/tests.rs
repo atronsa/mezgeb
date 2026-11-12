@@ -638,6 +638,14 @@ fn one_account_per_chart_reference() -> TestResult {
         LedgerError::Storage("disk full".into()).to_string(),
         "storage error: disk full"
     );
+    assert_eq!(
+        LedgerError::Contention("40P01".into()).to_string(),
+        "conflicted with concurrent operations (40P01); retry later"
+    );
+    assert_eq!(
+        LedgerError::Busy.to_string(),
+        "accounts are busy; retry later"
+    );
     Ok(())
 }
 
