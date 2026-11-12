@@ -1,21 +1,28 @@
-//! Atomic posting (step 1.09).
+//! Atomic, idempotent posting (steps 1.09–1.11).
 //!
 //! One entry is one PostgreSQL transaction. Either every line, every total
-//! update and the entry row commit together, or nothing does (ADR-0008,
-//! INV-4). If the process dies half way, PostgreSQL rolls the transaction
-//! back.
+//! update, the entry row and its idempotency record commit together, or
+//! nothing does (ADR-0008, INV-4). If the process dies half way, PostgreSQL
+//! rolls the transaction back.
+//!
+//! The same request (same client, key and fingerprint) has its effect once:
+//! a repeat returns the original entry, a different request with the same
+//! key is refused (INV-13).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use mezgeb_core::{
-    AccountId, ClientId, EntryDraft, EntryId, IdempotencyKey, LedgerError, LineDraft, PostedEntry,
-    PostedLine, Side, validate,
+    AccountId, ClientId, EntryDraft, EntryId, Fingerprint, IdempotencyKey, LedgerError, LineDraft,
+    PostedEntry, PostedLine, Side, reversal_fingerprint, validate,
 };
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
 use crate::concurrency::PostOptions;
-use crate::rows::{ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, storage};
+use crate::rows::{
+    ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, entry_from_row, line_from_row,
+    storage,
+};
 
 /// One request to post an entry.
 #[derive(Debug, Clone)]
@@ -45,6 +52,11 @@ pub struct PostRequest {
 /// 5. insert all lines in one statement;
 /// 6. commit.
 ///
+/// Before step 1, the idempotency key is claimed: if this client already
+/// posted a request with this key, the original entry is returned (same
+/// fingerprint) or the request is refused with `IdempotencyKeyReused`
+/// (different fingerprint), and nothing is written.
+///
 /// A deadlock or serialization failure re-runs the whole transaction. The
 /// database checks the result again at commit (docs/db-schema.md).
 pub async fn post_entry(
@@ -64,8 +76,16 @@ pub async fn post_entry_with(
     loop {
         let result = async {
             let mut tx = options.begin(conn).await?;
+            if entry_exists(&mut tx, request.entry_id).await? {
+                return Err(LedgerError::DuplicateEntry(request.entry_id));
+            }
+            let fingerprint = request.draft.fingerprint();
+            if let Claim::Existing(original) = claim_key(&mut tx, &request, &fingerprint).await? {
+                return Ok(original);
+            }
             let posted = post_in_transaction(&mut tx, request.clone(), options).await?;
             tx.commit().await.map_err(db)?;
+            options.after_commit()?;
             Ok(posted)
         }
         .await;
@@ -76,8 +96,8 @@ pub async fn post_entry_with(
     }
 }
 
-/// Posts inside an open transaction, without committing. Used by
-/// [`post_entry`] and by reversals.
+/// Posts inside an open transaction, without committing, after the key has
+/// been claimed. Used by [`post_entry`] and by reversals.
 pub(crate) async fn post_in_transaction(
     conn: &mut PgConnection,
     request: PostRequest,
@@ -90,10 +110,6 @@ pub(crate) async fn post_in_transaction(
         draft,
         reverses,
     } = request;
-
-    if entry_exists(conn, entry_id).await? {
-        return Err(LedgerError::DuplicateEntry(entry_id));
-    }
 
     // 1. Lock the accounts, in ascending ID order (ADR-0007).
     let ids: BTreeSet<AccountId> = draft.lines.iter().map(|l| l.account).collect();
@@ -281,6 +297,11 @@ fn entry_insert_error(error: sqlx::Error, id: EntryId, reverses: Option<EntryId>
         {
             LedgerError::DuplicateEntry(id)
         }
+        (Some((code, constraint)), _)
+            if code == "23505" && constraint == "journal_entries_idempotency_unique" =>
+        {
+            LedgerError::IdempotencyKeyReused
+        }
         _ => db(error),
     }
 }
@@ -322,6 +343,10 @@ async fn reverse_once(
     let mut tx = options.begin(conn).await?;
     if entry_exists(&mut tx, request.entry_id).await? {
         return Err(LedgerError::DuplicateEntry(request.entry_id));
+    }
+    let fingerprint = reversal_fingerprint(original);
+    if let Claim::Existing(reversal) = claim_key(&mut tx, &request, &fingerprint).await? {
+        return Ok(reversal);
     }
     let target: Option<Option<Uuid>> =
         sqlx::query_scalar("SELECT reverses_entry_id FROM journal_entries WHERE id = $1")
@@ -382,4 +407,109 @@ async fn reverse_once(
     .await?;
     tx.commit().await.map_err(db)?;
     Ok(posted)
+}
+
+/// The result of claiming an idempotency key.
+enum Claim {
+    /// The key was free and is now held by this transaction.
+    New,
+    /// The key was already used for the same request: its entry.
+    Existing(PostedEntry),
+}
+
+/// Claims `request`'s idempotency key for its entry, before any account is
+/// locked. If another transaction holds the same key and has not finished,
+/// PostgreSQL makes this one wait on the primary key until it commits (the
+/// key is then taken) or rolls back (the key is free again).
+async fn claim_key(
+    conn: &mut PgConnection,
+    request: &PostRequest,
+    fingerprint: &Fingerprint,
+) -> Result<Claim, LedgerError> {
+    let claimed = sqlx::query(
+        "INSERT INTO idempotency_records (client_id, idempotency_key, request_hash, entry_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (client_id, idempotency_key) DO NOTHING",
+    )
+    .bind(request.client_id.as_uuid())
+    .bind(request.idempotency_key.as_str())
+    .bind(fingerprint.as_slice())
+    .bind(request.entry_id.as_uuid())
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    if claimed.rows_affected() == 1 {
+        return Ok(Claim::New);
+    }
+    let (hash, entry): (Vec<u8>, Uuid) = sqlx::query_as(
+        "SELECT request_hash, entry_id FROM idempotency_records
+          WHERE client_id = $1 AND idempotency_key = $2",
+    )
+    .bind(request.client_id.as_uuid())
+    .bind(request.idempotency_key.as_str())
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+    if hash.as_slice() != fingerprint.as_slice() {
+        return Err(LedgerError::IdempotencyKeyReused);
+    }
+    let id = crate::rows::entry_id(entry)?;
+    load_entry(conn, id)
+        .await?
+        .map(Claim::Existing)
+        .ok_or_else(|| storage("an idempotency record points to a missing entry"))
+}
+
+/// Reads one posted entry with its lines.
+pub(crate) async fn load_entry(
+    conn: &mut PgConnection,
+    id: EntryId,
+) -> Result<Option<PostedEntry>, LedgerError> {
+    let Some(row) = sqlx::query(
+        "SELECT id, sequence, reverses_entry_id, metadata::text AS metadata,
+                (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros
+           FROM journal_entries WHERE id = $1",
+    )
+    .bind(id.as_uuid())
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?
+    else {
+        return Ok(None);
+    };
+    let line_rows = sqlx::query(
+        "SELECT account_id, side, amount, currency, debits_after, credits_after
+           FROM journal_lines WHERE entry_id = $1 ORDER BY line_no",
+    )
+    .bind(id.as_uuid())
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let lines = line_rows
+        .iter()
+        .map(line_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    entry_from_row(&row, lines).map(Some)
+}
+
+/// The entry a client posted with this idempotency key, if any. A client
+/// that lost a response uses it to learn the outcome without posting again
+/// (ADR-0008).
+pub async fn lookup_by_idempotency_key(
+    conn: &mut PgConnection,
+    client: ClientId,
+    key: &IdempotencyKey,
+) -> Result<Option<PostedEntry>, LedgerError> {
+    let entry: Option<Uuid> = sqlx::query_scalar(
+        "SELECT entry_id FROM idempotency_records WHERE client_id = $1 AND idempotency_key = $2",
+    )
+    .bind(client.as_uuid())
+    .bind(key.as_str())
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    match entry {
+        Some(entry) => load_entry(conn, crate::rows::entry_id(entry)?).await,
+        None => Ok(None),
+    }
 }

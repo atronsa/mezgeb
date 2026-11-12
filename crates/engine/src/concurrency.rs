@@ -42,6 +42,11 @@ pub struct PostOptions {
     pub max_attempts: u32,
     /// Counts attempts and retries, if set.
     pub stats: Option<Arc<RetryStats>>,
+    /// Test hook (feature `test-hooks`): after a posting commits, report a
+    /// lost connection instead of the result, as if the response never
+    /// reached the client.
+    #[cfg(feature = "test-hooks")]
+    pub lose_response_after_commit: bool,
 }
 
 impl Default for PostOptions {
@@ -52,6 +57,8 @@ impl Default for PostOptions {
             lock_timeout: Duration::from_secs(5),
             max_attempts: 3,
             stats: None,
+            #[cfg(feature = "test-hooks")]
+            lose_response_after_commit: false,
         }
     }
 }
@@ -88,6 +95,25 @@ impl RetryStats {
 }
 
 impl PostOptions {
+    /// Runs after a posting commits. Without the `test-hooks` feature it
+    /// does nothing.
+    #[cfg(feature = "test-hooks")]
+    pub(crate) fn after_commit(&self) -> Result<(), LedgerError> {
+        if self.lose_response_after_commit {
+            return Err(LedgerError::Storage(
+                "test hook: connection lost after commit, response not delivered".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Runs after a posting commits. Without the `test-hooks` feature it
+    /// does nothing.
+    #[cfg(not(feature = "test-hooks"))]
+    pub(crate) fn after_commit(&self) -> Result<(), LedgerError> {
+        Ok(())
+    }
+
     /// The lock clause for loading accounts.
     pub(crate) fn lock_clause(&self) -> &'static str {
         if self.lock_rows {

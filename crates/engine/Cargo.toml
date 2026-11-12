@@ -12,7 +12,13 @@ serde_json.workspace = true
 uuid.workspace = true
 tokio.workspace = true
 
+[features]
+# Failure-injection hooks for tests only. Never enable in a build that runs
+# against real money.
+test-hooks = []
+
 [dev-dependencies]
+mezgeb-engine = { path = ".", features = ["test-hooks"] }
 tokio.workspace = true
 proptest.workspace = true
 
