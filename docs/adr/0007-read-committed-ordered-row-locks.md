@@ -61,3 +61,51 @@ Backstops:
 
 **Evidence:** step 1.10 adds measurements to this ADR, and step 3.03 checks
 them under load.
+
+## Evidence (step 1.10)
+
+**Implementation.** Accounts are locked with `SELECT … FOR NO KEY UPDATE`
+(not `FOR UPDATE`): it blocks other postings to the same account but not
+the `FOR KEY SHARE` locks that PostgreSQL takes when a journal line's foreign
+key checks its account. Each transaction sets `lock_timeout` (5 s); a
+deadlock (`40P01`) or serialization failure (`40001`) re-runs the whole
+transaction, at most 3 attempts with jittered backoff.
+
+**Measurements.** The same workloads under each scheme, 20 connections, 8
+worker threads, PostgreSQL 18.6 in Docker Desktop on Windows 11
+(`cargo run --release --example contention`). "Gave up" means the operation
+still conflicted after 3 attempts.
+
+| Workload | Scheme | Posted | Insufficient funds | Gave up | Other errors | Retry rate | Deadlock retries |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Hot wallet: 100 × spend 80 from 100 | **RC + locks** | 1 | 99 | 0 | 0 | 0.0% | 0 |
+| | SERIALIZABLE + locks | 1 | 99 | 0 | 0 | 1.0% | 0 |
+| | SERIALIZABLE, no locks | 1 | 99 | 0 | 0 | 1.0% | 0 |
+| | RC, no locks | 1 | 98 | 0 | **1** | 0.0% | 0 |
+| 1,000 random transfers, 10 wallets | **RC + locks** | 1,000 | 0 | 0 | 0 | 0.0% | 0 |
+| | SERIALIZABLE + locks | 217 | 0 | **783** | 0 | 176.8% | 0 |
+| | SERIALIZABLE, no locks | 254 | 0 | **746** | 0 | 173.1% | 0 |
+| | RC, no locks | 1,000 | 0 | 0 | 0 | 0.0% | 0 |
+| 1,000 payments into one merchant | **RC + locks** | 1,000 | 0 | 0 | 0 | 0.0% | 0 |
+| | SERIALIZABLE + locks | 144 | 0 | **856** | 0 | 180.2% | 0 |
+| | SERIALIZABLE, no locks | 144 | 0 | **856** | 0 | 182.3% | 0 |
+| | RC, no locks | 1,000 | 0 | 0 | 0 | 0.0% | 0 |
+
+**What the measurements show:**
+
+- **The chosen scheme never retried and never deadlocked**, on any
+  workload, and refused exactly the 99 overdrafts.
+- **SERIALIZABLE is correct but unusable under contention.** 73–86% of
+  operations still failed after three attempts, even with the row locks.
+  Serializable snapshot isolation also tracks the *reads* each posting makes
+  (for example, checking that an entry ID is not taken), and concurrent
+  inserts into the same tables conflict with them. This confirms the
+  decision.
+- **Without the row locks, READ COMMITTED checks stale balances.** In the hot
+  wallet run, one overdraft passed the balance check in Rust and was stopped
+  only by the database's `accounts_not_negative` CHECK. The locks are what
+  make the Rust check authoritative; for rules with no database backstop
+  (refund caps, escrow caps), there would be nothing behind it.
+- **Absolute throughput here is not meaningful** (Docker Desktop's network
+  on Windows dominates each round trip). Throughput is measured properly in
+  step 3.01.
