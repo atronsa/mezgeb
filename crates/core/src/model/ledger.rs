@@ -154,6 +154,9 @@ pub enum LedgerError {
     /// An account stayed locked by other operations longer than the lock
     /// timeout. Safe to retry later. Never produced by `MemLedger`.
     Busy,
+    /// The idempotency key was already used by this client for a different
+    /// request (ADR-0008, INV-13). Never produced by `MemLedger`.
+    IdempotencyKeyReused,
 }
 
 impl fmt::Display for LedgerError {
@@ -181,6 +184,9 @@ impl fmt::Display for LedgerError {
                 )
             }
             LedgerError::Busy => f.write_str("accounts are busy; retry later"),
+            LedgerError::IdempotencyKeyReused => {
+                f.write_str("the idempotency key was already used for a different request")
+            }
         }
     }
 }

@@ -646,6 +646,10 @@ fn one_account_per_chart_reference() -> TestResult {
         LedgerError::Busy.to_string(),
         "accounts are busy; retry later"
     );
+    assert_eq!(
+        LedgerError::IdempotencyKeyReused.to_string(),
+        "the idempotency key was already used for a different request"
+    );
     Ok(())
 }
 

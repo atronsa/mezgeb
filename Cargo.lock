@@ -719,6 +719,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "toml",
  "uuid",
 ]
@@ -728,6 +729,7 @@ name = "mezgeb-engine"
 version = "0.0.1"
 dependencies = [
  "mezgeb-core",
+ "mezgeb-engine",
  "proptest",
  "serde_json",
  "sqlx",
