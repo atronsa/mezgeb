@@ -19,6 +19,25 @@ pub(crate) fn storage(error: impl std::fmt::Display) -> LedgerError {
     LedgerError::Storage(error.to_string())
 }
 
+/// Maps a database error. Deadlocks and serialization failures become
+/// `Contention` (the caller may retry the whole transaction); a lock wait
+/// longer than `lock_timeout`, or no free pool connection in time, becomes
+/// `Busy`.
+pub(crate) fn db(error: sqlx::Error) -> LedgerError {
+    if matches!(error, sqlx::Error::PoolTimedOut) {
+        return LedgerError::Busy;
+    }
+    let code = error
+        .as_database_error()
+        .and_then(|e| e.code())
+        .map(|c| c.into_owned());
+    match code.as_deref() {
+        Some(code @ ("40P01" | "40001")) => LedgerError::Contention(code.to_owned()),
+        Some("55P03") => LedgerError::Busy,
+        _ => storage(error),
+    }
+}
+
 fn bad(what: &str, value: impl std::fmt::Debug) -> LedgerError {
     LedgerError::Storage(format!("stored {what} is invalid: {value:?}"))
 }

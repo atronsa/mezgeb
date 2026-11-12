@@ -131,8 +131,17 @@ impl TestDb {
 
     /// A connection pool as `mezgeb_app`, the service's role.
     pub async fn app_pool(&self) -> Result<PgPool, sqlx::Error> {
+        self.app_pool_of(2).await
+    }
+
+    /// A connection pool as `mezgeb_app` with `size` connections. Tasks may
+    /// queue for a connection for up to ten minutes: concurrency tests start
+    /// far more tasks than connections, and they test locking, not how long
+    /// a queue waits on a slow machine.
+    pub async fn app_pool_of(&self, size: u32) -> Result<PgPool, sqlx::Error> {
         PgPoolOptions::new()
-            .max_connections(2)
+            .max_connections(size)
+            .acquire_timeout(std::time::Duration::from_secs(600))
             .connect_with(self.options("mezgeb_app"))
             .await
     }

@@ -167,7 +167,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 1.07 | [In-Memory Reference Ledger (the Oracle)](phase-1-core-engine/07-reference-ledger-oracle.md) | 7 | Done ([evidence](../evidence/1.07-reference-ledger-oracle.md)) |
 | 1.08 | [PostgreSQL Schema v1, Constraints and Roles](phase-1-core-engine/08-postgresql-schema.md) | 8 | Done ([evidence](../evidence/1.08-postgresql-schema.md)) |
 | 1.09 | [Atomic Posting with SQLx](phase-1-core-engine/09-atomic-posting.md) | 9 | Done ([evidence](../evidence/1.09-atomic-posting.md)) |
-| 1.10 | [Concurrency Control and Concurrent Spending](phase-1-core-engine/10-concurrency-control.md) | 10 | Not started |
+| 1.10 | [Concurrency Control and Concurrent Spending](phase-1-core-engine/10-concurrency-control.md) | 10 | Done ([evidence](../evidence/1.10-concurrency-control.md)) |
 | 1.11 | [Idempotency and Exactly-Once Effect](phase-1-core-engine/11-idempotency.md) | 11 | Not started |
 | 1.12 | [Reversals and Adjustments](phase-1-core-engine/12-reversals-and-adjustments.md) | 12 | Not started |
 | 1.13 | [Balance Verification and Integrity Checking](phase-1-core-engine/13-balance-verification.md) | 13 | Not started |

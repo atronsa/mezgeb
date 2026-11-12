@@ -10,6 +10,7 @@ mezgeb-core.workspace = true
 sqlx.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true

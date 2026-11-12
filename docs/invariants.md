@@ -137,7 +137,7 @@ Every invariant has at least one planned test. Test kinds:
 | T-10b | INV-10 | Verify | Closed-period balances match their snapshot | 2.05 |
 | T-11a | INV-11 | Verify | The hash chain verifies from the first entry | 2.09 |
 | T-11b | INV-11 | DB | Changing any stored entry byte is detected by verification | 2.09 |
-| T-12a | INV-12 | Concurrency | `recorded_time` is strictly increasing under parallel posting | 1.10 |
+| T-12a | INV-12 | Concurrency | `recorded_time` is strictly increasing under parallel posting (measured in 1.10; guaranteed by the single commit order of the hash chain) | 2.09 |
 | T-13a | INV-13 | Unit | Same key and same request returns the original result | 1.11 |
 | T-13b | INV-13 | Unit | Same key and different request returns a conflict | 1.11 |
 | T-13c | INV-13 | Crash | A crash after commit, then a retry, posts nothing new | 1.15 |

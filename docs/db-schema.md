@@ -56,7 +56,7 @@ Their tables do not exist yet. Each step adds the constraint and its test.
 | Invariant | What the database will enforce | Step |
 |---|---|---|
 | INV-10 | No entry in a closed accounting period | 2.05 |
-| INV-12 | `recorded_time` strictly increasing under concurrency | 1.10 |
+| INV-12 | `recorded_time` strictly increasing under concurrency: measured in step 1.10 (no tie or inversion in 1,000 parallel postings), guaranteed by the hash chain's single commit order | 2.09 |
 | INV-16 | A hold resolves at most once | 1.14 |
 | INV-19, INV-20 | Voucher escrow cap; one settlement per `(device_id, counter)` | 2.12 |
 | INV-25 | Maker and checker are different people | 1.12 |
