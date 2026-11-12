@@ -1,0 +1,12 @@
+# Store and check out text files with LF line endings on every platform.
+#
+# Migrations matter most: SQLx records a checksum of each applied migration
+# and refuses to run if the file changes, so a migration checked out with
+# CRLF on Windows would no longer match the databases it was applied to.
+* text=auto eol=lf
+*.sql text eol=lf
+*.rs text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
