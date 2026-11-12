@@ -12,8 +12,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mezgeb_core::{
-    AccountId, ClientId, EntryDraft, EntryId, Fingerprint, IdempotencyKey, LedgerError, LineDraft,
-    PostedEntry, PostedLine, Side, reversal_fingerprint, validate,
+    AccountId, Authorization, ClientId, EntryDraft, EntryId, EntryKind, Fingerprint,
+    IdempotencyKey, LedgerError, LineDraft, PostedEntry, PostedLine, Side, adjustment_fingerprint,
+    reversal_fingerprint, validate,
 };
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -33,8 +34,36 @@ pub struct PostRequest {
     pub client_id: ClientId,
     pub idempotency_key: IdempotencyKey,
     pub draft: EntryDraft,
-    /// Set for a reversal: the entry it mirrors (INV-14).
-    pub reverses: Option<EntryId>,
+    /// Who asked for it and why. `None` for a standard entry. With
+    /// [`post_entry`], `Some` makes the entry an adjustment, which needs a
+    /// different approver (INV-25); with [`reverse_entry`], it is the
+    /// reversal's reason and requester.
+    pub authorization: Option<Authorization>,
+}
+
+impl PostRequest {
+    /// A request for a standard entry, without authorization.
+    pub fn new(
+        entry_id: EntryId,
+        client_id: ClientId,
+        idempotency_key: IdempotencyKey,
+        draft: EntryDraft,
+    ) -> PostRequest {
+        PostRequest {
+            entry_id,
+            client_id,
+            idempotency_key,
+            draft,
+            authorization: None,
+        }
+    }
+
+    /// The same request as an adjustment, or a reversal's authorization.
+    #[must_use]
+    pub fn authorized(mut self, authorization: Authorization) -> PostRequest {
+        self.authorization = Some(authorization);
+        self
+    }
 }
 
 /// Posts one entry atomically, with the default [`PostOptions`]
@@ -79,11 +108,17 @@ pub async fn post_entry_with(
             if entry_exists(&mut tx, request.entry_id).await? {
                 return Err(LedgerError::DuplicateEntry(request.entry_id));
             }
-            let fingerprint = request.draft.fingerprint();
+            let fingerprint = match &request.authorization {
+                None => request.draft.fingerprint(),
+                Some(auth) => {
+                    Authorization::check(EntryKind::Adjustment, Some(auth))?;
+                    adjustment_fingerprint(&request.draft, auth)
+                }
+            };
             if let Claim::Existing(original) = claim_key(&mut tx, &request, &fingerprint).await? {
                 return Ok(original);
             }
-            let posted = post_in_transaction(&mut tx, request.clone(), options).await?;
+            let posted = post_in_transaction(&mut tx, request.clone(), None, options).await?;
             tx.commit().await.map_err(db)?;
             options.after_commit()?;
             Ok(posted)
@@ -101,6 +136,7 @@ pub async fn post_entry_with(
 pub(crate) async fn post_in_transaction(
     conn: &mut PgConnection,
     request: PostRequest,
+    reverses: Option<EntryId>,
     options: &PostOptions,
 ) -> Result<PostedEntry, LedgerError> {
     let PostRequest {
@@ -108,8 +144,14 @@ pub(crate) async fn post_in_transaction(
         client_id,
         idempotency_key,
         draft,
-        reverses,
+        authorization,
     } = request;
+    let kind = match (reverses, &authorization) {
+        (Some(_), _) => EntryKind::Reversal,
+        (None, Some(_)) => EntryKind::Adjustment,
+        (None, None) => EntryKind::Standard,
+    };
+    Authorization::check(kind, authorization.as_ref())?;
 
     // 1. Lock the accounts, in ascending ID order (ADR-0007).
     let ids: BTreeSet<AccountId> = draft.lines.iter().map(|l| l.account).collect();
@@ -135,9 +177,11 @@ pub(crate) async fn post_in_transaction(
     let metadata = serde_json::to_string(entry.metadata()).map_err(storage)?;
     let inserted = sqlx::query(
         "INSERT INTO journal_entries
-             (id, client_id, idempotency_key, reverses_entry_id, metadata, event_time)
+             (id, client_id, idempotency_key, reverses_entry_id, metadata, event_time,
+              kind, reason_code, requested_by, approved_by)
          VALUES ($1, $2, $3, $4, $5::jsonb,
-                 timestamptz 'epoch' + $6::bigint * interval '1 microsecond')
+                 timestamptz 'epoch' + $6::bigint * interval '1 microsecond',
+                 $7, $8, $9, $10)
          RETURNING sequence",
     )
     .bind(entry_id.as_uuid())
@@ -146,6 +190,19 @@ pub(crate) async fn post_in_transaction(
     .bind(reverses.map(|r| r.as_uuid()))
     .bind(metadata)
     .bind(entry.event_time().map(|t| t.as_micros()))
+    .bind(kind.as_str())
+    .bind(authorization.as_ref().map(|a| a.reason.as_str().to_owned()))
+    .bind(
+        authorization
+            .as_ref()
+            .map(|a| a.requested_by.as_str().to_owned()),
+    )
+    .bind(
+        authorization
+            .as_ref()
+            .and_then(|a| a.approved_by.as_ref())
+            .map(|a| a.as_str().to_owned()),
+    )
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| entry_insert_error(e, entry_id, reverses))?;
@@ -218,6 +275,8 @@ pub(crate) async fn post_in_transaction(
         reverses,
         entry.metadata().clone(),
         entry.event_time(),
+        kind,
+        authorization,
     ))
 }
 
@@ -302,6 +361,16 @@ fn entry_insert_error(error: sqlx::Error, id: EntryId, reverses: Option<EntryId>
         {
             LedgerError::IdempotencyKeyReused
         }
+        (Some((code, constraint)), _)
+            if code == "23503" && constraint == "journal_entries_reason_fk" =>
+        {
+            LedgerError::ReasonNotAllowed("refused by the database".into())
+        }
+        (Some((code, constraint)), _)
+            if code == "23514" && constraint == "journal_entries_authorization" =>
+        {
+            LedgerError::MakerIsChecker
+        }
         _ => db(error),
     }
 }
@@ -344,7 +413,12 @@ async fn reverse_once(
     if entry_exists(&mut tx, request.entry_id).await? {
         return Err(LedgerError::DuplicateEntry(request.entry_id));
     }
-    let fingerprint = reversal_fingerprint(original);
+    let authorization = request
+        .authorization
+        .clone()
+        .ok_or(LedgerError::AuthorizationRequired)?;
+    Authorization::check(EntryKind::Reversal, Some(&authorization))?;
+    let fingerprint = reversal_fingerprint(original, &authorization);
     if let Claim::Existing(reversal) = claim_key(&mut tx, &request, &fingerprint).await? {
         return Ok(reversal);
     }
@@ -399,9 +473,9 @@ async fn reverse_once(
         &mut tx,
         PostRequest {
             draft: mirror,
-            reverses: Some(original),
             ..request
         },
+        Some(original),
         options,
     )
     .await?;
@@ -467,7 +541,8 @@ pub(crate) async fn load_entry(
 ) -> Result<Option<PostedEntry>, LedgerError> {
     let Some(row) = sqlx::query(
         "SELECT id, sequence, reverses_entry_id, metadata::text AS metadata,
-                (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros
+                (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros,
+                kind, reason_code, requested_by, approved_by
            FROM journal_entries WHERE id = $1",
     )
     .bind(id.as_uuid())

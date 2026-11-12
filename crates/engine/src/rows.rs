@@ -4,8 +4,9 @@
 use std::collections::BTreeMap;
 
 use mezgeb_core::{
-    Account, AccountCode, AccountId, AccountRecord, AccountStatus, AccountType, Currency, EntryId,
-    LedgerError, Money, PositiveAmount, PostedEntry, PostedLine, Side, Timestamp,
+    Account, AccountCode, AccountId, AccountRecord, AccountStatus, AccountType, ActorId,
+    Authorization, Currency, EntryId, EntryKind, LedgerError, Money, PositiveAmount, PostedEntry,
+    PostedLine, ReasonCode, Side, Timestamp,
 };
 use sqlx::Row;
 use sqlx::postgres::PgRow;
@@ -100,6 +101,19 @@ pub(crate) fn entry_from_row(
     let reverses: Option<Uuid> = row.try_get("reverses_entry_id").map_err(storage)?;
     let metadata: String = row.try_get("metadata").map_err(storage)?;
     let event_time: Option<i64> = row.try_get("event_time_micros").map_err(storage)?;
+    let kind: String = row.try_get("kind").map_err(storage)?;
+    let kind = EntryKind::from_name(&kind).ok_or_else(|| bad("entry kind", &kind))?;
+    let reason: Option<String> = row.try_get("reason_code").map_err(storage)?;
+    let requested_by: Option<String> = row.try_get("requested_by").map_err(storage)?;
+    let approved_by: Option<String> = row.try_get("approved_by").map_err(storage)?;
+    let authorization = match (reason, requested_by) {
+        (Some(reason), Some(requested_by)) => Some(Authorization {
+            reason: ReasonCode::new(reason).map_err(storage)?,
+            requested_by: ActorId::new(requested_by).map_err(storage)?,
+            approved_by: approved_by.map(ActorId::new).transpose().map_err(storage)?,
+        }),
+        _ => None,
+    };
     Ok(PostedEntry::new(
         entry_id(row.try_get("id").map_err(storage)?)?,
         u64::try_from(sequence).map_err(|_| bad("sequence", sequence))?,
@@ -108,6 +122,8 @@ pub(crate) fn entry_from_row(
         serde_json::from_str::<BTreeMap<String, String>>(&metadata)
             .map_err(|_| bad("metadata", &metadata))?,
         event_time.map(Timestamp::from_micros),
+        kind,
+        authorization,
     ))
 }
 
