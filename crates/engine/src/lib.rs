@@ -16,7 +16,7 @@ mod store;
 pub mod verification;
 pub mod verify;
 
-pub use concurrency::{Isolation, PostOptions, RetryStats};
+pub use concurrency::{FaultPoint, Isolation, PostOptions, RetryStats};
 pub use holds::{
     CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,
     place_hold, release_hold,

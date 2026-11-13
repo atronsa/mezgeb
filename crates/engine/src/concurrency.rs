@@ -42,11 +42,42 @@ pub struct PostOptions {
     pub max_attempts: u32,
     /// Counts attempts and retries, if set.
     pub stats: Option<Arc<RetryStats>>,
-    /// Test hook (feature `test-hooks`): after a posting commits, report a
-    /// lost connection instead of the result, as if the response never
-    /// reached the client.
+    /// Test hook (feature `test-hooks`): make every write with these
+    /// options fail at this point (step 1.15).
     #[cfg(feature = "test-hooks")]
-    pub lose_response_after_commit: bool,
+    pub fault: Option<FaultPoint>,
+}
+
+/// A point in a write where a test can make it fail (step 1.15). Only takes
+/// effect with the `test-hooks` feature, through `PostOptions::fault`.
+///
+/// Every write (a posting, a reversal, an adjustment, a hold operation, an
+/// expiry by the worker) passes all four points in order. A failure before
+/// the commit is a crash: the transaction rolls back and nothing is written.
+/// A failure after it is a lost response: everything is written, but the
+/// caller sees an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FaultPoint {
+    /// The transaction has started and the idempotency key is claimed, but
+    /// no account is locked yet.
+    BeforeLock,
+    /// The accounts are locked and updated, and the entry and its lines are
+    /// inserted.
+    AfterLines,
+    /// Everything is written; `COMMIT` is next.
+    BeforeCommit,
+    /// `COMMIT` succeeded, and the result is about to be returned.
+    AfterCommit,
+}
+
+impl FaultPoint {
+    /// All four, in the order a write passes them.
+    pub const ALL: [FaultPoint; 4] = [
+        FaultPoint::BeforeLock,
+        FaultPoint::AfterLines,
+        FaultPoint::BeforeCommit,
+        FaultPoint::AfterCommit,
+    ];
 }
 
 impl Default for PostOptions {
@@ -58,7 +89,7 @@ impl Default for PostOptions {
             max_attempts: 3,
             stats: None,
             #[cfg(feature = "test-hooks")]
-            lose_response_after_commit: false,
+            fault: None,
         }
     }
 }
@@ -95,23 +126,34 @@ impl RetryStats {
 }
 
 impl PostOptions {
-    /// Runs after a posting commits. Without the `test-hooks` feature it
-    /// does nothing.
+    /// Fails here if a test asked for it. Without the `test-hooks` feature
+    /// it does nothing.
     #[cfg(feature = "test-hooks")]
-    pub(crate) fn after_commit(&self) -> Result<(), LedgerError> {
-        if self.lose_response_after_commit {
-            return Err(LedgerError::Storage(
-                "test hook: connection lost after commit, response not delivered".into(),
-            ));
+    pub(crate) fn fault_at(&self, point: FaultPoint) -> Result<(), LedgerError> {
+        if self.fault != Some(point) {
+            return Ok(());
         }
+        Err(LedgerError::Storage(match point {
+            FaultPoint::AfterCommit => {
+                "test hook: connection lost after commit, response not delivered".into()
+            }
+            _ => format!("test hook: crashed at {point:?}"),
+        }))
+    }
+
+    /// Fails here if a test asked for it. Without the `test-hooks` feature
+    /// it does nothing.
+    #[cfg(not(feature = "test-hooks"))]
+    #[allow(clippy::unused_self)]
+    pub(crate) fn fault_at(&self, _point: FaultPoint) -> Result<(), LedgerError> {
         Ok(())
     }
 
-    /// Runs after a posting commits. Without the `test-hooks` feature it
-    /// does nothing.
-    #[cfg(not(feature = "test-hooks"))]
-    pub(crate) fn after_commit(&self) -> Result<(), LedgerError> {
-        Ok(())
+    /// Commits a write's transaction, passing the last two fault points.
+    pub(crate) async fn commit(&self, tx: Transaction<'_, Postgres>) -> Result<(), LedgerError> {
+        self.fault_at(FaultPoint::BeforeCommit)?;
+        tx.commit().await.map_err(db)?;
+        self.fault_at(FaultPoint::AfterCommit)
     }
 
     /// The lock clause for loading accounts.

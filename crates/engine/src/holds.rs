@@ -322,7 +322,7 @@ async fn place_once(
     let hold = load_hold(&mut tx, place.hold, false)
         .await?
         .ok_or(LedgerError::HoldNotFound(place.hold))?;
-    tx.commit().await.map_err(db)?;
+    options.commit(tx).await?;
     Ok(hold)
 }
 
@@ -418,7 +418,7 @@ async fn capture_once(
         request.entry_id,
     )
     .await?;
-    tx.commit().await.map_err(db)?;
+    options.commit(tx).await?;
     Ok(closed)
 }
 
@@ -436,7 +436,7 @@ async fn end_once(
     };
     let hold = lock_active(&mut tx, hold_id).await?;
     let closed = end_locked(&mut tx, request, hold, expire_at, options).await?;
-    tx.commit().await.map_err(db)?;
+    options.commit(tx).await?;
     Ok(closed)
 }
 
@@ -539,7 +539,7 @@ async fn expire_next_once(
         )));
     }
     let expired = end_locked(&mut tx, &request, hold, Some(now), options).await?;
-    tx.commit().await.map_err(db)?;
+    options.commit(tx).await?;
     Ok(Some(expired))
 }
 
