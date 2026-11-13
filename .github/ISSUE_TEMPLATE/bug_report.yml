@@ -1,0 +1,51 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. **If it could let money be created, lost, spent twice or changed without trace, do not file it here:** report it privately, as [SECURITY.md](https://github.com/atronsa/mezgeb/blob/main/SECURITY.md) explains.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: The smallest steps, test or `mezgeb-sim` seed that shows it.
+      placeholder: |
+        cargo run -p mezgeb-sim -- --seed 42 --ops 10000
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Commit
+      description: The commit you tested (`git rev-parse --short HEAD`).
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Rust version and PostgreSQL version.
+      placeholder: Ubuntu 24.04, Rust 1.96, PostgreSQL 18.7
+  - type: dropdown
+    id: invariant
+    attributes:
+      label: Does it break an invariant?
+      description: See docs/invariants.md.
+      options:
+        - I don't know
+        - "No"
+        - "Yes (name it below)"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output or logs
+      render: text
