@@ -35,7 +35,11 @@ pub struct PostOptions {
     /// without it, `READ COMMITTED` checks balances that may already be
     /// stale.
     pub lock_rows: bool,
-    /// Longest wait for a row lock before giving up with `Busy`.
+    /// Longest any one statement of a write may take before it gives up with
+    /// `Busy`, including all its waits for row locks. Set as both
+    /// `lock_timeout` and `statement_timeout`: PostgreSQL applies
+    /// `lock_timeout` to each lock wait separately, and on a busy account
+    /// one statement can wait several times in a row (step 1.16).
     pub lock_timeout: Duration,
     /// Attempts in total, including the first, on deadlock or serialization
     /// failure.
@@ -180,11 +184,14 @@ impl PostOptions {
                 .await
                 .map_err(db)?;
         }
-        sqlx::query("SELECT set_config('lock_timeout', $1, true)")
-            .bind(format!("{}ms", self.lock_timeout.as_millis()))
-            .execute(&mut *tx)
-            .await
-            .map_err(db)?;
+        sqlx::query(
+            "SELECT set_config('lock_timeout', $1, true), \
+                    set_config('statement_timeout', $1, true)",
+        )
+        .bind(format!("{}ms", self.lock_timeout.as_millis()))
+        .execute(&mut *tx)
+        .await
+        .map_err(db)?;
         Ok(tx)
     }
 
