@@ -109,3 +109,41 @@ still conflicted after 3 attempts.
 - **Absolute throughput here is not meaningful** (Docker Desktop's network
   on Windows dominates each round trip). Throughput is measured properly in
   step 3.01.
+
+## Evidence (step 1.16)
+
+**A correction: the lock timeout bounds the whole wait.** PostgreSQL
+applies `lock_timeout` to each lock wait separately. On a hot account, one
+`SELECT … FOR NO KEY UPDATE` can wait several times in a row, first behind
+another waiter and then behind that waiter's transaction, so the 5 s bound
+did not hold. In the first baseline runs, postings on a hot account waited
+up to 29 s, and some reached the role's 30 s `transaction_timeout`, which
+closes the session. Each write's transaction now also sets
+`statement_timeout` to the same value, which bounds a whole statement. The
+cancellation (`57014`) maps to `Busy`, like a lock timeout (#42). The test
+`the_lock_timeout_bounds_the_whole_wait` makes a posting wait twice:
+before the fix it posted after 633 ms with a 400 ms timeout; now it gives
+up at 400 ms.
+
+**Baseline.** `mezgeb-bench` on a GitHub-hosted runner: 4 vCPUs (AMD EPYC
+7763), a disk sync of 0.08 ms, PostgreSQL 18.7, 16 connections posting at
+once, closed loop, 60 s measured after 5 s of warm-up, 3 runs per scenario
+([1.16 evidence](../evidence/1.16-phase-1-exit-review.md)).
+
+| Scenario | Postings/s | p50 | p99 | p99.9 | Refused `Busy` |
+|---|---:|---:|---:|---:|---:|
+| 2-line, uniform accounts | 704 | 22.6 ms | 41.2 ms | 54.0 ms | 0 |
+| 4-line, uniform accounts | 513 | 30.1 ms | 66.8 ms | 87.1 ms | 0 |
+| 2-line, one hot account | 295 | 10.5 ms | 638 ms | 4,127 ms | about 0.3% |
+| 4-line, one hot account | 220 | 13.9 ms | 609 ms | 4,026 ms | about 0.6% |
+
+**What it shows:**
+
+- **No deadlock and no retry, in any scenario**, as in step 1.10.
+- **A hot account is the limit, as this ADR expected.** Every posting to
+  it queues on one row. The lock `SELECT` averaged 40–45 ms, waiting in the
+  queue, while the rest of the posting took under 2 ms.
+- **The queue is not fair.** The median posting to the hot account waited
+  10 ms, but one in a thousand waited about 4 s, and a few reached the 5 s
+  timeout and were refused with `Busy`. They wrote nothing; a client
+  retries them. Step 3.03 decides how to split hot accounts.
