@@ -154,6 +154,14 @@ cargo run -p mezgeb-cli -- verify --full \
     --database-url postgres://mezgeb_verifier:mezgeb_verifier@localhost:55432/mezgeb
 ```
 
+To see test coverage (the `coverage` workflow runs it after every merge):
+
+```sh
+cargo install cargo-llvm-cov
+MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres \
+    cargo llvm-cov --workspace --summary-only
+```
+
 To measure postings per second and latency (the baseline is run on GitHub
 Actions by the `bench` workflow, for a steady disk):
 

@@ -336,3 +336,158 @@ async fn recorded_time_against_sequence() -> TestResult {
     db.drop().await?;
     Ok(())
 }
+
+/// A posting that waits on a locked account longer than `lock_timeout` gives
+/// up with `Busy` and writes nothing; once the lock is gone, the same
+/// posting succeeds (step 1.16).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_locked_account_is_busy_after_the_lock_timeout() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
+    let Some(server) = support::Server::from_env()? else {
+        return Ok(());
+    };
+    let db = server.migrated().await?;
+    let client: ClientId = uuid7(0xc11e).parse()?;
+    let options = PostOptions {
+        lock_timeout: std::time::Duration::from_millis(300),
+        ..PostOptions::default()
+    };
+    let mut store = PgStore::with_options(db.app_pool_of(2).await?, client, options);
+    let chart = Chart::from_toml(common::CHART)?;
+    let (bank, wallet) = (id(1)?, id(2)?);
+    store.open_account(bank, &chart, "1010").await?;
+    store
+        .open_account(wallet, &chart, "2010:cust-abebe")
+        .await?;
+    let deposit = || {
+        EntryDraft::default()
+            .debit(bank, etb(100))
+            .credit(wallet, etb(100))
+    };
+
+    // Another transaction holds the wallet's row lock.
+    let mut blocker = db.app().await?;
+    sqlx::query("BEGIN").execute(&mut blocker).await?;
+    sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+        .bind(wallet.as_uuid())
+        .execute(&mut blocker)
+        .await?;
+
+    let started = std::time::Instant::now();
+    let refused = store.post(entry(1)?, deposit()).await;
+    let waited = started.elapsed();
+    assert_eq!(refused.err(), Some(LedgerError::Busy));
+    assert!(
+        waited >= std::time::Duration::from_millis(300)
+            && waited < std::time::Duration::from_secs(5),
+        "waited {waited:?}"
+    );
+    assert_eq!(
+        store
+            .get_account(wallet)
+            .await?
+            .map(|a| a.balance().amount()),
+        Some(0)
+    );
+
+    sqlx::query("ROLLBACK").execute(&mut blocker).await?;
+    drop(blocker);
+    store.post(entry(1)?, deposit()).await?;
+    assert_eq!(
+        store
+            .get_account(wallet)
+            .await?
+            .map(|a| a.balance().amount()),
+        Some(100)
+    );
+    drop(store);
+    db.drop().await?;
+    Ok(())
+}
+
+/// Under `SERIALIZABLE`, postings to one wallet at once fail with
+/// serialization errors (`40001`). With one attempt they give up with
+/// `Contention` and write nothing; with more, each is retried until it
+/// posts once (step 1.16).
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn serialization_failures_are_retried_or_refused_cleanly() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
+    let Some(server) = support::Server::from_env()? else {
+        return Ok(());
+    };
+    let db = server.migrated().await?;
+    let client: ClientId = uuid7(0xc11e).parse()?;
+    let pool = db.app_pool_of(POOL).await?;
+    let store_with = |max_attempts: u32, stats: &Arc<RetryStats>| {
+        PgStore::with_options(
+            pool.clone(),
+            client,
+            PostOptions {
+                isolation: mezgeb_engine::Isolation::Serializable,
+                max_attempts,
+                stats: Some(stats.clone()),
+                lock_timeout: std::time::Duration::from_secs(20),
+                ..PostOptions::default()
+            },
+        )
+    };
+    let chart = Chart::from_toml(common::CHART)?;
+    let (bank, wallet) = (id(1)?, id(2)?);
+    let mut store = PgStore::new(pool.clone(), client);
+    store.open_account(bank, &chart, "1010").await?;
+    store
+        .open_account(wallet, &chart, "2010:cust-abebe")
+        .await?;
+    let deposits = |from: u64| {
+        (from..from + 100)
+            .map(|n| {
+                Ok((
+                    entry(n)?,
+                    EntryDraft::default()
+                        .debit(bank, etb(1))
+                        .credit(wallet, etb(1)),
+                ))
+            })
+            .collect::<Result<Vec<_>, mezgeb_core::IdError>>()
+    };
+
+    // One attempt: some give up, and those write nothing.
+    let once = Arc::new(RetryStats::default());
+    let results = post_all(&store_with(1, &once), deposits(0)?).await?;
+    let posted = results.iter().filter(|r| r.is_ok()).count();
+    for result in &results {
+        match result {
+            Ok(_) | Err(LedgerError::Contention(_)) => {}
+            Err(other) => return Err(format!("unexpected error: {other}").into()),
+        }
+    }
+    assert!(once.gave_up() > 0, "no posting conflicted");
+    assert_eq!(posted as u64 + once.gave_up(), 100);
+    assert_eq!(
+        store
+            .get_account(wallet)
+            .await?
+            .map(|a| a.balance().amount()),
+        Some(posted as i64)
+    );
+
+    // Enough attempts: every posting is retried until it posts, once.
+    let retried = Arc::new(RetryStats::default());
+    let results = post_all(&store_with(100, &retried), deposits(1_000)?).await?;
+    for result in results {
+        result?;
+    }
+    assert!(retried.serialization_retries() > 0, "nothing was retried");
+    assert_eq!(retried.gave_up(), 0);
+    assert_eq!(
+        store
+            .get_account(wallet)
+            .await?
+            .map(|a| a.balance().amount()),
+        Some(posted as i64 + 100)
+    );
+    drop(store);
+    pool.close().await;
+    db.drop().await?;
+    Ok(())
+}
