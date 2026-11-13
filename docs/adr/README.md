@@ -29,6 +29,25 @@ back to the reason it exists.
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.
 
+## Evidence at the end of Phase 1
+
+Where each decision implemented in Phase 1 was tested (step 1.16). ADRs
+0009 (the REST API) and 0010 (offline escrow) are implemented in Phase 2.
+
+| ADR | Evidence |
+|---|---|
+| 0001 | [1.08](../evidence/1.08-postgresql-schema.md): the ledger's own database and roles; the service role cannot change history |
+| 0002 | [1.02](../evidence/1.02-architecture-decisions.md): the crates `core`, `engine`, `ops` and `api`, each depending only on the layers below |
+| 0003 | [1.06](../evidence/1.06-journal-entries-and-posting-rules.md): only a validator builds a `BalancedEntry`; [1.08](../evidence/1.08-postgresql-schema.md): the deferred balance trigger; [1.13](../evidence/1.13-balance-verification.md): verification |
+| 0004 | [1.14](../evidence/1.14-holds-and-two-phase-operations.md): held sub-accounts, INV-18 under concurrency, the capture and expiry race |
+| 0005 | [1.04](../evidence/1.04-money-and-identifier-types.md): checked `i64` arithmetic and parsing, property-tested |
+| 0006 | [1.04](../evidence/1.04-money-and-identifier-types.md): only UUIDv7 accepted |
+| 0007 | [1.10](../evidence/1.10-concurrency-control.md): the schemes compared; 1.16: the lock timeout and serialization retries tested, and the [baseline](0007-read-committed-ordered-row-locks.md#evidence-step-116) |
+| 0008 | [1.11](../evidence/1.11-idempotency.md): one entry per key; [1.15](../evidence/1.15-failure-injection-and-crash-recovery.md): every fault point, 20 database kills, 1M simulated operations |
+| 0011 | [1.08](../evidence/1.08-postgresql-schema.md): triggers and privileges; [1.12](../evidence/1.12-reversals-and-adjustments.md): reversals and adjustments |
+| 0012 | [1.09](../evidence/1.09-atomic-posting.md): running totals; [1.13](../evidence/1.13-balance-verification.md): verification finds every planted corruption |
+| 0013 | [1.12](../evidence/1.12-reversals-and-adjustments.md): a reversal that would overdraw is refused |
+
 ## Statuses
 
 | Status | Meaning |
