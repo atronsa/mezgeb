@@ -9,6 +9,12 @@ publish = false
 [dependencies]
 mezgeb-core.workspace = true
 mezgeb-offline.workspace = true
+# The simulator injects faults through the engine's test hooks. It is a test
+# tool, never published or deployed; build the service on its own
+# (`cargo build -p mezgeb-cli`) so that it never has the hooks.
+mezgeb-engine = { workspace = true, features = ["test-hooks"] }
+sqlx.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true
