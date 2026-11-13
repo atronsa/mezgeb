@@ -18,8 +18,8 @@ pub mod verify;
 
 pub use concurrency::{Isolation, PostOptions, RetryStats};
 pub use holds::{
-    CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_hold, place_hold,
-    release_hold,
+    CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,
+    place_hold, release_hold,
 };
 pub use post::{
     PostRequest, lookup_by_idempotency_key, post_entry, post_entry_with, reverse_entry,
