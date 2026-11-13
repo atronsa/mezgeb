@@ -715,6 +715,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mezgeb-bench"
+version = "0.0.1"
+dependencies = [
+ "mezgeb-core",
+ "mezgeb-engine",
+ "sqlx",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mezgeb-cli"
 version = "0.0.1"
 dependencies = [
