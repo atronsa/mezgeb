@@ -1,5 +1,9 @@
 # Mezgeb
 
+[![ci](https://github.com/atronsa/mezgeb/actions/workflows/ci.yml/badge.svg)](https://github.com/atronsa/mezgeb/actions/workflows/ci.yml)
+[![coverage](https://github.com/atronsa/mezgeb/actions/workflows/coverage.yml/badge.svg)](https://github.com/atronsa/mezgeb/actions/workflows/coverage.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 **Double-entry ledger with offline sync and cryptographically signed transactions.**
 
 An open-source financial ledger written in Rust on PostgreSQL. It is the
@@ -13,7 +17,9 @@ offline-first payment platforms.
 *Mezgeb* (መዝገብ) is the Amharic word for a ledger or register.
 
 > **Status: early development. Not production ready.**
-> The design is being written first. See the [roadmap](docs/roadmap/README.md).
+> Phase 1 is done: the posting engine on PostgreSQL (tag `v0.1.0-engine`,
+> [evidence](docs/evidence/1.16-phase-1-exit-review.md)). There is no API
+> yet. See the [roadmap](docs/roadmap/README.md).
 > Do not use this to hold real money yet.
 
 ---
@@ -186,16 +192,21 @@ See [docs/roadmap/README.md](docs/roadmap/README.md).
 
 ## Contributing
 
-The project is in its design phase. Feedback on the
-[specification](docs/spec.md) and the
-[architecture](docs/architecture.md) is the most useful contribution
-right now. Please open an issue before starting large changes.
+Contributions are welcome: feedback on the
+[specification](docs/spec.md) and the [architecture](docs/architecture.md),
+accounting review, bug reports and code. Please read
+[CONTRIBUTING.md](CONTRIBUTING.md) first, and open an issue before starting
+large changes. Everyone taking part follows the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## Security
 
-Please do not report security issues in public issues. A `SECURITY.md` with
-the disclosure process will be added before the first release.
+Please do not report security issues in public issues. See
+[SECURITY.md](SECURITY.md) for how to report them privately.
 
 ## License
 
-Licensed under the [Apache License, Version 2.0](LICENSE).
+Licensed under the [Apache License, Version 2.0](LICENSE). Unless you say
+otherwise, any contribution you submit is licensed under the same terms.
