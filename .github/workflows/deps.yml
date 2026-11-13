@@ -1,0 +1,19 @@
+# Dependency checks (cargo-deny, configured in deny.toml): known
+# vulnerabilities, licences and sources. Runs when dependencies change, and
+# weekly, because new advisories appear for code that has not changed.
+name: deps
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.lock, "**/Cargo.toml", deny.toml]
+  pull_request:
+    paths: [Cargo.lock, "**/Cargo.toml", deny.toml]
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
