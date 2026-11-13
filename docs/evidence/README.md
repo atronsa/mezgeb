@@ -24,3 +24,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.11 | [Idempotency](1.11-idempotency.md) | Passed |
 | 1.12 | [Reversals and adjustments](1.12-reversals-and-adjustments.md) | Passed |
 | 1.13 | [Balance verification](1.13-balance-verification.md) | Passed |
+| 1.14 | [Holds and two-phase operations](1.14-holds-and-two-phase-operations.md) | Passed |
