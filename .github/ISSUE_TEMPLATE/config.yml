@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/atronsa/mezgeb/security/advisories/new
+    about: Report privately. Never in a public issue.
+  - name: Read the specification
+    url: https://github.com/atronsa/mezgeb/blob/main/docs/spec.md
+    about: How the ledger is meant to work, before you report or propose.
