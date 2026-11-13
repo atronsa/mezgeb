@@ -115,6 +115,8 @@ pub async fn post_entry_with(
                     adjustment_fingerprint(&request.draft, auth)
                 }
             };
+            let accounts: Vec<AccountId> = request.draft.lines.iter().map(|l| l.account).collect();
+            crate::holds::refuse_held(&mut tx, &accounts).await?;
             if let Claim::Existing(original) = claim_key(&mut tx, &request, &fingerprint).await? {
                 return Ok(original);
             }
@@ -334,7 +336,10 @@ async fn insert_lines(
     Ok(())
 }
 
-async fn entry_exists(conn: &mut PgConnection, id: EntryId) -> Result<bool, LedgerError> {
+pub(crate) async fn entry_exists(
+    conn: &mut PgConnection,
+    id: EntryId,
+) -> Result<bool, LedgerError> {
     sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM journal_entries WHERE id = $1)")
         .bind(id.as_uuid())
         .fetch_one(conn)
@@ -452,6 +457,12 @@ async fn reverse_once(
     .fetch_all(&mut *tx)
     .await
     .map_err(db)?;
+    let original_lines = rows
+        .iter()
+        .map(crate::rows::line_from_row)
+        .collect::<Result<Vec<_>, _>>()?;
+    let accounts: Vec<AccountId> = original_lines.iter().map(|l| l.account()).collect();
+    crate::holds::refuse_held(&mut tx, &accounts).await?;
     let mut mirror = EntryDraft {
         // The original passed the duplicate rule or allowed duplicates.
         allow_duplicate_lines: true,
@@ -484,7 +495,7 @@ async fn reverse_once(
 }
 
 /// The result of claiming an idempotency key.
-enum Claim {
+pub(crate) enum Claim {
     /// The key was free and is now held by this transaction.
     New,
     /// The key was already used for the same request: its entry.
@@ -495,7 +506,7 @@ enum Claim {
 /// locked. If another transaction holds the same key and has not finished,
 /// PostgreSQL makes this one wait on the primary key until it commits (the
 /// key is then taken) or rolls back (the key is free again).
-async fn claim_key(
+pub(crate) async fn claim_key(
     conn: &mut PgConnection,
     request: &PostRequest,
     fingerprint: &Fingerprint,
