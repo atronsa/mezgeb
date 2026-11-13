@@ -194,6 +194,32 @@ SIGKILL under load 20 times (`scripts/chaos.sh`), and with the simulator
 (`mezgeb-sim`). See the
 [1.15 evidence](evidence/1.15-failure-injection-and-crash-recovery.md).
 
+## What one posting costs
+
+Measured with `pg_stat_statements` during the step 1.16 baseline
+(`mezgeb-bench --statements`). An entry of *n* lines on *a* accounts
+runs, in one transaction:
+
+| Statements | What |
+|---|---|
+| 1 | Lock the accounts: `SELECT … FOR NO KEY UPDATE`, in account-id order |
+| *a* | Update each account's totals |
+| 1 | Insert the entry |
+| 1 | Insert the lines, all in one statement |
+| 1 | Insert the idempotency record |
+| — | PostgreSQL's own foreign-key checks: each line's entry and account, and the idempotency record's entry |
+| *n* + 1, × 2 | At `COMMIT`: the deferred balance check (`journal_entries_balanced`, `journal_lines_balanced`) |
+
+**The deferred balance check runs once per row**, for the entry and for
+each line, and each run checks the whole entry: 3 times for a 2-line
+entry, 5 times for a 4-line one. Each run is cheap (about 0.03 ms), but
+the work grows with the number of lines. Checking once per entry is a
+possible optimisation for step 3.01.
+
+**On a hot account, the time is in the lock queue, not the work.** With
+16 connections posting to one account, the lock `SELECT` took 40–45 ms
+on average while the rest of the posting took under 2 ms.
+
 ## Error codes
 
 Triggers raise Mezgeb's own SQLSTATE codes so callers and tests can tell
