@@ -32,11 +32,15 @@ pub use chart::{
 pub use currency::{Currency, UnknownCurrency};
 pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
 pub use error::PostingError;
-pub use fingerprint::{Fingerprint, adjustment_fingerprint, reversal_fingerprint};
+pub use fingerprint::{
+    Fingerprint, adjustment_fingerprint, hold_capture_fingerprint, hold_end_fingerprint,
+    hold_place_fingerprint, reversal_fingerprint,
+};
 pub use hold::{Hold, HoldStatus};
 pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
 pub use model::{
-    InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine, check_invariants,
+    Holds, InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine,
+    check_invariants,
 };
 pub use money::{Money, MoneyError, ParseMoneyError, PositiveAmount};
 pub use time::Timestamp;

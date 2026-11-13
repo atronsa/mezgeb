@@ -9,6 +9,7 @@
 //! Migrations live in the top-level `migrations/` directory.
 
 mod concurrency;
+mod holds;
 mod post;
 mod rows;
 mod store;
@@ -16,6 +17,10 @@ pub mod verification;
 pub mod verify;
 
 pub use concurrency::{Isolation, PostOptions, RetryStats};
+pub use holds::{
+    CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_hold, place_hold,
+    release_hold,
+};
 pub use post::{
     PostRequest, lookup_by_idempotency_key, post_entry, post_entry_with, reverse_entry,
     reverse_entry_with,

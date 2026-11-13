@@ -22,8 +22,8 @@ pub(crate) fn storage(error: impl std::fmt::Display) -> LedgerError {
 
 /// Maps a database error. Deadlocks and serialization failures become
 /// `Contention` (the caller may retry the whole transaction); a lock wait
-/// longer than `lock_timeout`, or no free pool connection in time, becomes
-/// `Busy`.
+/// longer than `lock_timeout`, a transaction ended by `transaction_timeout`,
+/// or no free pool connection in time, becomes `Busy`.
 pub(crate) fn db(error: sqlx::Error) -> LedgerError {
     if matches!(error, sqlx::Error::PoolTimedOut) {
         return LedgerError::Busy;
@@ -34,7 +34,7 @@ pub(crate) fn db(error: sqlx::Error) -> LedgerError {
         .map(|c| c.into_owned());
     match code.as_deref() {
         Some(code @ ("40P01" | "40001")) => LedgerError::Contention(code.to_owned()),
-        Some("55P03") => LedgerError::Busy,
+        Some("55P03" | "25P04") => LedgerError::Busy,
         _ => storage(error),
     }
 }

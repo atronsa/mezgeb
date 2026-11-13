@@ -13,7 +13,9 @@ use sha2::{Digest, Sha256};
 use crate::authorization::Authorization;
 use crate::chart::Side;
 use crate::entry::EntryDraft;
-use crate::ids::EntryId;
+use crate::ids::{AccountId, EntryId, HoldId};
+use crate::money::PositiveAmount;
+use crate::time::Timestamp;
 
 /// A SHA-256 fingerprint of a request.
 pub type Fingerprint = [u8; 32];
@@ -25,6 +27,10 @@ const VERSION: &[u8] = b"mezgeb.request.v1\0";
 const POST: u8 = 1;
 const REVERSE: u8 = 2;
 const ADJUSTMENT: u8 = 3;
+const HOLD_PLACE: u8 = 4;
+const HOLD_CAPTURE: u8 = 5;
+const HOLD_RELEASE: u8 = 6;
+const HOLD_EXPIRE: u8 = 7;
 
 fn length(hasher: &mut Sha256, n: usize) {
     // Lengths are bounded by the posting limits, far below u32::MAX.
@@ -102,6 +108,55 @@ pub fn adjustment_fingerprint(draft: &EntryDraft, auth: &Authorization) -> Finge
     hasher.update([ADJUSTMENT]);
     hasher.update(draft.fingerprint());
     authorization(&mut hasher, auth);
+    hasher.finalize().into()
+}
+
+fn amount(hasher: &mut Sha256, value: PositiveAmount) {
+    hasher.update(value.currency().code().as_bytes());
+    hasher.update(value.amount().to_be_bytes());
+}
+
+/// The fingerprint of a request to place hold `hold`.
+pub fn hold_place_fingerprint(
+    hold: HoldId,
+    account: AccountId,
+    held: AccountId,
+    value: PositiveAmount,
+    expires_at: Timestamp,
+) -> Fingerprint {
+    let mut hasher = Sha256::new();
+    hasher.update(VERSION);
+    hasher.update([HOLD_PLACE]);
+    hasher.update(hold.as_uuid().as_bytes());
+    hasher.update(account.as_uuid().as_bytes());
+    hasher.update(held.as_uuid().as_bytes());
+    amount(&mut hasher, value);
+    hasher.update(expires_at.as_micros().to_be_bytes());
+    hasher.finalize().into()
+}
+
+/// The fingerprint of a request to capture `value` of hold `hold`.
+pub fn hold_capture_fingerprint(
+    hold: HoldId,
+    destination: AccountId,
+    value: PositiveAmount,
+) -> Fingerprint {
+    let mut hasher = Sha256::new();
+    hasher.update(VERSION);
+    hasher.update([HOLD_CAPTURE]);
+    hasher.update(hold.as_uuid().as_bytes());
+    hasher.update(destination.as_uuid().as_bytes());
+    amount(&mut hasher, value);
+    hasher.finalize().into()
+}
+
+/// The fingerprint of a request to release (or, if `expire`, to expire)
+/// hold `hold`.
+pub fn hold_end_fingerprint(hold: HoldId, expire: bool) -> Fingerprint {
+    let mut hasher = Sha256::new();
+    hasher.update(VERSION);
+    hasher.update([if expire { HOLD_EXPIRE } else { HOLD_RELEASE }]);
+    hasher.update(hold.as_uuid().as_bytes());
     hasher.finalize().into()
 }
 
@@ -243,5 +298,45 @@ mod tests {
         ] {
             assert_ne!(adjustment_fingerprint(&draft(), &other), base);
         }
+    }
+
+    #[test]
+    fn hold_requests_have_distinct_fingerprints() -> Result<(), Box<dyn std::error::Error>> {
+        let hold: HoldId = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f".parse()?;
+        let other: HoldId = "017f22e2-79b0-7cc3-98c4-dc0c0c073990".parse()?;
+        let value = PositiveAmount::new(etb(100))?;
+        let more = PositiveAmount::new(etb(101))?;
+        let at = Timestamp::from_micros(5);
+        let place = hold_place_fingerprint(hold, account_id(1), account_id(2), value, at);
+        let all = [
+            place,
+            hold_place_fingerprint(other, account_id(1), account_id(2), value, at),
+            hold_place_fingerprint(hold, account_id(3), account_id(2), value, at),
+            hold_place_fingerprint(hold, account_id(1), account_id(3), value, at),
+            hold_place_fingerprint(hold, account_id(1), account_id(2), more, at),
+            hold_place_fingerprint(
+                hold,
+                account_id(1),
+                account_id(2),
+                value,
+                Timestamp::from_micros(6),
+            ),
+            hold_capture_fingerprint(hold, account_id(2), value),
+            hold_capture_fingerprint(hold, account_id(3), value),
+            hold_capture_fingerprint(hold, account_id(2), more),
+            hold_end_fingerprint(hold, false),
+            hold_end_fingerprint(hold, true),
+            hold_end_fingerprint(other, false),
+        ];
+        for (i, a) in all.iter().enumerate() {
+            for b in &all[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        assert_eq!(
+            place,
+            hold_place_fingerprint(hold, account_id(1), account_id(2), value, at)
+        );
+        Ok(())
     }
 }

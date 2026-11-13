@@ -6,7 +6,7 @@ mod api;
 mod invariants;
 mod ledger;
 
-pub use api::Ledger;
+pub use api::{Holds, Ledger};
 pub use invariants::{InvariantViolation, check_invariants};
 pub use ledger::{LedgerError, MemLedger, PostedEntry, PostedLine};
 
