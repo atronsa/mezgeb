@@ -1,0 +1,19 @@
+[package]
+name = "mezgeb-bench"
+description = "Baseline benchmark: postings per second and latency on PostgreSQL."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+mezgeb-core.workspace = true
+# Without `test-hooks`: build with `cargo build --release -p mezgeb-bench`
+# so the numbers come from the engine as it ships.
+mezgeb-engine.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+
+[lints]
+workspace = true
