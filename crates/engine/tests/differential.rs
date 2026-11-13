@@ -9,7 +9,8 @@ mod support;
 
 use mezgeb_core::{
     Account, AccountId, AccountStatus, ActorId, Authorization, Chart, ClientId, Currency,
-    EntryDraft, EntryId, Ledger, LedgerError, MemLedger, Money, PostedEntry, ReasonCode, Side,
+    EntryDraft, EntryId, Hold, HoldId, Holds, Ledger, LedgerError, MemLedger, Money,
+    PositiveAmount, PostedEntry, ReasonCode, Side, Timestamp,
 };
 use mezgeb_engine::{PgStore, integrity_report};
 use proptest::prelude::*;
@@ -63,6 +64,14 @@ type = "liability"
 kind = "system"
 allow_negative = true
 status = "active"
+
+[[accounts]]
+code = 2020
+name = "Held funds"
+type = "liability"
+kind = "control"
+prefix = "hold"
+status = "active"
 "#;
 
 /// The accounts the operations work with, by slot.
@@ -103,6 +112,22 @@ enum Op {
         reason: usize,
         self_approved: bool,
     },
+    /// Place a hold on a slot's account, in a freshly opened held account.
+    PlaceHold {
+        account: usize,
+        amount: i64,
+        ttl: i64,
+    },
+    /// Capture part or all of the hold at this index.
+    Capture {
+        hold: usize,
+        destination: usize,
+        amount: i64,
+    },
+    ReleaseHold(usize),
+    ExpireHold(usize),
+    /// Let time pass.
+    Tick(i64),
     Status(usize, AccountStatus),
 }
 
@@ -122,6 +147,13 @@ fn op() -> impl Strategy<Value = Op> {
             .prop_map(|(debit, credit, amount, reason, self_approved)| Op::Adjust {
                 debit, credit, amount, reason, self_approved,
             }),
+        3 => (slot(), 1..600i64, 1..5i64)
+            .prop_map(|(account, amount, ttl)| Op::PlaceHold { account, amount, ttl }),
+        3 => (any::<usize>(), slot(), 1..700i64)
+            .prop_map(|(hold, destination, amount)| Op::Capture { hold, destination, amount }),
+        1 => any::<usize>().prop_map(Op::ReleaseHold),
+        1 => any::<usize>().prop_map(Op::ExpireHold),
+        1 => (1..3i64).prop_map(Op::Tick),
         1 => (slot(), proptest::sample::select(AccountStatus::ALL.as_slice()))
             .prop_map(|(s, status)| Op::Status(s, status)),
     ]
@@ -152,16 +184,31 @@ enum Outcome {
     Done,
     Opened(Account),
     Posted(PostedEntry),
+    Held(Hold),
+}
+
+/// What hold operations need to know: the current time, the hold to act
+/// on (picked from the reference ledger's holds), and the IDs for a new
+/// hold and its held account.
+struct HoldContext {
+    now: i64,
+    target: Option<HoldId>,
+    new_hold: HoldId,
+    new_held: AccountId,
+    new_held_reference: String,
 }
 
 /// Applies one operation to a ledger.
-async fn apply<L: Ledger>(
+async fn apply<L: Ledger + Holds>(
     ledger: &mut L,
     chart: &Chart,
     op: &Op,
     id: EntryId,
     reverse_target: Option<EntryId>,
+    holds: &HoldContext,
 ) -> Result<Result<Outcome, LedgerError>, String> {
+    let positive = |amount: i64| PositiveAmount::new(etb(amount)).map_err(|e| e.to_string());
+    let now = Timestamp::from_micros(holds.now);
     let line = |s: usize, side: Side, amount: i64| -> Result<_, String> {
         Ok(mezgeb_core::LineDraft {
             account: slot(s)?,
@@ -237,6 +284,48 @@ async fn apply<L: Ledger>(
                 .await
                 .map(Outcome::Posted)
         }
+        Op::PlaceHold {
+            account,
+            amount,
+            ttl,
+        } => {
+            // The held account opens on both ledgers, or the test is wrong.
+            ledger
+                .open_account(holds.new_held, chart, &holds.new_held_reference)
+                .await
+                .map_err(|e| format!("opening a held account: {e}"))?;
+            ledger
+                .place_hold(
+                    holds.new_hold,
+                    id,
+                    slot(*account)?,
+                    holds.new_held,
+                    positive(*amount)?,
+                    Timestamp::from_micros(holds.now + ttl),
+                )
+                .await
+                .map(Outcome::Held)
+        }
+        Op::Capture {
+            destination,
+            amount,
+            ..
+        } => match holds.target {
+            Some(hold) => ledger
+                .capture_hold(hold, id, slot(*destination)?, positive(*amount)?, now)
+                .await
+                .map(Outcome::Held),
+            None => Ok(Outcome::Done),
+        },
+        Op::ReleaseHold(_) => match holds.target {
+            Some(hold) => ledger.release_hold(hold, id).await.map(Outcome::Held),
+            None => Ok(Outcome::Done),
+        },
+        Op::ExpireHold(_) => match holds.target {
+            Some(hold) => ledger.expire_hold(hold, id, now).await.map(Outcome::Held),
+            None => Ok(Outcome::Done),
+        },
+        Op::Tick(_) => Ok(Outcome::Done),
         Op::Status(s, status) => ledger
             .set_status(slot(*s)?, *status)
             .await
@@ -254,6 +343,7 @@ async fn run_case(server: &Server, template: &TestDb, ops: &[Op]) -> Result<(), 
     let mut oracle = MemLedger::new();
 
     let result = async {
+        let mut now = 0i64;
         for (step, op) in ops.iter().enumerate() {
             let id: EntryId = uuid7(10_000 + step as u64).parse().map_err(|e| fail(&e))?;
             let target = match op {
@@ -263,8 +353,25 @@ async fn run_case(server: &Server, template: &TestDb, ops: &[Op]) -> Result<(), 
                 }
                 _ => None,
             };
-            let expected = apply(&mut oracle, &chart, op, id, target).await?;
-            let actual = apply(&mut store, &chart, op, id, target).await?;
+            if let Op::Tick(ticks) = op {
+                now += ticks;
+            }
+            let existing: Vec<HoldId> = oracle.holds().map(|h| h.id()).collect();
+            let hold_target = match op {
+                Op::Capture { hold: i, .. } | Op::ReleaseHold(i) | Op::ExpireHold(i) => {
+                    (!existing.is_empty()).then(|| existing[i % existing.len()])
+                }
+                _ => None,
+            };
+            let holds = HoldContext {
+                now,
+                target: hold_target,
+                new_hold: uuid7(50_000 + step as u64).parse().map_err(|e| fail(&e))?,
+                new_held: uuid7(60_000 + step as u64).parse().map_err(|e| fail(&e))?,
+                new_held_reference: format!("2020:hold-{step}"),
+            };
+            let expected = apply(&mut oracle, &chart, op, id, target, &holds).await?;
+            let actual = apply(&mut store, &chart, op, id, target, &holds).await?;
             if actual != expected {
                 return Err(format!(
                     "step {step}, {op:?}:\n  oracle:     {expected:?}\n  postgresql: {actual:?}"
@@ -284,6 +391,13 @@ async fn run_case(server: &Server, template: &TestDb, ops: &[Op]) -> Result<(), 
         );
         if entries.0 != entries.1 {
             return Err(format!("final history differs: {entries:?}"));
+        }
+        let holds = (
+            Holds::all_holds(&mut oracle).await,
+            Holds::all_holds(&mut store).await,
+        );
+        if holds.0 != holds.1 {
+            return Err(format!("final holds differ: {holds:?}"));
         }
         let mut conn = db.app().await.map_err(|e| fail(&e))?;
         let report = integrity_report(&mut conn).await.map_err(|e| fail(&e))?;
