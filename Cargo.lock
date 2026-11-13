@@ -767,7 +767,10 @@ name = "mezgeb-sim"
 version = "0.0.1"
 dependencies = [
  "mezgeb-core",
+ "mezgeb-engine",
  "mezgeb-offline",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]
