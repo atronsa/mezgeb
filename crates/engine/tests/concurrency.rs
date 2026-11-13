@@ -29,6 +29,12 @@ fn etb(amount: i64) -> Money {
     Money::from_minor(amount, Currency::ETB)
 }
 
+/// The tests in this file run one at a time. Each one already runs hundreds
+/// of postings in parallel against the same accounts, which is what it
+/// measures; running several such tests at once on one database only adds
+/// load that pushes transactions past their time limits.
+static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// A migrated database and a store on a 20-connection pool that counts its
 /// retries.
 async fn setup() -> Result<Option<(TestDb, PgStore, Arc<RetryStats>)>, Box<dyn std::error::Error>> {
@@ -98,6 +104,7 @@ async fn wallet_total(store: &mut PgStore, wallets: &[AccountId]) -> Result<i64,
 /// the other 99 are refused for insufficient funds, and 20 is left.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn one_hundred_spenders_one_wallet() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
     let Some((db, mut store, stats)) = setup().await? else {
         return Ok(());
     };
@@ -155,6 +162,7 @@ async fn one_hundred_spenders_one_wallet() -> TestResult {
 /// of its lines.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn one_thousand_random_transfers() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
     let Some((db, mut store, stats)) = setup().await? else {
         return Ok(());
     };
@@ -240,6 +248,7 @@ async fn one_thousand_random_transfers() -> TestResult {
 /// means both queue for the same first lock, so no deadlock is possible.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn opposite_transfers_never_deadlock() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
     let Some((db, mut store, stats)) = setup().await? else {
         return Ok(());
     };
@@ -285,6 +294,7 @@ async fn opposite_transfers_never_deadlock() -> TestResult {
 /// `sequence` order? Measured, not asserted: see the step 1.10 evidence.
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn recorded_time_against_sequence() -> TestResult {
+    let _turn = ONE_AT_A_TIME.lock().await;
     let Some((db, mut store, _)) = setup().await? else {
         return Ok(());
     };
