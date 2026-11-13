@@ -8,7 +8,9 @@
 //! 2. each entry has at least two lines, and no line is orphaned (INV-4);
 //! 3. each line's stored totals continue the account's chain (INV-6);
 //! 4. each account's totals equal its checkpoint plus its lines (INV-5);
-//! 5. all debits equal all credits per currency (INV-2).
+//! 5. all debits equal all credits per currency (INV-2);
+//! 6. each hold's held account holds the hold's amount while it is active,
+//!    and nothing once it has ended (INV-18).
 //!
 //! Every run is recorded in `verification_runs`. A clean run also stores
 //! each account's totals at its checkpoint, so an incremental run only
@@ -103,6 +105,13 @@ pub enum Finding {
         debits: i64,
         credits: i64,
     },
+    /// INV-18: a held account does not hold its hold's amount.
+    HoldBalance {
+        hold: Uuid,
+        account: Uuid,
+        stored: i64,
+        expected: i64,
+    },
 }
 
 impl fmt::Display for Finding {
@@ -155,6 +164,15 @@ impl fmt::Display for Finding {
             } => write!(
                 f,
                 "INV-2 {currency}: all debits {debits} ≠ all credits {credits}"
+            ),
+            Finding::HoldBalance {
+                hold,
+                account,
+                stored,
+                expected,
+            } => write!(
+                f,
+                "INV-18 hold {hold}: held account {account} holds {stored}, not {expected}"
             ),
         }
     }
@@ -429,6 +447,33 @@ pub async fn verify(
             currency: row.try_get("currency")?,
             debits: row.try_get("debits")?,
             credits: row.try_get("credits")?,
+        });
+    }
+
+    // 6. Every held account holds exactly its hold's amount while the hold
+    //    is active, and nothing once it has ended.
+    let rows = sqlx::query(
+        "SELECT h.id, h.held_account_id,
+                (CASE WHEN a.account_type IN ('asset', 'expense')
+                      THEN a.debits_total - a.credits_total
+                      ELSE a.credits_total - a.debits_total END)::bigint AS stored,
+                (CASE WHEN h.status = 'active' THEN h.amount ELSE 0 END)::bigint AS expected
+           FROM holds h JOIN accounts a ON a.id = h.held_account_id
+          WHERE (CASE WHEN a.account_type IN ('asset', 'expense')
+                      THEN a.debits_total - a.credits_total
+                      ELSE a.credits_total - a.debits_total END)
+             <> (CASE WHEN h.status = 'active' THEN h.amount ELSE 0 END)
+          ORDER BY h.id LIMIT $1",
+    )
+    .bind(LIMIT)
+    .fetch_all(&mut *tx)
+    .await?;
+    for row in rows {
+        findings.push(Finding::HoldBalance {
+            hold: row.try_get("id")?,
+            account: row.try_get("held_account_id")?,
+            stored: row.try_get("stored")?,
+            expected: row.try_get("expected")?,
         });
     }
 
