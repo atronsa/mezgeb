@@ -491,3 +491,84 @@ async fn serialization_failures_are_retried_or_refused_cleanly() -> TestResult {
     db.drop().await?;
     Ok(())
 }
+
+/// `lock_timeout` bounds the whole wait for the accounts, not each wait.
+/// PostgreSQL applies `lock_timeout` to each lock wait separately, so on a
+/// busy account one statement can wait several times in a row: here, first
+/// behind another waiter, then behind that waiter's transaction. Each wait
+/// is shorter than the timeout, but together they are longer, and the
+/// posting must still give up with `Busy` at the timeout (step 1.16).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lock_timeout_bounds_the_whole_wait() -> TestResult {
+    use std::time::{Duration, Instant};
+    let _turn = ONE_AT_A_TIME.lock().await;
+    let Some(server) = support::Server::from_env()? else {
+        return Ok(());
+    };
+    let db = server.migrated().await?;
+    let client: ClientId = uuid7(0xc11e).parse()?;
+    let timeout = Duration::from_millis(400);
+    let options = PostOptions {
+        lock_timeout: timeout,
+        ..PostOptions::default()
+    };
+    let mut store = PgStore::with_options(db.app_pool_of(2).await?, client, options);
+    let chart = Chart::from_toml(common::CHART)?;
+    let (bank, wallet) = (id(1)?, id(2)?);
+    store.open_account(bank, &chart, "1010").await?;
+    store
+        .open_account(wallet, &chart, "2010:cust-abebe")
+        .await?;
+    let lock = "SELECT 1 FROM accounts WHERE id = $1 FOR NO KEY UPDATE";
+
+    // The first holder keeps the wallet locked for 300 ms.
+    let mut first = db.app().await?;
+    sqlx::query("BEGIN").execute(&mut first).await?;
+    sqlx::query(lock)
+        .bind(wallet.as_uuid())
+        .execute(&mut first)
+        .await?;
+    // A second transaction queues for the wallet, and holds it for 300 ms
+    // once it gets it.
+    let mut second = db.app().await?;
+    let wallet_id = wallet.as_uuid();
+    let queued = tokio::spawn(async move {
+        sqlx::query("BEGIN").execute(&mut second).await?;
+        sqlx::query(lock)
+            .bind(wallet_id)
+            .execute(&mut second)
+            .await?;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        sqlx::query("COMMIT").execute(&mut second).await?;
+        Ok::<(), sqlx::Error>(())
+    });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // The posting queues behind both: about 200 ms behind the second
+    // waiter, then 300 ms behind its transaction.
+    let release = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        sqlx::query("COMMIT").execute(&mut first).await?;
+        Ok::<(), sqlx::Error>(())
+    });
+    let started = Instant::now();
+    let result = store
+        .post(
+            entry(1)?,
+            EntryDraft::default()
+                .debit(bank, etb(1))
+                .credit(wallet, etb(1)),
+        )
+        .await;
+    let waited = started.elapsed();
+    release.await??;
+    queued.await??;
+    assert_eq!(result.err(), Some(LedgerError::Busy), "after {waited:?}");
+    assert!(
+        waited >= timeout && waited < timeout + Duration::from_millis(250),
+        "waited {waited:?}"
+    );
+    drop(store);
+    db.drop().await?;
+    Ok(())
+}

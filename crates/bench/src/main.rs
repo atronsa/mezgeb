@@ -38,6 +38,7 @@
 //! The URL is a superuser's, used to create and drop the databases. The
 //! roles from `db/init` must exist, with passwords equal to their names.
 
+use std::collections::BTreeMap;
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -355,7 +356,8 @@ struct Sample {
     /// Latencies of the postings counted, in microseconds.
     latencies: Vec<u64>,
     errors: u64,
-    first_error: Option<String>,
+    /// How many times each error happened, by message.
+    error_kinds: BTreeMap<String, u64>,
 }
 
 async fn worker(
@@ -366,7 +368,6 @@ async fn worker(
     window: Window,
     stats: Arc<RetryStats>,
 ) -> Result<Sample> {
-    let mut conn = pool.acquire().await?;
     let mut rng = Rng(id.wrapping_mul(0x2545_f491_4f6c_dd1d) ^ 0x6d65_7a67_6562);
     let options = PostOptions {
         stats: Some(stats),
@@ -398,7 +399,12 @@ async fn worker(
             format!("w{id}-{n}"),
             draft(scenario, &mut rng, config.wallets)?,
         )?;
-        let result = post_entry_with(&mut conn, request, &options).await;
+        // A connection per posting, from a pool of one per worker, as a
+        // service would: the pool replaces a connection the server closed.
+        let result = match pool.acquire().await {
+            Ok(mut conn) => post_entry_with(&mut conn, request, &options).await,
+            Err(error) => Err(mezgeb_core::LedgerError::Storage(error.to_string())),
+        };
         let latency = due.elapsed();
         match result {
             Ok(_) if due >= window.measure_from => {
@@ -407,7 +413,7 @@ async fn worker(
             Ok(_) => {}
             Err(error) => {
                 sample.errors += 1;
-                sample.first_error.get_or_insert_with(|| error.to_string());
+                *sample.error_kinds.entry(error.to_string()).or_default() += 1;
             }
         }
     }
@@ -513,15 +519,17 @@ async fn run_one(config: &Arc<Config>, scenario: Scenario) -> Result<RunResult> 
         }
         let mut latencies = Vec::new();
         let mut errors = 0;
-        let mut first_error = None;
+        let mut error_kinds: BTreeMap<String, u64> = BTreeMap::new();
         for task in tasks {
             let sample = task.await??;
             latencies.extend(sample.latencies);
             errors += sample.errors;
-            first_error = first_error.or(sample.first_error);
+            for (kind, n) in sample.error_kinds {
+                *error_kinds.entry(kind).or_default() += n;
+            }
         }
-        if let Some(error) = first_error {
-            println!("    first error: {error}");
+        for (kind, n) in &error_kinds {
+            println!("    {n} errors: {kind}");
         }
         if let Some(mut conn) = statements {
             top_statements(&mut conn).await?;
