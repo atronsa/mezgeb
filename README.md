@@ -109,6 +109,7 @@ Full details and the reasoning behind each decision are in
 | `crates/offline` | Vouchers, receipts, device chains, settlement rules |
 | `crates/api` | The REST service (Axum) |
 | `crates/sim` | Deterministic simulator that checks every invariant |
+| `crates/bench` | Benchmark: postings per second and latency on PostgreSQL |
 | `crates/cli` | Operator command line: verification, imports |
 | `charts/` | Example charts of accounts, loaded as data (`wallet-provider.toml`) |
 | `migrations/` | PostgreSQL schema migrations ([docs/db-schema.md](docs/db-schema.md)) |
@@ -151,6 +152,14 @@ To prove a ledger's balances equal its journal:
 ```sh
 cargo run -p mezgeb-cli -- verify --full \
     --database-url postgres://mezgeb_verifier:mezgeb_verifier@localhost:55432/mezgeb
+```
+
+To measure postings per second and latency (the baseline is run on GitHub
+Actions by the `bench` workflow, for a steady disk):
+
+```sh
+cargo run --release -p mezgeb-bench -- \
+    --database-url postgres://postgres:postgres@localhost:55432/postgres
 ```
 
 The posting engine works on PostgreSQL (`mezgeb-engine`); there is no API
