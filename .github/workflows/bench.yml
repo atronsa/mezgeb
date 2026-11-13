@@ -55,13 +55,17 @@ jobs:
             docker exec postgres sh -c 'cd /var/lib/postgresql && pg_test_fsync -s 3' | grep -A6 'one 8kB write'
             echo '```'
           } | tee machine.md
+      # `shell: bash` adds pipefail, so a failed benchmark fails the step
+      # even through `tee`.
       - name: Closed loop
+        shell: bash
         run: |
           target/release/mezgeb-bench --database-url "$URL" \
             --workers "${{ inputs.workers }}" --seconds "${{ inputs.seconds }}" \
             --runs "${{ inputs.runs }}" | tee closed.txt
       - name: Open loop
         if: always() && inputs.rate != ''
+        shell: bash
         run: |
           target/release/mezgeb-bench --database-url "$URL" \
             --workers "${{ inputs.workers }}" --seconds "${{ inputs.seconds }}" \
