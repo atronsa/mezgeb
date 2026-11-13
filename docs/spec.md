@@ -238,6 +238,17 @@ evidence, not a third ledger column.
 - Deterministic simulator (`mezgeb-sim`): seeded, reproducible; injects
   crashes, retries, reordering, duplicate and delayed sync, cloned devices,
   clock skew. Checks all invariants after every step.
+  - v1 (step 1.15): random postings, reversals, adjustments and holds, in
+    independent lanes, on the reference ledger and on PostgreSQL. A share
+    of attempts fails at a fault point and is retried with the same key.
+    Every answer, account, hold and entry count must match the reference
+    ledger, and verify must be clean.
+- Fault points (step 1.15, test builds only): before lock, after lines,
+  before commit, after commit (a lost response). A retry with the same
+  idempotency key must leave exactly one entry.
+- Chaos run (`scripts/chaos.sh`): PostgreSQL killed with SIGKILL under
+  load, restarted and checked. Every acknowledged request exists once,
+  every unknown one exists once or not at all, and verify is clean.
 - Replay test: rebuild balances from journal and compare.
 - Shadow mode: run beside an existing ledger and compare nightly.
 

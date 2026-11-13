@@ -172,6 +172,28 @@ idempotency key `hold-expire:<hold id>`.
   done, and the rest is still due. The key, the entry and the status change
   commit together, so no hold is expired twice.
 
+## Crash safety
+
+Every write is one transaction (step 1.15). What a crash leaves behind
+depends only on whether `COMMIT` returned:
+
+- **Before `COMMIT`:** nothing. PostgreSQL rolls the transaction back,
+  whether the process died, the connection dropped or the server was
+  killed. Lines, totals, the idempotency record and any hold change are
+  gone together.
+- **After `COMMIT`:** everything. The commit is in the WAL on disk, and
+  crash recovery replays it on the next start.
+- **In between, the client may not know which.** The commit can succeed
+  and the answer still be lost. The client retries with the same
+  idempotency key: if the first attempt committed, it gets the original
+  entry back; if not, the retry posts it once.
+
+This was tested at four points inside every write (`FaultPoint`, with the
+engine's test-only `test-hooks` feature), by killing PostgreSQL with
+SIGKILL under load 20 times (`scripts/chaos.sh`), and with the simulator
+(`mezgeb-sim`). See the
+[1.15 evidence](evidence/1.15-failure-injection-and-crash-recovery.md).
+
 ## Error codes
 
 Triggers raise Mezgeb's own SQLSTATE codes so callers and tests can tell
