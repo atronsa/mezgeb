@@ -12,8 +12,8 @@ use mezgeb_core::{
     IdempotencyKey, Ledger, LedgerError, Money, PostedEntry, PostingError, ReasonCode,
 };
 use mezgeb_engine::{
-    PgStore, PostOptions, PostRequest, integrity_report, lookup_by_idempotency_key, post_entry,
-    post_entry_with, reverse_entry,
+    FaultPoint, PgStore, PostOptions, PostRequest, integrity_report, lookup_by_idempotency_key,
+    post_entry, post_entry_with, reverse_entry,
 };
 use sqlx::{Connection, Executor, PgPool};
 use support::{Server, TestDb, TestResult, uuid7};
@@ -199,7 +199,7 @@ async fn a_retry_after_a_lost_response_returns_the_original() -> TestResult {
     };
     let before = entry_count(&pool).await?;
     let lossy = PostOptions {
-        lose_response_after_commit: true,
+        fault: Some(FaultPoint::AfterCommit),
         ..PostOptions::default()
     };
 
