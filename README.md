@@ -135,7 +135,7 @@ git clone <repo-url>
 cd mezgeb
 cargo build --workspace
 cargo test --workspace
-cargo run -p mezgeb-sim -- --seed 1 --steps 10000
+cargo run -p mezgeb-sim -- --seed 1 --ops 10000
 ```
 
 The database tests are skipped unless a database is available. To run them:
