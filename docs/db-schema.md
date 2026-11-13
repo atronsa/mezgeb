@@ -19,6 +19,7 @@ own, with constraints, triggers and role privileges.
 | `reason_codes` | Reason a correction may give | Code, the kind of entry it is for (reversal or adjustment), description; the same list as `REASON_CODES` in `crates/core` (migration 0003, step 1.12) |
 | `verification_runs` | Verification run | Scope (full or incremental), the entries it covered (`from_sequence` < sequence ≤ `to_sequence`), duration, lines checked, result and findings (migration 0004, step 1.13) |
 | `verification_checkpoints` | Account at a clean run's checkpoint | Each account's totals as of that run's `to_sequence`, the starting point for the next incremental run |
+| `holds` | Hold | The account it holds from, its own held account, amount and currency, `captured`, status (`active`, `captured`, `released`, `expired`), `expires_at`, the entry that placed it and the entry that ended it (migration 0005, step 1.14) |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal` or `adjustment`), and corrections record `reason_code`,
@@ -61,6 +62,12 @@ This is the step 1.08 exit gate: every constraint names its invariant
 | `journal_entries.sequence` identity | Identity column | INV-12: posting order | `a_valid_posting_commits` |
 | `accounts_reference_unique (code, sub_account)`, `NULLS NOT DISTINCT` | UNIQUE | One account per chart reference | covered by the account helpers |
 | Format CHECKs on codes, sub-accounts, idempotency keys, metadata | CHECK | Validation repeated from `crates/core` | `idempotency_keys_are_unique_per_client` |
+| `holds_guard` → `mezgeb_holds_guard()` | Trigger | INV-16: a hold's status changes only from `active`, once; only status, `captured` and the closing entry may change | `the_database_guards_holds` (`tests/holds.rs`) |
+| `holds_closed_by_entry`: active ⇔ no closing entry | CHECK | INV-16: every ended hold names the entry that ended it | `the_database_guards_holds` |
+| `holds.captured` between 0 and `amount`; `holds_captured_only_when_captured` | CHECK | INV-17: a capture never exceeds the hold | `the_database_guards_holds` |
+| `holds.held_account_id` UNIQUE; `holds_distinct_accounts` | UNIQUE, CHECK | INV-18: each hold has its own held account, never the account it holds from | `hold_operations_are_idempotent`, `held_accounts_are_protected_on_postgresql` |
+| `holds.place_entry_id`, `close_entry_id` UNIQUE → `journal_entries` | UNIQUE, foreign key | A hold's entries are real, and each belongs to one hold | `the_database_guards_holds` |
+| `holds_no_delete` → `mezgeb_reject_change()`; `mezgeb_app` may update only status, `captured` and `close_entry_id` | Trigger, column privileges | INV-9, INV-16: holds are never deleted, and their terms never change | `the_database_guards_holds` |
 
 ### Invariants marked "DB" that later steps add
 
@@ -70,7 +77,6 @@ Their tables do not exist yet. Each step adds the constraint and its test.
 |---|---|---|
 | INV-10 | No entry in a closed accounting period | 2.05 |
 | INV-12 | `recorded_time` strictly increasing under concurrency: measured in step 1.10 (no tie or inversion in 1,000 parallel postings), guaranteed by the hash chain's single commit order | 2.09 |
-| INV-16 | A hold resolves at most once | 1.14 |
 | INV-19, INV-20 | Voucher escrow cap; one settlement per `(device_id, counter)` | 2.12 |
 | INV-26 | One signed ledger receipt per entry | 2.09 |
 
@@ -113,6 +119,7 @@ it checks:
 | Each line's stored totals continue its account's chain | INV-6 | the account, and the first line where the chain breaks |
 | Each account's totals equal its checkpoint plus every line after it | INV-5 | the account, stored and expected totals |
 | All debits equal all credits per currency | INV-2 | the currency |
+| Each held account holds its active hold's amount, or nothing once the hold has ended | INV-18 | the hold and its held account |
 
 **Full and incremental.** A full run checks every entry. An incremental run
 checks the first three only for entries after the last clean run's
@@ -132,6 +139,39 @@ time the checkpoint is taken. No entry can commit late below a checkpoint.
 **Recorded.** Every run is a row in `verification_runs`, with its findings;
 both verification tables are append-only.
 
+## Holds
+
+A hold reserves money by a real posting into its own held account, such as
+`2020:wd-0001` ([ADR-0004](adr/0004-holds-as-postings.md), step 1.14). It
+then ends exactly once:
+
+| Operation | Entry | Status |
+|---|---|---|
+| Place | account → held account | `active` |
+| Capture (full or partial) | held account → destination, and the remainder back to the account, in one entry | `captured` |
+| Release | held account → account | `released` |
+| Expire (once `expires_at` has passed) | held account → account | `expired` |
+
+Each operation is one transaction that locks the hold's row
+(`SELECT … FOR UPDATE`), is idempotent like any posting, and tags its entry
+with the metadata `hold` and `hold_action`. Ordinary postings, adjustments
+and reversals that touch a held account are refused (`AccountIsHeld`):
+only the hold's own entries move money in and out of it.
+
+**The expiry worker** (`expire_due_holds`) takes due holds oldest first
+from the partial index `holds_due_idx`, claiming each with
+`FOR UPDATE SKIP LOCKED` and expiring it in its own transaction under the
+idempotency key `hold-expire:<hold id>`.
+
+- **Several workers can run at once.** A hold that a capture or release has
+  locked is skipped, not waited for. Once that commits the hold is no longer
+  active; if it rolls back, the hold is due again on the next run.
+- **A capture racing an expiry has exactly one winner.** Whichever locks the
+  row first ends the hold; the other finds it no longer active.
+- **A worker that dies mid-batch is simply run again.** What it committed is
+  done, and the rest is still due. The key, the entry and the status change
+  commit together, so no hold is expired twice.
+
 ## Error codes
 
 Triggers raise Mezgeb's own SQLSTATE codes so callers and tests can tell
@@ -144,6 +184,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ003` | Invalid reversal (INV-14) |
 | `MZ004` | Line posted to an account that is not open (INV-24) |
 | `MZ005` | Forbidden account change: identity column, reopening, totals going down |
+| `MZ006` | Forbidden hold change: an ended hold changed, or a change other than ending it (INV-16) |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
