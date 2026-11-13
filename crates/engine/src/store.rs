@@ -3,12 +3,14 @@
 use std::collections::BTreeMap;
 
 use mezgeb_core::{
-    Account, AccountId, AccountStatus, Authorization, Chart, ClientId, EntryDraft, EntryId,
-    IdempotencyKey, Ledger, LedgerError, PostedEntry, PostedLine,
+    Account, AccountId, AccountStatus, Authorization, Chart, ClientId, EntryDraft, EntryId, Hold,
+    HoldId, Holds, IdempotencyKey, Ledger, LedgerError, PositiveAmount, PostedEntry, PostedLine,
+    Timestamp,
 };
 use sqlx::{PgConnection, PgPool, Row};
 
 use crate::concurrency::PostOptions;
+use crate::holds::{self, CaptureHold, HoldRequest, PlaceHold};
 use crate::post::{PostRequest, post_entry_with, reverse_entry_with};
 use crate::rows::{
     ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, entry_from_row, entry_id,
@@ -47,6 +49,14 @@ impl PgStore {
     /// trait, which has no key of its own. Step 1.11 adds client keys.
     fn key_for(id: EntryId) -> Result<IdempotencyKey, LedgerError> {
         IdempotencyKey::new(format!("entry-{id}")).map_err(storage)
+    }
+
+    fn hold_request(&self, entry: EntryId) -> Result<HoldRequest, LedgerError> {
+        Ok(HoldRequest {
+            entry_id: entry,
+            client_id: self.client,
+            idempotency_key: PgStore::key_for(entry)?,
+        })
     }
 
     /// One attempt at a status change: lock the account, apply the
@@ -222,5 +232,78 @@ impl Ledger for PgStore {
                 entry_from_row(row, lines.remove(&id).unwrap_or_default())
             })
             .collect()
+    }
+}
+
+impl Holds for PgStore {
+    async fn place_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        account: AccountId,
+        held: AccountId,
+        amount: PositiveAmount,
+        expires_at: Timestamp,
+    ) -> Result<Hold, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        let place = PlaceHold {
+            hold: id,
+            account,
+            held,
+            amount,
+            expires_at,
+        };
+        holds::place_hold(&mut conn, &self.hold_request(entry)?, place, &self.options).await
+    }
+
+    async fn capture_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        destination: AccountId,
+        amount: PositiveAmount,
+        now: Timestamp,
+    ) -> Result<Hold, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        let capture = CaptureHold {
+            hold: id,
+            destination,
+            amount,
+            now,
+        };
+        holds::capture_hold(
+            &mut conn,
+            &self.hold_request(entry)?,
+            capture,
+            &self.options,
+        )
+        .await
+    }
+
+    async fn release_hold(&mut self, id: HoldId, entry: EntryId) -> Result<Hold, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        holds::release_hold(&mut conn, &self.hold_request(entry)?, id, &self.options).await
+    }
+
+    async fn expire_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        now: Timestamp,
+    ) -> Result<Hold, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        holds::expire_hold(
+            &mut conn,
+            &self.hold_request(entry)?,
+            id,
+            now,
+            &self.options,
+        )
+        .await
+    }
+
+    async fn all_holds(&mut self) -> Result<Vec<Hold>, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        holds::all_holds(&mut conn).await
     }
 }
