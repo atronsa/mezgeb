@@ -164,6 +164,53 @@ Every invariant has at least one planned test. Test kinds:
 | T-26a | INV-26 | Unit | Every committed entry has one receipt whose signature verifies | 2.09 |
 | T-26b | INV-26 | Crash | A retry after a lost response returns identical receipt bytes | 2.09 |
 
+### Phase 1 tests
+
+At the end of Phase 1 (step 1.16), every test planned for steps 1.01–1.15
+exists and passes. These are the tests that implement each one. Engine
+tests are in `crates/engine/tests/`; `model` is `crates/core/src/model/tests.rs`.
+Every database test also runs a full verification of its own ledger before
+dropping it.
+
+| Test | Invariant | Implemented by |
+|---|---|---|
+| T-01a | INV-1 | `validate.rs`: `rule_too_few_lines`, `rule_amount_not_positive`, `rule_unbalanced` |
+| T-01b | INV-1 | `validate.rs` (property): `accepted_entries_balance_per_currency`, `changing_one_amount_is_rejected` |
+| T-01c | INV-1 | `schema.rs`: `unbalanced_entries_fail_at_commit`, `line_amounts_must_be_positive` |
+| T-02a | INV-2 | `verification.rs`: `a_clean_ledger_verifies_clean`, `a_tampered_account_total_is_found` (`GlobalUnbalanced`) |
+| T-02b | INV-2 | `mezgeb-sim` (the reference ledger's checker every 2,000 operations per lane, and a full verification at the end); `model` (property): `invariants_hold_after_every_operation`, after every operation |
+| T-03a | INV-3 | `validate.rs`: `rule_currency_mismatch` |
+| T-03b | INV-3 | `schema.rs`: `lines_reference_their_entry_and_account_currency` |
+| T-04a | INV-4 | `faults.rs`: the four `a_crash_…` and `a_lost_response_…` tests; `scripts/chaos.sh` (20 kills under load); the CI step that kills `crash_writer` mid-posting and verifies |
+| T-04b | INV-4 | `schema.rs`: `lines_reference_their_entry_and_account_currency`; `verification.rs`: `a_deleted_entry_leaves_orphan_lines_that_are_found`, `an_entry_without_lines_is_found` |
+| T-05a | INV-5 | `differential.rs`: `postgresql_matches_the_reference_ledger`; `model`: `invariants_hold_after_every_operation` |
+| T-05b | INV-5 | `verification.rs`: `a_tampered_account_total_is_found` |
+| T-06a | INV-6 | `verification.rs`: `a_tampered_line_amount_is_found`, `a_deleted_line_is_found` (`ChainBroken`) |
+| T-07a | INV-7 | `model`: `invariants_hold_after_every_operation`, `detects_total_corruption`; `worked_entries.rs`: `the_worked_story_replays_through_the_reference_ledger` |
+| T-08a | INV-8 | `validate.rs`: `rule_insufficient_funds`; `worked_entries.rs`: `spending_more_than_a_wallet_holds_is_refused` |
+| T-08b | INV-8 | `concurrency.rs`: `one_hundred_spenders_one_wallet` |
+| T-08c | INV-8 | `schema.rs`: `a_wallet_cannot_go_negative` |
+| T-09a | INV-9 | `schema.rs`: `journal_history_cannot_change` |
+| T-09b | INV-9 | `schema.rs`: `journal_history_cannot_change`, `the_app_role_cannot_change_account_identity` |
+| T-13a | INV-13 | `idempotency.rs`: `ten_sequential_repeats_post_once`, `fifty_concurrent_repeats_post_once` |
+| T-13b | INV-13 | `idempotency.rs`: `a_reused_key_with_a_different_request_is_refused` |
+| T-13c | INV-13 | `idempotency.rs`: `a_retry_after_a_lost_response_returns_the_original`; `faults.rs`: `a_lost_response_after_commit_is_retried_once`; `scripts/chaos.sh` |
+| T-14a | INV-14 | `corrections.rs`: `reversal_rules_hold`; `schema.rs`: `reversal_rules` |
+| T-14b | INV-14 | `model` (property): `post_then_reverse_changes_nothing`; `corrections.rs`: `a_reversal_restores_balances_and_leaves_the_original_untouched` |
+| T-14c | INV-14 | `model`: `reverses_exactly_once`; `corrections.rs`: `reversal_rules_hold` |
+| T-16a | INV-16 | `model`: `a_hold_is_captured_once_and_a_partial_capture_returns_the_rest`; `holds.rs`: `a_withdrawal_is_a_hold_that_is_captured`, `the_database_guards_holds` |
+| T-16b | INV-16 | `expiry.rs`: `capture_racing_expiry_has_exactly_one_winner`, `a_worker_killed_mid_batch_expires_no_hold_twice` |
+| T-17a | INV-17 | `model`: `a_hold_is_captured_once_and_a_partial_capture_returns_the_rest`; `holds.rs`: `a_partial_capture_returns_the_rest` |
+| T-18a | INV-18 | `holds.rs`: `verification_checks_held_balances`; `expiry.rs`: `held_balance_equals_active_holds_under_concurrency` |
+| T-24a | INV-24 | `validate.rs`: `rule_account_not_open`; `account.rs`: `only_open_accounts_accept_postings`, `opens_accounts_from_the_chart` (a control account cannot be opened without a sub-account); `model`: `held_accounts_are_protected` |
+| T-24b | INV-24 | `schema.rs`: `account_status_rules` |
+| T-25a | INV-25 | `model`: `adjustments_need_a_reason_and_a_second_person`; `corrections.rs`: `adjustments_need_two_different_people` |
+
+Planned for later steps: T-07b and T-10a/b (2.05), T-11a/b, T-12a and
+T-26a/b (2.09), T-15a/b (2.04), and T-19a to T-23a (2.12–2.14). T-12a's
+measurement already exists: `concurrency.rs`, `recorded_time_against_sequence`
+(step 1.10).
+
 ## Mapping from the draft spec
 
 The draft spec (§2) used a one-debit, one-credit transfer model. Its
