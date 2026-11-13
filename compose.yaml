@@ -12,6 +12,9 @@ services:
     # Docker's default 64 MB of shared memory is too small for PostgreSQL's
     # parallel queries on large tables (verification on a million lines).
     shm_size: 1gb
+    # pg_stat_statements: which statements take the time
+    # (`mezgeb-bench --statements`, step 1.16).
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
     environment:
       POSTGRES_PASSWORD: postgres
     ports:
