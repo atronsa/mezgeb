@@ -1,0 +1,55 @@
+# Test coverage (step 1.16): the whole suite, database tests included, with
+# line coverage per file in the run's summary and an lcov file as an
+# artifact. Runs after every merge to main, and by hand.
+name: coverage
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      MEZGEB_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Create database roles
+        run: |
+          for file in db/init/*.sql; do
+            psql "$MEZGEB_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - name: Coverage
+        run: |
+          cargo llvm-cov --workspace --lcov --output-path lcov.info
+          cargo llvm-cov report --summary-only | tee summary.txt
+      - name: Summary
+        run: |
+          {
+            echo '## Coverage'
+            echo '```'
+            cat summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            lcov.info
+            summary.txt
