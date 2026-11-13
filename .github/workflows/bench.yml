@@ -1,0 +1,94 @@
+# Baseline benchmark (step 1.16), run by hand from the Actions tab.
+#
+# A GitHub-hosted Linux runner gives the same machine and disk every time,
+# so runs can be compared. The results are in the run's summary and in the
+# `bench` artifact.
+name: bench
+on:
+  workflow_dispatch:
+    inputs:
+      workers:
+        description: Connections posting at once
+        default: "16"
+      seconds:
+        description: Seconds measured per run, after 5 s of warm-up
+        default: "30"
+      runs:
+        description: Runs per scenario
+        default: "3"
+      rate:
+        description: Open-loop postings per second for a second pass (empty to skip)
+        default: ""
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # Started by hand rather than as a service, to load pg_stat_statements.
+      - name: Start PostgreSQL
+        run: |
+          docker run -d --name postgres --shm-size=1g -p 5432:5432 \
+            -e POSTGRES_PASSWORD=postgres \
+            -v "$PWD/db/init:/docker-entrypoint-initdb.d:ro" \
+            postgres:18-alpine -c shared_preload_libraries=pg_stat_statements
+          for i in $(seq 1 60); do
+            docker exec postgres pg_isready -U postgres -h localhost && break
+            sleep 1
+          done
+          # While db/init runs, the server listens on its socket only, so
+          # TCP readiness means the init is done.
+          docker exec postgres pg_isready -U postgres -h localhost
+      - name: Build
+        run: cargo build --release -p mezgeb-bench
+      - name: Machine
+        run: |
+          {
+            echo "## Machine"
+            echo '```'
+            nproc
+            grep -m1 'model name' /proc/cpuinfo
+            free -h | head -2
+            docker exec postgres sh -c 'cd /var/lib/postgresql && pg_test_fsync -s 3' | grep -A6 'one 8kB write'
+            echo '```'
+          } | tee machine.md
+      - name: Closed loop
+        run: |
+          target/release/mezgeb-bench --database-url "$URL" \
+            --workers "${{ inputs.workers }}" --seconds "${{ inputs.seconds }}" \
+            --runs "${{ inputs.runs }}" | tee closed.txt
+      - name: Open loop
+        if: always() && inputs.rate != ''
+        run: |
+          target/release/mezgeb-bench --database-url "$URL" \
+            --workers "${{ inputs.workers }}" --seconds "${{ inputs.seconds }}" \
+            --runs "${{ inputs.runs }}" --rate "${{ inputs.rate }}" \
+            --scenarios 2-uniform,4-uniform | tee open.txt
+      - name: Statements
+        if: always()
+        run: |
+          target/release/mezgeb-bench --database-url "$URL" \
+            --workers "${{ inputs.workers }}" --seconds 10 --runs 1 --statements | tee statements.txt
+      - name: Summary
+        if: always()
+        run: |
+          {
+            cat machine.md
+            for file in closed.txt open.txt statements.txt; do
+              [ -f "$file" ] || continue
+              echo "## ${file%.txt}"
+              echo '```'
+              cat "$file"
+              echo '```'
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bench
+          path: |
+            machine.md
+            *.txt
