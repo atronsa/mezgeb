@@ -35,6 +35,9 @@ jobs:
       # with faults injected on 10% of attempts (step 1.15).
       - run: cargo run -p mezgeb-sim -- --seed 1 --ops 10000
       - run: cargo run -p mezgeb-sim -- --seed 1 --ops 2000 --lanes 8 --faults 100 --database-url "$MEZGEB_TEST_DATABASE_URL"
+      # A short benchmark run, to keep it working; the baseline itself runs
+      # in the bench workflow (step 1.16).
+      - run: cargo run -p mezgeb-bench -- --database-url "$MEZGEB_TEST_DATABASE_URL" --wallets 100 --warmup 1 --seconds 2 --runs 1
       # Every database test verifies its own ledger before dropping it. This
       # step also verifies a ledger written by the engine and interrupted
       # mid-posting, with the operator's command (step 1.13 exit gate).
