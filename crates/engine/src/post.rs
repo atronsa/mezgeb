@@ -19,7 +19,7 @@ use mezgeb_core::{
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use crate::concurrency::PostOptions;
+use crate::concurrency::{FaultPoint, PostOptions};
 use crate::rows::{
     ACCOUNT_COLUMNS, account_from_row, constraint_violation, db, entry_from_row, line_from_row,
     storage,
@@ -121,8 +121,7 @@ pub async fn post_entry_with(
                 return Ok(original);
             }
             let posted = post_in_transaction(&mut tx, request.clone(), None, options).await?;
-            tx.commit().await.map_err(db)?;
-            options.after_commit()?;
+            options.commit(tx).await?;
             Ok(posted)
         }
         .await;
@@ -154,6 +153,7 @@ pub(crate) async fn post_in_transaction(
         (None, None) => EntryKind::Standard,
     };
     Authorization::check(kind, authorization.as_ref())?;
+    options.fault_at(FaultPoint::BeforeLock)?;
 
     // 1. Lock the accounts, in ascending ID order (ADR-0007).
     let ids: BTreeSet<AccountId> = draft.lines.iter().map(|l| l.account).collect();
@@ -268,6 +268,7 @@ pub(crate) async fn post_in_transaction(
 
     // 5. Insert every line in one statement.
     insert_lines(conn, entry_id, &lines).await?;
+    options.fault_at(FaultPoint::AfterLines)?;
 
     let sequence = u64::try_from(sequence).map_err(storage)?;
     Ok(PostedEntry::new(
@@ -490,7 +491,7 @@ async fn reverse_once(
         options,
     )
     .await?;
-    tx.commit().await.map_err(db)?;
+    options.commit(tx).await?;
     Ok(posted)
 }
 
