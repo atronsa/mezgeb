@@ -93,8 +93,14 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   are never renumbered.
 - **4.2 Posting.** One entry posts in one database transaction, all lines or
   none (step 1.09).
-- **4.3 Holds.** A hold is a posting into a held sub-account, then a capture
-  or release ([ADR-0004](adr/0004-holds-as-postings.md), step 1.14).
+- **4.3 Holds.** A hold is a posting into its own held sub-account, then
+  exactly one of: a capture (full or partial, the remainder returned in the
+  same entry), a release, or an expiry once `expires_at` has passed
+  ([ADR-0004](adr/0004-holds-as-postings.md), step 1.14, INV-16 to INV-18).
+  Only the hold's own entries may post to its held account. An expiry
+  worker expires due holds, skipping any being captured or released, and
+  can be stopped and restarted at any point
+  ([db-schema.md](db-schema.md#holds)).
 - **4.4 Corrections.** History is never edited (INV-9).
   - A **reversal** is a new entry that mirrors the original exactly, at most
     once, never itself reversed (INV-14). It carries a reversal reason
