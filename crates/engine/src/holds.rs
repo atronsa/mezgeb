@@ -5,6 +5,12 @@
 //! one transaction, idempotent like any posting, and locks the hold's row,
 //! so a capture racing an expiry or a release has exactly one winner
 //! (INV-16). The database checks the hold's rules again (migration 0005).
+//!
+//! The expiry worker ([`expire_due_holds`]) claims due holds with
+//! `FOR UPDATE SKIP LOCKED` and expires each one in its own transaction,
+//! under a key derived from the hold. A worker that stops at any point can
+//! simply be run again: what it committed is done, the rest is still due,
+//! and no hold is expired twice.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -429,19 +435,34 @@ async fn end_once(
         Err(existing) => return Ok(existing),
     };
     let hold = lock_active(&mut tx, hold_id).await?;
+    let closed = end_locked(&mut tx, request, hold, expire_at, options).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(closed)
+}
+
+/// Releases, or if `expire_at` is set expires, an active hold whose row this
+/// transaction has locked. Does not commit.
+async fn end_locked(
+    conn: &mut PgConnection,
+    request: &HoldRequest,
+    hold: Hold,
+    expire_at: Option<Timestamp>,
+    options: &PostOptions,
+) -> Result<Hold, LedgerError> {
+    let hold_id = hold.id();
     if let Some(now) = expire_at
         && now < hold.expires_at()
     {
         return Err(LedgerError::HoldNotExpired(hold_id));
     }
-    let side = held_side(&mut tx, &hold).await?;
+    let side = held_side(conn, &hold).await?;
     let money = hold.amount().money();
     let (action, status) = match expire_at {
         Some(_) => ("expire", HoldStatus::Expired),
         None => ("release", HoldStatus::Released),
     };
     post_hold_entry(
-        &mut tx,
+        conn,
         request,
         hold_id,
         action,
@@ -460,9 +481,66 @@ async fn end_once(
         options,
     )
     .await?;
-    let closed = close(&mut tx, hold_id, status, 0, request.entry_id).await?;
+    close(conn, hold_id, status, 0, request.entry_id).await
+}
+
+/// The key under which the expiry worker expires `hold`: one per hold, so
+/// that expiring it again is recognised as the same request.
+fn expiry_key(hold: HoldId) -> Result<IdempotencyKey, LedgerError> {
+    IdempotencyKey::new(format!("hold-expire:{hold}")).map_err(storage)
+}
+
+/// Claims the next due hold that no one else has locked, and expires it in
+/// the same transaction. `None` when nothing is due.
+async fn expire_next_once(
+    conn: &mut PgConnection,
+    client_id: ClientId,
+    now: Timestamp,
+    options: &PostOptions,
+) -> Result<Option<Hold>, LedgerError> {
+    let mut tx = options.begin(conn).await?;
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {HOLD_COLUMNS} FROM holds
+         WHERE status = 'active'
+           AND expires_at <= timestamptz 'epoch' + $1::bigint * interval '1 microsecond'
+         ORDER BY expires_at, id
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED"
+    )))
+    .bind(now.as_micros())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(db)?;
+    let Some(row) = row else {
+        tx.rollback().await.map_err(db)?;
+        return Ok(None);
+    };
+    let hold = hold_from_row(&row)?;
+    let entry_id = EntryId::from_uuid(Uuid::now_v7()).map_err(storage)?;
+    let request = HoldRequest {
+        entry_id,
+        client_id,
+        idempotency_key: expiry_key(hold.id())?,
+    };
+    let claim = PostRequest::new(
+        entry_id,
+        client_id,
+        request.idempotency_key.clone(),
+        EntryDraft::default(),
+    );
+    let fingerprint = hold_end_fingerprint(hold.id(), true);
+    if let Claim::Existing(entry) = claim_key(&mut tx, &claim, &fingerprint).await? {
+        // The key and the hold's end commit together, so a used key with
+        // the hold still active means the ledger is inconsistent.
+        return Err(storage(format!(
+            "hold {} is active, but its expiry key already names entry {}",
+            hold.id(),
+            entry.id()
+        )));
+    }
+    let expired = end_locked(&mut tx, &request, hold, Some(now), options).await?;
     tx.commit().await.map_err(db)?;
-    Ok(closed)
+    Ok(Some(expired))
 }
 
 /// Re-runs a hold operation after a deadlock or serialization failure.
@@ -517,4 +595,33 @@ pub async fn expire_hold(
     options: &PostOptions,
 ) -> Result<Hold, LedgerError> {
     with_retries!(options, end_once(conn, request, hold, Some(now), options))
+}
+
+/// The expiry worker: expires up to `limit` holds that are due at `now`,
+/// oldest expiry first, and returns them.
+///
+/// Each hold is claimed with `FOR UPDATE SKIP LOCKED` and expired in its own
+/// transaction, so several workers can run at once, and a hold that a
+/// capture or a release has locked is skipped rather than waited for: it
+/// will no longer be active once that commits, or is due again if it rolls
+/// back. Each expiry is posted on behalf of `client_id` under the key
+/// `hold-expire:<hold id>`.
+///
+/// On an error the holds expired so far stay expired; run the worker again
+/// to continue. Fewer than `limit` holds returned means none were left due.
+pub async fn expire_due_holds(
+    conn: &mut PgConnection,
+    client_id: ClientId,
+    now: Timestamp,
+    limit: usize,
+    options: &PostOptions,
+) -> Result<Vec<Hold>, LedgerError> {
+    let mut expired = Vec::new();
+    while expired.len() < limit {
+        match with_retries!(options, expire_next_once(conn, client_id, now, options))? {
+            Some(hold) => expired.push(hold),
+            None => break,
+        }
+    }
+    Ok(expired)
 }

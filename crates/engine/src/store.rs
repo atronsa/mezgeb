@@ -45,6 +45,18 @@ impl PgStore {
         &self.pool
     }
 
+    /// Runs the expiry worker once on this store's pool, on behalf of its
+    /// client: expires up to `limit` holds due at `now`
+    /// ([`holds::expire_due_holds`]).
+    pub async fn expire_due_holds(
+        &self,
+        now: Timestamp,
+        limit: usize,
+    ) -> Result<Vec<Hold>, LedgerError> {
+        let mut conn = self.pool.acquire().await.map_err(db)?;
+        holds::expire_due_holds(&mut conn, self.client, now, limit, &self.options).await
+    }
+
     /// The idempotency key used for an entry posted through the `Ledger`
     /// trait, which has no key of its own. Step 1.11 adds client keys.
     fn key_for(id: EntryId) -> Result<IdempotencyKey, LedgerError> {
