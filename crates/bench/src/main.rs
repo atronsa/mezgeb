@@ -14,9 +14,12 @@
 //!
 //! **Each run** gets a fresh database: migrations, a bank, the wallets (each
 //! funded far beyond what the run can spend) and the hot account. Then
-//! `--workers` workers, each on its own connection, post for `--warmup`
-//! seconds, which are not counted, and `--seconds` more, which are. Every
-//! posting must succeed, and a full verification must be clean at the end.
+//! `--workers` workers, each taking a pooled connection per posting, post
+//! for `--warmup` seconds, which are not counted, and `--seconds` more,
+//! which are. A posting refused with `Busy` (it waited the whole lock
+//! timeout) is counted and reported as a rate: it is the engine's designed
+//! answer to too much contention. Any other error fails the run, and a full
+//! verification must be clean at the end.
 //! Each scenario runs `--runs` times, interleaved with the others, and the
 //! spread of their throughput, `(max - min) / mean`, must stay under 10%.
 //!
@@ -322,6 +325,12 @@ async fn setup(pool: &PgPool, wallets: u64) -> Result<()> {
                     .open_account(wallet(n)?, &chart, &format!("2010:cust-{n}"))
                     .await?;
             }
+            // Every deposit comes from the bank, a hot account: setup is
+            // not measured, so it waits as long as it takes.
+            let patient = PostOptions {
+                lock_timeout: Duration::from_secs(25),
+                ..PostOptions::default()
+            };
             let mut conn = pool.acquire().await?;
             for n in (task..wallets).step_by(SETUP_TASKS as usize) {
                 let deposit = EntryDraft::default()
@@ -330,7 +339,7 @@ async fn setup(pool: &PgPool, wallets: u64) -> Result<()> {
                 post_entry_with(
                     &mut conn,
                     request(format!("deposit-{n}"), deposit)?,
-                    &PostOptions::default(),
+                    &patient,
                 )
                 .await?;
             }
@@ -355,6 +364,11 @@ struct Window {
 struct Sample {
     /// Latencies of the postings counted, in microseconds.
     latencies: Vec<u64>,
+    /// Postings in the measured window refused with `Busy`: they waited
+    /// the whole lock timeout. The engine's answer to too much contention,
+    /// so counted, not failed.
+    busy: u64,
+    /// Any other error: the run fails.
     errors: u64,
     /// How many times each error happened, by message.
     error_kinds: BTreeMap<String, u64>,
@@ -411,6 +425,11 @@ async fn worker(
                 sample.latencies.push(u64::try_from(latency.as_micros())?);
             }
             Ok(_) => {}
+            Err(mezgeb_core::LedgerError::Busy) => {
+                if due >= window.measure_from {
+                    sample.busy += 1;
+                }
+            }
             Err(error) => {
                 sample.errors += 1;
                 *sample.error_kinds.entry(error.to_string()).or_default() += 1;
@@ -426,8 +445,21 @@ struct RunResult {
     per_second: f64,
     /// p50, p90, p99, p99.9 and max, in microseconds.
     latency: [u64; 5],
+    /// Postings refused with `Busy` in the measured window.
+    busy: u64,
     errors: u64,
     deadlock_retries: u64,
+}
+
+impl RunResult {
+    /// The share of postings refused with `Busy`, in percent.
+    fn busy_rate(&self) -> f64 {
+        let attempted = self.postings + self.busy;
+        if attempted == 0 {
+            return 0.0;
+        }
+        self.busy as f64 / attempted as f64 * 100.0
+    }
 }
 
 fn percentile(sorted: &[u64], p: f64) -> u64 {
@@ -519,11 +551,13 @@ async fn run_one(config: &Arc<Config>, scenario: Scenario) -> Result<RunResult> 
         }
         let mut latencies = Vec::new();
         let mut errors = 0;
+        let mut busy = 0;
         let mut error_kinds: BTreeMap<String, u64> = BTreeMap::new();
         for task in tasks {
             let sample = task.await??;
             latencies.extend(sample.latencies);
             errors += sample.errors;
+            busy += sample.busy;
             for (kind, n) in sample.error_kinds {
                 *error_kinds.entry(kind).or_default() += n;
             }
@@ -562,6 +596,7 @@ async fn run_one(config: &Arc<Config>, scenario: Scenario) -> Result<RunResult> 
                 percentile(&latencies, 99.9),
                 latencies.last().copied().unwrap_or_default(),
             ],
+            busy,
             errors,
             deadlock_retries: stats.deadlock_retries(),
         })
@@ -622,7 +657,8 @@ async fn run(config: Config) -> Result<bool> {
             let [p50, p90, p99, p999, max] = result.latency;
             println!(
                 "{} run {run}/{}: {} postings, {:.0}/s · p50 {} · p90 {} · p99 {} · \
-                 p99.9 {} · max {} · errors {} · deadlock retries {} · verify clean",
+                 p99.9 {} · max {} · busy {} ({:.2}%) · errors {} · deadlock retries {} · \
+                 verify clean",
                 scenario.describe(),
                 config.runs,
                 result.postings,
@@ -632,6 +668,8 @@ async fn run(config: Config) -> Result<bool> {
                 ms(p99),
                 ms(p999),
                 ms(max),
+                result.busy,
+                result.busy_rate(),
                 result.errors,
                 result.deadlock_retries,
             );
@@ -641,9 +679,9 @@ async fn run(config: Config) -> Result<bool> {
 
     println!();
     println!(
-        "| Scenario | Postings/s (mean of runs) | Runs | Spread | p50 | p99 | p99.9 | Errors |"
+        "| Scenario | Postings/s (mean of runs) | Runs | Spread | p50 | p99 | p99.9 | Busy | Errors |"
     );
-    println!("|---|---:|---|---:|---:|---:|---:|---:|");
+    println!("|---|---:|---|---:|---:|---:|---:|---:|---:|");
     let mut ok = true;
     for (scenario, runs) in config.scenarios.iter().zip(&results) {
         let spread = spread(runs);
@@ -654,13 +692,14 @@ async fn run(config: Config) -> Result<bool> {
             .map(|r| format!("{:.0}", r.per_second))
             .collect();
         println!(
-            "| {} | {:.0} | {} | {spread:.1}% | {} | {} | {} | {errors} |",
+            "| {} | {:.0} | {} | {spread:.1}% | {} | {} | {} | {:.2}% | {errors} |",
             scenario.describe(),
             mean(runs.iter().map(|r| r.per_second)),
             each.join(", "),
             ms(average(0)),
             ms(average(2)),
             ms(average(3)),
+            mean(runs.iter().map(RunResult::busy_rate)),
         );
         if spread >= 10.0 || errors > 0 {
             ok = false;
@@ -668,9 +707,11 @@ async fn run(config: Config) -> Result<bool> {
     }
     println!();
     if ok {
-        println!("PASS: no errors, every verification clean, every spread under 10%");
+        println!(
+            "PASS: no errors other than Busy, every verification clean, every spread under 10%"
+        );
     } else {
-        println!("FAIL: errors, or a spread of 10% or more");
+        println!("FAIL: errors other than Busy, or a spread of 10% or more");
     }
     Ok(ok)
 }
