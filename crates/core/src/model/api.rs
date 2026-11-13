@@ -10,8 +10,12 @@ use crate::account::{Account, AccountStatus};
 use crate::authorization::Authorization;
 use crate::chart::Chart;
 use crate::entry::EntryDraft;
+use crate::hold::Hold;
+use crate::ids::HoldId;
 use crate::ids::{AccountId, EntryId};
 use crate::model::ledger::{LedgerError, MemLedger, PostedEntry};
+use crate::money::PositiveAmount;
+use crate::time::Timestamp;
 
 /// A ledger: open accounts, post and reverse entries, read them back.
 ///
@@ -129,5 +133,96 @@ impl Ledger for MemLedger {
         &mut self,
     ) -> impl Future<Output = Result<Vec<PostedEntry>, LedgerError>> + Send {
         ready(Ok(self.entries().to_vec()))
+    }
+}
+
+/// Hold operations (ADR-0004, step 1.14): reserve money now, capture or
+/// release it later. Each operation is all-or-nothing.
+pub trait Holds {
+    /// Moves `amount` from `account` into `held`, the hold's own account.
+    #[allow(clippy::too_many_arguments)]
+    fn place_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        account: AccountId,
+        held: AccountId,
+        amount: PositiveAmount,
+        expires_at: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send;
+
+    /// Captures `amount` of an active hold into `destination`; the rest
+    /// returns to the account in the same entry.
+    fn capture_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        destination: AccountId,
+        amount: PositiveAmount,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send;
+
+    /// Returns everything to the account.
+    fn release_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send;
+
+    /// Returns everything to the account once the hold has expired.
+    fn expire_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send;
+
+    /// Reads every hold, ordered by ID.
+    fn all_holds(&mut self) -> impl Future<Output = Result<Vec<Hold>, LedgerError>> + Send;
+}
+
+impl Holds for MemLedger {
+    fn place_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        account: AccountId,
+        held: AccountId,
+        amount: PositiveAmount,
+        expires_at: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send {
+        ready(MemLedger::place_hold(self, id, entry, account, held, amount, expires_at).cloned())
+    }
+
+    fn capture_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        destination: AccountId,
+        amount: PositiveAmount,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send {
+        ready(MemLedger::capture_hold(self, id, entry, destination, amount, now).cloned())
+    }
+
+    fn release_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send {
+        ready(MemLedger::release_hold(self, id, entry).cloned())
+    }
+
+    fn expire_hold(
+        &mut self,
+        id: HoldId,
+        entry: EntryId,
+        now: Timestamp,
+    ) -> impl Future<Output = Result<Hold, LedgerError>> + Send {
+        ready(MemLedger::expire_hold(self, id, entry, now).cloned())
+    }
+
+    fn all_holds(&mut self) -> impl Future<Output = Result<Vec<Hold>, LedgerError>> + Send {
+        ready(Ok(self.holds().cloned().collect()))
     }
 }
