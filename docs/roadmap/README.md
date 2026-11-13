@@ -173,7 +173,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 1.13 | [Balance Verification and Integrity Checking](phase-1-core-engine/13-balance-verification.md) | 13 | Done ([evidence](../evidence/1.13-balance-verification.md)) |
 | 1.14 | [Holds and Two-Phase Operations](phase-1-core-engine/14-holds-and-two-phase-operations.md) | 14 | Done ([evidence](../evidence/1.14-holds-and-two-phase-operations.md)) |
 | 1.15 | [Failure Injection and Crash Recovery for the Core](phase-1-core-engine/15-failure-injection-and-crash-recovery.md) | 15 | Done ([evidence](../evidence/1.15-failure-injection-and-crash-recovery.md)) |
-| 1.16 | [Phase 1 Consolidation, Baseline Benchmark and Exit Review](phase-1-core-engine/16-phase-1-exit-review.md) | 16 | Not started |
+| 1.16 | [Phase 1 Consolidation, Baseline Benchmark and Exit Review](phase-1-core-engine/16-phase-1-exit-review.md) | 16 | Done ([evidence](../evidence/1.16-phase-1-exit-review.md)) |
 | 2.01 | [Operations Layer and Posting Templates](phase-2-operations-and-security/01-posting-templates.md) | 17 | Not started |
 | 2.02 | [Deposits, Withdrawals, Clearing and Suspense Accounts](phase-2-operations-and-security/02-deposits-withdrawals-and-clearing.md) | 18 | Not started |
 | 2.03 | [Transfers, Merchant Payments and Fees](phase-2-operations-and-security/03-transfers-payments-and-fees.md) | 19 | Not started |
