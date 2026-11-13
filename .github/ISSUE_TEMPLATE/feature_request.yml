@@ -1,0 +1,29 @@
+name: Feature or design proposal
+description: A new capability, or a change to the design.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Mezgeb follows a [roadmap](https://github.com/atronsa/mezgeb/blob/main/docs/roadmap/README.md), and its design decisions are recorded as [ADRs](https://github.com/atronsa/mezgeb/blob/main/docs/adr/README.md). A proposal that fits them is much easier to take on.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you need to do that Mezgeb does not allow, and why it matters. Describe the problem before any solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you suggest, including the accounting entries it would post, if any.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: input
+    id: roadmap
+    attributes:
+      label: Related roadmap step or ADR
+      placeholder: 2.03, ADR-0004
