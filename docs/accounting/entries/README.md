@@ -2,7 +2,7 @@
 
 [Accounting model](../README.md) · [Chart of accounts](../chart-of-accounts.md)
 
-Each entry is booked from the **platform's** point of view. IDs (E01–E18) are
+Each entry is booked from the **platform's** point of view. IDs (E01–E20) are
 stable and are referenced from code and tests in later steps.
 
 The entries form one continuous story. Read them in order: each one starts
@@ -40,8 +40,8 @@ apart means customer money can never pay the platform's bills.
 |---|---|
 | E01 | [Deposit via bank](deposits-and-withdrawals.md#e01-deposit-via-bank) |
 | E02 | [Withdrawal: requested](deposits-and-withdrawals.md#e02-withdrawal-requested) |
-| E03 | [Withdrawal: sent](deposits-and-withdrawals.md#e03-withdrawal-sent) |
-| E04 | [Withdrawal: failed](deposits-and-withdrawals.md#e04-withdrawal-failed) |
+| E03 | [Withdrawal: sent and confirmed](deposits-and-withdrawals.md#e03-withdrawal-sent-and-confirmed) |
+| E04 | [Withdrawal: rejected by the bank](deposits-and-withdrawals.md#e04-withdrawal-rejected-by-the-bank) |
 | E05 | [Withdrawal: returned by bank](deposits-and-withdrawals.md#e05-withdrawal-returned-by-bank) |
 | E06 | [P2P transfer](payments.md#e06-p2p-transfer) |
 | E07 | [QR merchant payment with fee](payments.md#e07-qr-merchant-payment-with-fee) |
@@ -56,6 +56,8 @@ apart means customer money can never pay the platform's bills.
 | E16 | [Offline escrow reservation](offline-escrow.md#e16-offline-escrow-reservation) |
 | E17 | [Offline receipt settlement](offline-escrow.md#e17-offline-receipt-settlement) |
 | E18 | [Escrow return on expiry](offline-escrow.md#e18-escrow-return-on-expiry) |
+| E19 | [Deposit with an unknown reference](suspense.md#e19-deposit-with-an-unknown-reference) |
+| E20 | [Suspense resolved](suspense.md#e20-suspense-resolved) |
 
 ## Entry template
 
