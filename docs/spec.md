@@ -278,18 +278,31 @@ evidence, not a third ledger column.
 - REST over HTTPS with JSON, built with Axum
   ([ADR-0009](adr/0009-rest-api-with-axum.md)). Versioned in the path
   (`/v1/...`) and described by an OpenAPI document.
-- Resources: accounts, entries (post, look up, reverse), holds (create,
-  capture, release), account history, offline vouchers and receipts,
-  periods (close). Designed in step 2.06.
-- Every write takes an `Idempotency-Key` header
+- The contract is [`openapi/mezgeb.v1.yaml`](../openapi/mezgeb.v1.yaml)
+  (OpenAPI 3.1, **v1-draft**, step 2.06); its conventions are in
+  [docs/api](api/README.md).
+- Resources: accounts (open, get, find, balance at a time, history,
+  status), posting templates, one operation per template, entries (get, find
+  by idempotency key), corrections (reversal; maker-checker adjustment
+  requests), holds (place, capture, release), periods (list, close), reports
+  (trial balance, ageing), and offline devices, vouchers and receipts
+  (planned, `501`).
+- Clients post only through posting templates. The only endpoint that takes
+  arbitrary lines is the operator-only adjustment request, which a second
+  person must approve (INV-25).
+- Every write that posts an entry or places a hold takes an
+  `Idempotency-Key` header
   ([ADR-0008](adr/0008-idempotency-in-posting-transaction.md)).
 - Amounts are decimal strings with an explicit currency
   (`{"amount": "39.20", "currency": "ETB"}`), converted to minor units at the
   boundary ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
-- Batch writes: to be decided in step 2.06.
-- Every successfully posted entry includes its ledger receipt (§7.2).
-- Errors: RFC 9457 Problem Details with stable, enumerated codes.
-- Versioning and backward-compatibility policy.
+- No batch writes in v1: each request posts one entry.
+- Every successfully posted entry includes its ledger receipt (§7.2), from
+  step 2.09.
+- Errors: RFC 9457 Problem Details with stable codes
+  ([catalogue](api/errors.md)).
+- Compatibility: `/v1` only grows; a breaking change is `/v2`
+  ([policy](api/README.md#compatibility)).
 
 ## 10. Testing and verification
 
