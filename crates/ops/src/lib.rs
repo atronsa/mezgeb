@@ -29,6 +29,7 @@ mod deposits;
 mod error;
 mod p2p_transfer;
 mod payments;
+mod refunds;
 mod registry;
 mod template;
 mod withdrawals;
@@ -37,6 +38,9 @@ pub use deposits::{AmountRequest, DepositConfirmedV1, DepositUnmatchedV1, Suspen
 pub use error::TemplateError;
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
 pub use payments::{CHANNELS, MerchantPaymentV1, PaymentRequest, PaymentRequestSettleV1};
+pub use refunds::{
+    DisputeOpenV1, DisputeResolveMerchantV1, DisputeResolvePayerV1, MerchantRefundV1, RefundRequest,
+};
 pub use registry::{RELEASED, RegisterError, TemplateRegistry};
 pub use template::{
     Accounts, Input, Leg, MetadataField, OperationRequest, Role, TEMPLATE_KEY, Template,
@@ -47,6 +51,7 @@ pub use withdrawals::{
 };
 
 /// The chart accounts whose open items the ageing report lists: 2020 Pending
-/// withdrawals, 9010 Suspense and 9030 Clearing: withdrawals in transit. Each
-/// sub-account is one item, open while its balance is not zero.
-pub const AGED_ACCOUNTS: &[u16] = &[2020, 9010, 9030];
+/// withdrawals, 2060 Disputed merchant funds, 9010 Suspense and 9030
+/// Clearing: withdrawals in transit. Each sub-account is one item, open while
+/// its balance is not zero.
+pub const AGED_ACCOUNTS: &[u16] = &[2020, 2060, 9010, 9030];

@@ -9,6 +9,9 @@ use crate::deposits::{DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1}
 use crate::error::TemplateError;
 use crate::p2p_transfer::P2pTransferV1;
 use crate::payments::{MerchantPaymentV1, PaymentRequestSettleV1};
+use crate::refunds::{
+    DisputeOpenV1, DisputeResolveMerchantV1, DisputeResolvePayerV1, MerchantRefundV1,
+};
 use crate::template::{
     MetadataField, OperationRequest, Role, Template, TemplateId, book_operation,
 };
@@ -35,6 +38,11 @@ pub const RELEASED: &[&str] = &[
     // Step 2.03.
     "merchant_payment.v1",
     "payment_request_settle.v1",
+    // Step 2.04.
+    "merchant_refund.v1",
+    "dispute_open.v1",
+    "dispute_resolve_payer.v1",
+    "dispute_resolve_merchant.v1",
 ];
 
 type Book = fn(&OperationRequest, &dyn AccountsView) -> Result<EntryDraft, TemplateError>;
@@ -45,6 +53,7 @@ struct Registered {
     amounts: &'static [&'static str],
     optional_amounts: &'static [&'static str],
     metadata: &'static [MetadataField],
+    refunds: bool,
     book: Book,
 }
 
@@ -100,6 +109,10 @@ impl TemplateRegistry {
             TemplateRegistry::register::<WithdrawalFailedV1>,
             TemplateRegistry::register::<MerchantPaymentV1>,
             TemplateRegistry::register::<PaymentRequestSettleV1>,
+            TemplateRegistry::register::<MerchantRefundV1>,
+            TemplateRegistry::register::<DisputeOpenV1>,
+            TemplateRegistry::register::<DisputeResolvePayerV1>,
+            TemplateRegistry::register::<DisputeResolveMerchantV1>,
         ];
         for register in builtin {
             register(&mut registry)
@@ -123,6 +136,7 @@ impl TemplateRegistry {
                 amounts: T::AMOUNTS,
                 optional_amounts: T::OPTIONAL_AMOUNTS,
                 metadata: T::METADATA,
+                refunds: T::REFUNDS,
                 book: book_operation::<T>,
             },
         );
@@ -155,6 +169,12 @@ impl TemplateRegistry {
     /// The metadata keys a template version checks.
     pub fn metadata(&self, template: &str) -> Result<&'static [MetadataField], TemplateError> {
         Ok(self.find(template)?.metadata)
+    }
+
+    /// Whether a template version books a refund of an entry the request
+    /// names.
+    pub fn refunds(&self, template: &str) -> Result<bool, TemplateError> {
+        Ok(self.find(template)?.refunds)
     }
 
     /// Books `request` with the template version it names.
