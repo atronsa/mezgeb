@@ -7,6 +7,14 @@ supported.
 
 ## [Unreleased]
 
+### Added
+
+- **Posting templates** (`mezgeb-ops`, step 2.01): a `Template` trait that
+  books a typed request against named roles, a `TemplateRegistry` keyed by
+  `name.vN`, stable template errors 2001–2013, and the first template,
+  `p2p_transfer.v1` (worked entry E06). Each draft records its template in
+  the `template` metadata key. The engine is unchanged.
+
 ## [0.1.0-engine] - 2026-11-13
 
 Milestone M1, the end of Phase 1: a posting engine on PostgreSQL, proven
