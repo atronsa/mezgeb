@@ -11,8 +11,9 @@ be wrong too.
 | File | Contents |
 |---|---|
 | [chart-of-accounts.md](chart-of-accounts.md) | Account codes, types and normal sides |
-| [entries/](entries/README.md) | Worked journal entries E01–E20, grouped by flow |
+| [entries/](entries/README.md) | Worked journal entries E01–E24, grouped by flow |
 | [clearing-and-suspense.md](clearing-and-suspense.md) | How money in flight and money with no known owner is booked, and the ageing report (step 2.02) |
+| [refunds-and-disputes.md](refunds-and-disputes.md) | The refund rule, the fee on a refund, and the dispute policy (step 2.04; review pending) |
 | [trial-balance.md](trial-balance.md) | Trial balance after all worked entries, with checks and running balances |
 | [review.md](review.md) | Accounting review: checklist, questions, findings and sign-off |
 
