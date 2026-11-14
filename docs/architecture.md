@@ -75,7 +75,7 @@ it *could* be embedded later without a rewrite.
   (open/frozen/closed), `allow_negative`, `external_ref` (e.g. a client wallet
   id), `debits_total`, `credits_total`, `version`.
 - **Journal entry**: id (UUIDv7), client id + idempotency key (unique),
-  template + version, reference, effective date, posted_at, period,
+  template + version (the `template` metadata key, step 2.01), reference, effective date, posted_at, period,
   `reverses_entry_id` (unique), metadata, `prev_hash`, `hash`.
 - **Journal line**: entry id, account id, side (debit/credit), amount
   (`BIGINT > 0`, minor units), currency, account totals *after* this line.
