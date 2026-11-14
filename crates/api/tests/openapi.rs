@@ -320,3 +320,32 @@ fn every_engine_operation_is_reachable() {
         );
     }
 }
+
+/// The generated Postman collection names its files after the contract's
+/// tags, summaries and response descriptions. Every path stays within 150
+/// characters of the repository root, so a checkout on Windows, limited to
+/// 260 characters, fits in a directory up to about 100 characters deep.
+#[test]
+fn the_collection_paths_fit_on_windows() -> TestResult {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut stack = vec![root.join("postman/collections/mezgeb-api-v1")];
+    let mut files = 0;
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            files += 1;
+            let relative = path.strip_prefix(&root)?.to_string_lossy().len();
+            assert!(
+                relative <= 150,
+                "{} is {relative} characters",
+                path.display()
+            );
+        }
+    }
+    assert!(files > 40, "found {files} collection files");
+    Ok(())
+}
