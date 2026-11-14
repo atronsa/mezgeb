@@ -9,16 +9,21 @@
 //! Migrations live in the top-level `migrations/` directory.
 
 mod ageing;
+mod close;
 mod concurrency;
 mod holds;
 mod periods;
 mod post;
+mod reports;
 mod rows;
 mod store;
 pub mod verification;
 pub mod verify;
 
 pub use ageing::{OpenItem, ageing};
+pub use close::{
+    CloseReport, PeriodFinding, Snapshot, begin_close, close_period, finish_close, period_snapshots,
+};
 pub use concurrency::{FaultPoint, Isolation, PostOptions, RetryStats};
 pub use holds::{
     CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,
@@ -28,6 +33,10 @@ pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{
     PostRequest, lookup_by_idempotency_key, post_entry, post_entry_with, reverse_entry,
     reverse_entry_with,
+};
+pub use reports::{
+    AsOf, GeneralLedger, GeneralLedgerLine, TrialBalance, TrialBalanceRow, general_ledger,
+    trial_balance,
 };
 pub use store::PgStore;
 pub use verification::{Finding, Scope, VerificationReport, VerifyOptions, verify};
