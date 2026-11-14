@@ -32,8 +32,22 @@ supported.
   (step 2.03): `Template::OPTIONAL_AMOUNTS`, `Role::optional` and
   `Template::METADATA`.
 
+- **Refunds and disputes** (step 2.04): an entry can refund an earlier
+  standard entry (`EntryDraft::refunds`, kind `refund`). The engine caps
+  every refund per account of the original, with the original's refund
+  tallies locked (migration 0006, `refund_tallies`), and the database checks
+  the rule again at commit (INV-15). Templates `merchant_refund.v1`,
+  `dispute_open.v1`, `dispute_resolve_payer.v1` and
+  `dispute_resolve_merchant.v1`; template errors 2021 and 2022; chart
+  account `2060 Disputed merchant funds`. ADR-0015 and the refund and
+  dispute policy (`docs/accounting/refunds-and-disputes.md`, review pending).
+
 ### Changed
 
+- **A refunded entry can no longer be reversed, and a refund is never
+  reversed** (step 2.04); corrections then go through adjustments.
+- **Worked entries** (step 2.04): E21–E24 book two disputes, and the trial
+  balance is recomputed after E24.
 - **Templates can read their accounts' balances** (step 2.02):
   `Template::book` takes the bound `Accounts`, by role.
 - **Worked entries** (step 2.02): a withdrawal now passes through clearing.
