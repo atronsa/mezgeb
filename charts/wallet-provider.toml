@@ -80,6 +80,15 @@ prefix = "vch"
 status = "active"
 description = "Customer money reserved for offline spending on one device. Each sub-account returns to zero when its voucher expires."
 
+[[accounts]]
+code = 2060
+name = "Disputed merchant funds"
+type = "liability"
+kind = "control"
+prefix = "dsp"
+status = "active"
+description = "Merchant money held while a payer's dispute is open, one sub-account per dispute. Each sub-account returns to zero."
+
 # Equity
 
 [[accounts]]
