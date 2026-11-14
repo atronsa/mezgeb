@@ -14,6 +14,23 @@ supported.
   `name.vN`, stable template errors 2001–2013, and the first template,
   `p2p_transfer.v1` (worked entry E06). Each draft records its template in
   the `template` metadata key. The engine is unchanged.
+- **Deposits, withdrawals, clearing and suspense** (step 2.02): seven
+  templates (`deposit_confirmed.v1`, `deposit_unmatched.v1`,
+  `suspense_resolve.v1`, `withdrawal_request.v1`, `withdrawal_sent.v1`,
+  `withdrawal_confirmed.v1`, `withdrawal_failed.v1`); template errors 2014
+  and 2015; and an ageing query, `mezgeb_engine::ageing`, for open clearing
+  and suspense items. The chart gains `9030 Clearing: withdrawals in
+  transit`, and `9010 Suspense` becomes one sub-account per item. The
+  clearing and suspense policy is in `docs/accounting/clearing-and-suspense.md`.
+
+### Changed
+
+- **Templates can read their accounts' balances** (step 2.02):
+  `Template::book` takes the bound `Accounts`, by role.
+- **Worked entries** (step 2.02): a withdrawal now passes through clearing.
+  E03 is booked as sent and then confirmed, and E04 as sent and then rejected
+  by the bank. New entries E19 and E20 book an unidentified deposit and its
+  resolution.
 
 ## [0.1.0-engine] - 2026-11-13
 
