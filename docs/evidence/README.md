@@ -29,3 +29,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.16 | [Phase 1 exit review and baseline benchmark](1.16-phase-1-exit-review.md) | Passed; Phase 1 gate met |
 | 2.01 | [Posting templates](2.01-posting-templates.md) | Passed |
 | 2.02 | [Deposits, withdrawals, clearing and suspense](2.02-deposits-withdrawals-and-clearing.md) | Passed |
+| 2.03 | [Transfers, merchant payments and fees](2.03-transfers-payments-and-fees.md) | Passed |

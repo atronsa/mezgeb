@@ -84,11 +84,28 @@ impl fmt::Display for TemplateId {
 pub struct Role {
     pub name: &'static str,
     pub codes: &'static [u16],
+    /// An optional role need only be bound when the booking uses it, such
+    /// as fee revenue when there is a fee.
+    pub optional: bool,
 }
 
 impl Role {
+    /// A role the request must always bind.
     pub const fn new(name: &'static str, codes: &'static [u16]) -> Role {
-        Role { name, codes }
+        Role {
+            name,
+            codes,
+            optional: false,
+        }
+    }
+
+    /// A role the request binds only when the booking uses it.
+    pub const fn optional(name: &'static str, codes: &'static [u16]) -> Role {
+        Role {
+            name,
+            codes,
+            optional: true,
+        }
     }
 
     fn allows(&self, code: u16) -> bool {
@@ -123,9 +140,39 @@ impl Leg {
     }
 }
 
+/// A metadata key a template reads, such as `channel`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataField {
+    pub name: &'static str,
+    /// Whether the request must set it.
+    pub required: bool,
+    /// The values it may take. Empty means any value.
+    pub values: &'static [&'static str],
+}
+
+impl MetadataField {
+    /// A key the request must set, to one of `values` (any value if empty).
+    pub const fn required(name: &'static str, values: &'static [&'static str]) -> MetadataField {
+        MetadataField {
+            name,
+            required: true,
+            values,
+        }
+    }
+
+    /// A key the request may set, to one of `values` (any value if empty).
+    pub const fn optional(name: &'static str, values: &'static [&'static str]) -> MetadataField {
+        MetadataField {
+            name,
+            required: false,
+            values,
+        }
+    }
+}
+
 /// The amounts of an [`OperationRequest`], as a template reads them to build
 /// its typed request. Every amount the template declares is present and
-/// positive by the time it sees them.
+/// positive by the time it sees them, and no optional amount is negative.
 #[derive(Debug, Clone, Copy)]
 pub struct Input<'a> {
     amounts: &'a BTreeMap<String, Money>,
@@ -138,6 +185,16 @@ impl Input<'_> {
             .get(name)
             .ok_or_else(|| TemplateError::MissingAmount(name.to_owned()))?;
         PositiveAmount::new(*money).map_err(|_| TemplateError::AmountNotPositive(name.to_owned()))
+    }
+
+    /// An optional amount: `None` if it is absent or zero. A negative amount
+    /// is refused.
+    pub fn optional_amount(&self, name: &str) -> Result<Option<PositiveAmount>, TemplateError> {
+        match self.amounts.get(name) {
+            None => Ok(None),
+            Some(money) if money.is_zero() => Ok(None),
+            Some(_) => self.amount(name).map(Some),
+        }
     }
 }
 
@@ -209,8 +266,14 @@ pub trait Template {
     /// Every role the template books, each with the chart accounts it may be
     /// bound to. A request must bind exactly these roles.
     const ROLES: &'static [Role];
-    /// Every amount the template reads. A request must give exactly these.
+    /// Every amount the template reads. A request must give all of these,
+    /// and no amount that is neither here nor in [`Template::OPTIONAL_AMOUNTS`].
     const AMOUNTS: &'static [&'static str];
+    /// Amounts the request may leave out or set to zero, such as a fee.
+    const OPTIONAL_AMOUNTS: &'static [&'static str] = &[];
+    /// Metadata keys the template checks, such as a required `channel`.
+    /// Other keys are copied into the entry unchecked.
+    const METADATA: &'static [MetadataField] = &[];
 
     /// The typed request.
     type Request;
@@ -261,7 +324,7 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     let id = TemplateId::new(T::NAME, T::VERSION)?;
 
     for role in T::ROLES {
-        if !accounts.contains_key(role.name) {
+        if !role.optional && !accounts.contains_key(role.name) {
             return Err(TemplateError::MissingAccount(role.name.to_owned()));
         }
     }
@@ -273,10 +336,9 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     }
     let mut bound: Vec<(&'static str, AccountId, &Account)> = Vec::with_capacity(T::ROLES.len());
     for role in T::ROLES {
-        let id = accounts
-            .get(role.name)
-            .copied()
-            .ok_or_else(|| TemplateError::MissingAccount(role.name.to_owned()))?;
+        let Some(id) = accounts.get(role.name).copied() else {
+            continue;
+        };
         let account = view
             .account(id)
             .ok_or_else(|| TemplateError::AccountNotFound {
@@ -305,14 +367,30 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     if metadata.contains_key(TEMPLATE_KEY) {
         return Err(TemplateError::ReservedMetadata);
     }
+    for field in T::METADATA {
+        match metadata.get(field.name) {
+            None if field.required => {
+                return Err(TemplateError::MissingMetadata(field.name.to_owned()));
+            }
+            Some(value) if !field.values.is_empty() && !field.values.contains(&value.as_str()) => {
+                return Err(TemplateError::InvalidMetadata(field.name.to_owned()));
+            }
+            _ => {}
+        }
+    }
 
     let mut lines = Vec::with_capacity(legs.len());
     for leg in legs {
-        let (_, account, _) = accounts
-            .bound
-            .iter()
-            .find(|(role, ..)| *role == leg.role)
-            .ok_or_else(|| TemplateError::UndeclaredRole(leg.role.to_owned()))?;
+        let Some((_, account, _)) = accounts.bound.iter().find(|(role, ..)| *role == leg.role)
+        else {
+            // A declared optional role the booking needs but the request
+            // left out, or a role the template never declared.
+            return Err(if T::ROLES.iter().any(|r| r.name == leg.role) {
+                TemplateError::MissingAccount(leg.role.to_owned())
+            } else {
+                TemplateError::UndeclaredRole(leg.role.to_owned())
+            });
+        };
         lines.push(LineDraft {
             account: *account,
             side: leg.side,
@@ -341,11 +419,9 @@ pub(crate) fn book_operation<T: Template>(
             return Err(TemplateError::MissingAmount((*name).to_owned()));
         }
     }
-    if let Some(extra) = request
-        .amounts
-        .keys()
-        .find(|name| !T::AMOUNTS.contains(&name.as_str()))
-    {
+    if let Some(extra) = request.amounts.keys().find(|name| {
+        !T::AMOUNTS.contains(&name.as_str()) && !T::OPTIONAL_AMOUNTS.contains(&name.as_str())
+    }) {
         return Err(TemplateError::UnexpectedAmount(extra.clone()));
     }
     let input = Input {
@@ -353,6 +429,9 @@ pub(crate) fn book_operation<T: Template>(
     };
     for name in T::AMOUNTS {
         input.amount(name)?;
+    }
+    for name in T::OPTIONAL_AMOUNTS {
+        input.optional_amount(name)?;
     }
     let typed = T::request(&input)?;
     draft::<T, _>(

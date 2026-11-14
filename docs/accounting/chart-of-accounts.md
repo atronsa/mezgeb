@@ -86,14 +86,14 @@ are fixed now, and the step named decides how they are posted.
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
 | 4010 | Payment fee revenue | System | Cr | Active | E07–E09, E11, E12, E17 | Fees earned on merchant payments, online and offline. Reduced by fees given back on refunds. |
-| 4020 | Service fee revenue | System | Cr | Reserved (step 2.03) | E02, E15 open questions | Fees charged to customers or merchants for services such as withdrawals or instant settlement. |
+| 4020 | Service fee revenue | System | Cr | Reserved (no service fees yet, ADR-0014) | E02, E15 open questions | Fees charged to customers or merchants for services such as withdrawals or instant settlement. |
 
 ### Expenses
 
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
 | 5010 | Customer compensation expense | System | Dr | Active | E14 | Goodwill credits and compensation paid from the platform's own money. |
-| 5020 | Bank charges | System | Dr | Reserved (step 2.03) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
+| 5020 | Bank charges | System | Dr | Reserved (no bank charges yet, ADR-0014) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
 | 5030 | Offline settlement losses | System | Dr | Reserved (step 2.13) | E18 open questions | Receipts the platform pays out after the escrow behind them was already returned, under the written loss policy. |
 
 ### Suspense and clearing

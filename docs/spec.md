@@ -131,7 +131,12 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   allowed for its role (2010), same account for two roles (2011), reserved
   metadata (2012), template books an undeclared role (2013), amount not
   the whole balance of an item that moves whole (2014), account not new for
-  an item that opens its own sub-account (2015).
+  an item that opens its own sub-account (2015), fees more than the
+  amount (2016), amounts in different currencies (2017), an amount too
+  large (2018), required metadata missing (2019), metadata value not
+  allowed (2020). A template may also have optional amounts (such as a
+  fee), optional roles (such as fee revenue, needed only with a fee) and
+  metadata keys it checks (such as `channel`).
 - **4.7 Clearing and suspense.** Money in flight and money with no known
   owner sit in per-item sub-accounts (`2020:wd-…` pending withdrawals,
   `9030:wdt-…` withdrawals in transit, `9010:sus-…` suspense) that each
@@ -140,6 +145,13 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   zero. Cash in 1010 moves only when the bank statement shows it
   ([clearing and suspense](accounting/clearing-and-suspense.md), step
   2.02). The ageing query lists open items with their age.
+- **4.8 Payments and fees.** A merchant payment or a paid payment request
+  is one entry: the payer, the payee and, if there is a fee, fee revenue
+  (4010). A merchant-paid fee comes out of the price, a payer-paid fee is
+  added to it, and the client computes both; the ledger never rounds. The
+  channel (`qr`, `card_tap`, `phone_tap`, `fingerprint`) is metadata, never
+  an account ([ADR-0014](adr/0014-payment-channels-and-fees.md), step
+  2.03).
 
 ## 5. Offline sync
 

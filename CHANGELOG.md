@@ -23,6 +23,15 @@ supported.
   transit`, and `9010 Suspense` becomes one sub-account per item. The
   clearing and suspense policy is in `docs/accounting/clearing-and-suspense.md`.
 
+- **Merchant payments and payment requests with fees** (step 2.03):
+  `merchant_payment.v1` for every merchant channel (`qr`, `card_tap`,
+  `phone_tap`, `fingerprint`) and `payment_request_settle.v1`, with
+  merchant-paid and payer-paid fees in the payment's own entry; template
+  errors 2016–2020. ADR-0014 records the channel and fee decisions.
+- **Optional amounts, optional roles and checked metadata** for templates
+  (step 2.03): `Template::OPTIONAL_AMOUNTS`, `Role::optional` and
+  `Template::METADATA`.
+
 ### Changed
 
 - **Templates can read their accounts' balances** (step 2.02):

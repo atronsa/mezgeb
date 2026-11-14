@@ -107,7 +107,9 @@ this page does.
 
 ## Not decided yet
 
-- **Fees** on deposits, withdrawals and returns (4020, 5020): step 2.03.
+- **Fees** on deposits, withdrawals and returns (4020, 5020): none in this
+  version ([ADR-0014](../adr/0014-payment-channels-and-fees.md)). A fee will
+  be a new template version with a fee line.
 - **Cancelling a withdrawal before it is sent** (Dr 2020 / Cr 2010) and
   **returning unmatched money to the sender** (Dr 9010 / Cr 1010): no
   template yet.

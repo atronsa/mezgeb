@@ -25,6 +25,7 @@ back to the reason it exists.
 | [0011](0011-append-only-history.md) | History is append-only; corrections are new entries | [§5.6](../architecture.md#56-reversals-without-modifying-history) | Accepted |
 | [0012](0012-stored-running-balances.md) | Balances are stored running totals, proven against the lines | [§5.7](../architecture.md#57-calculating-and-verifying-balances-efficiently) | Accepted |
 | [0013](0013-reversals-never-overdraw.md) | A reversal that would overdraw is refused; the mistake is corrected with an adjustment | E13 open question | Accepted |
+| [0014](0014-payment-channels-and-fees.md) | Payment channels are metadata; fees are lines in the payment's own entry | E07, E08 open questions | Accepted |
 
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.

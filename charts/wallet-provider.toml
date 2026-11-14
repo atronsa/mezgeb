@@ -106,7 +106,7 @@ name = "Service fee revenue"
 type = "revenue"
 kind = "system"
 status = "reserved"
-description = "Fees for services such as withdrawals or instant settlement. Decided in step 2.03."
+description = "Fees for services such as withdrawals or instant settlement. Unused: no service fees yet (ADR-0014)."
 
 # Expenses
 
@@ -124,7 +124,7 @@ name = "Bank charges"
 type = "expense"
 kind = "system"
 status = "reserved"
-description = "Fees the partner bank charges for transfers and returns. Decided in step 2.03."
+description = "Fees the partner bank charges for transfers and returns. Unused: no bank charges yet (ADR-0014)."
 
 [[accounts]]
 code = 5030
