@@ -9,6 +9,13 @@ supported.
 
 ### Added
 
+- **The API contract, v1-draft** (`openapi/mezgeb.v1.yaml`): 41 paths in
+  OpenAPI 3.1, with one operation per posting template, maker-checker
+  adjustments, an RFC 9457 error catalogue of 68 codes with an example each
+  (`docs/api/errors.md`), an OWASP API Top 10 review, and a Postman
+  collection generated from it (`postman/collections/mezgeb-api-v1`). A test
+  checks the contract against the template registry and the error rules.
+
 - **Accounting periods, closing and reports** (migration 0007): every entry
   belongs to the period open when it is posted. `close_period` switches
   postings to the next period under a lock, verifies the closed one, writes
