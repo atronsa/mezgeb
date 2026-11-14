@@ -28,6 +28,7 @@
 mod deposits;
 mod error;
 mod p2p_transfer;
+mod payments;
 mod registry;
 mod template;
 mod withdrawals;
@@ -35,9 +36,11 @@ mod withdrawals;
 pub use deposits::{AmountRequest, DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 pub use error::TemplateError;
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
+pub use payments::{CHANNELS, MerchantPaymentV1, PaymentRequest, PaymentRequestSettleV1};
 pub use registry::{RELEASED, RegisterError, TemplateRegistry};
 pub use template::{
-    Accounts, Input, Leg, OperationRequest, Role, TEMPLATE_KEY, Template, TemplateId, draft,
+    Accounts, Input, Leg, MetadataField, OperationRequest, Role, TEMPLATE_KEY, Template,
+    TemplateId, draft,
 };
 pub use withdrawals::{
     WithdrawalConfirmedV1, WithdrawalFailedV1, WithdrawalRequestV1, WithdrawalSentV1,
