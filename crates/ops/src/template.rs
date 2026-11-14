@@ -404,6 +404,7 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
         metadata,
         event_time,
         allow_duplicate_lines: false,
+        refunds: None,
     })
 }
 
