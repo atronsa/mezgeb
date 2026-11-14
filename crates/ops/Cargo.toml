@@ -10,6 +10,10 @@ mezgeb-core.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# For the PostgreSQL tests: templates drafting, the engine posting.
+mezgeb-engine.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true

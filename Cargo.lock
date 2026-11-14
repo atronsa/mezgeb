@@ -778,7 +778,10 @@ name = "mezgeb-ops"
 version = "0.0.1"
 dependencies = [
  "mezgeb-core",
+ "mezgeb-engine",
  "proptest",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]
