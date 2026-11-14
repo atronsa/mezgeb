@@ -13,6 +13,7 @@ reading order.
 | [adr/](adr/README.md) | Architecture decision records: one binding decision per file, with alternatives | You want the reason behind a table, crate or rule |
 | [db-schema.md](db-schema.md) | PostgreSQL tables, the constraint behind each invariant, roles, and how to run the database tests | You want to know what the database itself guarantees |
 | [accounting/](accounting/README.md) | Chart of accounts and worked journal entries for every money flow | You want to know how money is booked |
+| [runbooks/](runbooks/README.md) | Step-by-step operator procedures, such as the daily period close | You operate a ledger |
 | [roadmap/](roadmap/README.md) | The engineering plan: 52 steps in four phases, milestones and schedule | You want to know what is being built next |
 | [evidence/](evidence/README.md) | Proof that each step's exit gate was met | You want to check that a step is really done |
 
