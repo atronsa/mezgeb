@@ -16,13 +16,13 @@ type TestResult = Result<(), Box<dyn std::error::Error>>;
 fn chart_file_loads() -> TestResult {
     let chart = Chart::from_toml(CHART)?;
     assert_eq!(chart.currency().code(), "ETB");
-    assert_eq!(chart.accounts().len(), 15);
+    assert_eq!(chart.accounts().len(), 16);
     let active = chart
         .accounts()
         .iter()
         .filter(|a| a.status() == ChartStatus::Active)
         .count();
-    assert_eq!(active, 10);
+    assert_eq!(active, 12);
     Ok(())
 }
 
