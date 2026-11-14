@@ -2,7 +2,7 @@
 //!
 //! Every journal table in `docs/accounting/entries/` is read straight from
 //! the documentation, so the fixtures can never drift from it. The story is
-//! replayed in order (OB, then E01–E20) through the reference ledger:
+//! replayed in order (OB, then E01–E24) through the reference ledger:
 //! - each entry posts, with the total the docs print;
 //! - each mutation of an entry, tried against the ledger as it stood just
 //!   before that entry, is rejected with the expected error code;
@@ -140,9 +140,9 @@ const MUTATIONS: [Mutation; 7] = [
 #[test]
 fn the_worked_story_replays_through_the_reference_ledger() -> TestResult {
     let fixtures = fixtures()?;
-    // OB, E01–E20, plus the second tables of E03, E14 and E15, the second
+    // OB, E01–E24, plus the second tables of E03, E14 and E15, the second
     // and third of E04 and E13.
-    assert_eq!(fixtures.len(), 28, "journal tables found in the docs");
+    assert_eq!(fixtures.len(), 32, "journal tables found in the docs");
 
     let (mut ledger, ids) = open_accounts(&fixtures)?;
     let mut mutations_checked = 0;
@@ -178,7 +178,7 @@ fn the_worked_story_replays_through_the_reference_ledger() -> TestResult {
         assert_eq!(debits, fixture.total.amount(), "{}: total", fixture.label);
         check_invariants(&ledger).map_err(|v| format!("after {}: {v}", fixture.label))?;
     }
-    assert_eq!(mutations_checked, 28 * MUTATIONS.len());
+    assert_eq!(mutations_checked, 32 * MUTATIONS.len());
 
     // The final balances are exactly the trial balance in the docs.
     let expected = trial_balance()?;
