@@ -131,8 +131,14 @@ fn the_typed_request_books_the_same_draft() -> TestResult {
     let typed = P2pTransferRequest {
         amount: PositiveAmount::new(e06.total)?,
     };
-    let direct =
-        draft::<P2pTransferV1, _>(&typed, &request.accounts, BTreeMap::new(), None, &ledger)?;
+    let direct = draft::<P2pTransferV1, _>(
+        &typed,
+        &request.accounts,
+        BTreeMap::new(),
+        None,
+        None,
+        &ledger,
+    )?;
     assert_eq!(
         direct,
         TemplateRegistry::standard().draft(&request, &ledger)?
