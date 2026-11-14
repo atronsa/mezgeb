@@ -31,6 +31,9 @@ const HOLD_PLACE: u8 = 4;
 const HOLD_CAPTURE: u8 = 5;
 const HOLD_RELEASE: u8 = 6;
 const HOLD_EXPIRE: u8 = 7;
+/// Follows the lines of a refund, with the entry it refunds. Absent for any
+/// other post, so fingerprints from before refunds existed are unchanged.
+const REFUNDS: u8 = 8;
 
 fn length(hasher: &mut Sha256, n: usize) {
     // Lengths are bounded by the posting limits, far below u32::MAX.
@@ -73,6 +76,10 @@ impl EntryDraft {
             }]);
             hasher.update(line.amount.currency().code().as_bytes());
             hasher.update(line.amount.amount().to_be_bytes());
+        }
+        if let Some(original) = self.refunds {
+            hasher.update([REFUNDS]);
+            hasher.update(original.as_uuid().as_bytes());
         }
         hasher.finalize().into()
     }

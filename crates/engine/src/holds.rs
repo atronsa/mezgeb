@@ -193,6 +193,7 @@ async fn post_hold_entry(
             ("hold_action".to_owned(), action.to_owned()),
         ]),
         allow_duplicate_lines: true,
+        refunds: None,
         ..EntryDraft::default()
     };
     let posting = PostRequest::new(

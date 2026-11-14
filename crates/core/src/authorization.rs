@@ -22,6 +22,9 @@ pub enum EntryKind {
     /// A manual correction or compensation, approved by a second person
     /// (INV-25).
     Adjustment,
+    /// Money given back against an earlier entry, such as a merchant's
+    /// refund of a payment (step 2.04, INV-15).
+    Refund,
 }
 
 impl EntryKind {
@@ -31,6 +34,7 @@ impl EntryKind {
             EntryKind::Standard => "standard",
             EntryKind::Reversal => "reversal",
             EntryKind::Adjustment => "adjustment",
+            EntryKind::Refund => "refund",
         }
     }
 
@@ -40,6 +44,7 @@ impl EntryKind {
             EntryKind::Standard,
             EntryKind::Reversal,
             EntryKind::Adjustment,
+            EntryKind::Refund,
         ]
         .into_iter()
         .find(|k| k.as_str() == name)
@@ -217,7 +222,7 @@ pub struct Authorization {
 impl Authorization {
     /// Checks the authorization for an entry of `kind`:
     ///
-    /// - a standard entry has none;
+    /// - a standard entry and a refund have none;
     /// - a reversal has a reversal reason and a requester; an approver, if
     ///   given, must be someone else;
     /// - an adjustment has an adjustment reason, a requester and a different
@@ -228,11 +233,11 @@ impl Authorization {
     ) -> Result<(), LedgerError> {
         let Some(auth) = authorization else {
             return match kind {
-                EntryKind::Standard => Ok(()),
+                EntryKind::Standard | EntryKind::Refund => Ok(()),
                 _ => Err(LedgerError::AuthorizationRequired),
             };
         };
-        if kind == EntryKind::Standard {
+        if matches!(kind, EntryKind::Standard | EntryKind::Refund) {
             return Err(LedgerError::AuthorizationNotAllowed);
         }
         if auth.reason.kind() != Some(kind) {

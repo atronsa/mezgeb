@@ -15,6 +15,7 @@ use crate::error::PostingError;
 use crate::hold::{Hold, HoldStatus};
 use crate::ids::{AccountId, EntryId, HoldId};
 use crate::money::PositiveAmount;
+use crate::refund::RefundLimits;
 use crate::time::Timestamp;
 use crate::validate::validate;
 
@@ -80,6 +81,7 @@ pub struct PostedEntry {
     pub(super) event_time: Option<Timestamp>,
     pub(super) kind: EntryKind,
     pub(super) authorization: Option<Authorization>,
+    pub(super) refunds: Option<EntryId>,
 }
 
 impl PostedEntry {
@@ -106,7 +108,21 @@ impl PostedEntry {
             event_time,
             kind,
             authorization,
+            refunds: None,
         }
+    }
+
+    /// The same entry, as a refund of `original` (when rebuilding a refund
+    /// from storage).
+    #[must_use]
+    pub const fn refunding(mut self, original: Option<EntryId>) -> PostedEntry {
+        self.refunds = original;
+        self
+    }
+
+    /// The entry this one refunds, if it is a refund.
+    pub const fn refunds(&self) -> Option<EntryId> {
+        self.refunds
     }
 
     pub const fn id(&self) -> EntryId {
@@ -136,7 +152,7 @@ impl PostedEntry {
         self.event_time
     }
 
-    /// Standard, reversal or adjustment.
+    /// Standard, reversal, adjustment or refund.
     pub const fn kind(&self) -> EntryKind {
         self.kind
     }
@@ -205,6 +221,31 @@ pub enum LedgerError {
     /// The account is a hold's held account: only that hold's own entries
     /// may post to it (INV-18).
     AccountIsHeld(AccountId),
+    /// Only a standard entry can be refunded: not a reversal, an adjustment
+    /// or another refund (INV-15).
+    NotRefundable(EntryId),
+    /// The entry has been reversed, so there is nothing left to refund
+    /// (INV-15).
+    RefundOfReversedEntry(EntryId),
+    /// A refund line moves an account the wrong way: it credits an account
+    /// the original did not debit, or debits an account the original
+    /// debited (INV-15). `line` is the zero-based line.
+    RefundLineNotAllowed {
+        line: usize,
+    },
+    /// The refunds of an entry would move an account back by more than the
+    /// original moved it (INV-15). `line` is the first line on that account.
+    RefundExceedsOriginal {
+        line: usize,
+    },
+    /// The entry has refunds, so a reversal would give the money back twice
+    /// (INV-15).
+    RefundedEntryCannotBeReversed(EntryId),
+    /// A refund is never reversed; a mistaken refund is corrected with an
+    /// adjustment (INV-15).
+    CannotReverseRefund(EntryId),
+    /// An adjustment cannot also be a refund.
+    RefundAsAdjustment,
 }
 
 impl fmt::Display for LedgerError {
@@ -264,6 +305,30 @@ impl fmt::Display for LedgerError {
                 f,
                 "account {id} cannot hold money: it must be unused, empty and of the same type"
             ),
+            LedgerError::NotRefundable(id) => {
+                write!(
+                    f,
+                    "entry {id} is not a standard entry and cannot be refunded"
+                )
+            }
+            LedgerError::RefundOfReversedEntry(id) => {
+                write!(f, "entry {id} has been reversed and cannot be refunded")
+            }
+            LedgerError::RefundLineNotAllowed { line } => write!(
+                f,
+                "refund line {line} moves an account the original did not move that way"
+            ),
+            LedgerError::RefundExceedsOriginal { line } => write!(
+                f,
+                "refund line {line} would give back more than the original moved"
+            ),
+            LedgerError::RefundedEntryCannotBeReversed(id) => {
+                write!(f, "entry {id} has refunds and cannot be reversed")
+            }
+            LedgerError::CannotReverseRefund(id) => {
+                write!(f, "entry {id} is a refund and cannot be reversed")
+            }
+            LedgerError::RefundAsAdjustment => f.write_str("an adjustment cannot be a refund"),
             LedgerError::AccountIsHeld(id) => {
                 write!(
                     f,
@@ -283,6 +348,9 @@ pub struct MemLedger {
     pub(super) entries: Vec<PostedEntry>,
     pub(super) index: HashMap<EntryId, usize>,
     pub(super) reversed_by: HashMap<EntryId, EntryId>,
+    /// For each refunded entry, what its refunds moved back so far, per
+    /// account (INV-15).
+    pub(super) refunded: HashMap<EntryId, BTreeMap<AccountId, i64>>,
     pub(super) holds: BTreeMap<HoldId, Hold>,
     /// Each held account, and the hold it belongs to.
     pub(super) held_accounts: BTreeMap<AccountId, HoldId>,
@@ -336,9 +404,34 @@ impl MemLedger {
             return Err(LedgerError::DuplicateEntry(id));
         }
         self.refuse_held(draft.lines.iter().map(|l| l.account))?;
-        let entry = validate(draft, self).map_err(LedgerError::Posting)?;
-        let position = self.apply(id, entry, None, EntryKind::Standard, None)?;
+        let Some(original) = draft.refunds else {
+            let entry = validate(draft, self).map_err(LedgerError::Posting)?;
+            let position = self.apply(id, entry, None, EntryKind::Standard, None)?;
+            return self.posted(id, position);
+        };
+
+        // A refund (INV-15): checked against the original and its earlier
+        // refunds first, then against the posting rules.
+        let entry = self
+            .entry(original)
+            .ok_or(LedgerError::EntryNotFound(original))?;
+        if entry.kind != EntryKind::Standard {
+            return Err(LedgerError::NotRefundable(original));
+        }
+        if self.reversed_by.contains_key(&original) {
+            return Err(LedgerError::RefundOfReversedEntry(original));
+        }
+        let before = self.refunded.get(&original).cloned().unwrap_or_default();
+        let after = RefundLimits::of(entry).check(&draft.lines, &before)?;
+        let refund = validate(draft, self).map_err(LedgerError::Posting)?;
+        let position = self.apply(id, refund, None, EntryKind::Refund, None)?;
+        self.refunded.entry(original).or_default().extend(after);
         self.posted(id, position)
+    }
+
+    /// What the refunds of `original` have moved back so far, per account.
+    pub fn refunded(&self, original: EntryId) -> BTreeMap<AccountId, i64> {
+        self.refunded.get(&original).cloned().unwrap_or_default()
     }
 
     /// Validates and posts an adjustment: a manual correction with a reason
@@ -354,6 +447,9 @@ impl MemLedger {
             return Err(LedgerError::DuplicateEntry(id));
         }
         Authorization::check(EntryKind::Adjustment, Some(&authorization))?;
+        if draft.refunds.is_some() {
+            return Err(LedgerError::RefundAsAdjustment);
+        }
         self.refuse_held(draft.lines.iter().map(|l| l.account))?;
         let entry = validate(draft, self).map_err(LedgerError::Posting)?;
         let position = self.apply(id, entry, None, EntryKind::Adjustment, Some(authorization))?;
@@ -380,6 +476,16 @@ impl MemLedger {
             .ok_or(LedgerError::EntryNotFound(original))?;
         if entry.reverses.is_some() {
             return Err(LedgerError::CannotReverseReversal(original));
+        }
+        if entry.kind == EntryKind::Refund {
+            return Err(LedgerError::CannotReverseRefund(original));
+        }
+        if self
+            .refunded
+            .get(&original)
+            .is_some_and(|r| r.values().any(|moved| *moved > 0))
+        {
+            return Err(LedgerError::RefundedEntryCannotBeReversed(original));
         }
         if self.reversed_by.contains_key(&original) {
             return Err(LedgerError::AlreadyReversed(original));
@@ -469,6 +575,7 @@ impl MemLedger {
             event_time: entry.event_time(),
             kind,
             authorization,
+            refunds: entry.refunds(),
         });
         self.index.insert(id, position);
         Ok(position)
