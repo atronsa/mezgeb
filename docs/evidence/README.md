@@ -27,3 +27,4 @@ Files are named `<step>-<topic>.md`, for example
 | 1.14 | [Holds and two-phase operations](1.14-holds-and-two-phase-operations.md) | Passed |
 | 1.15 | [Failure injection and crash recovery](1.15-failure-injection-and-crash-recovery.md) | Passed |
 | 1.16 | [Phase 1 exit review and baseline benchmark](1.16-phase-1-exit-review.md) | Passed; Phase 1 gate met |
+| 2.01 | [Posting templates](2.01-posting-templates.md) | Passed |
