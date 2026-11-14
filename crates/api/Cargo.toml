@@ -12,5 +12,8 @@ mezgeb-ops.workspace = true
 mezgeb-offline.workspace = true
 tokio.workspace = true
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [lints]
 workspace = true

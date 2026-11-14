@@ -718,6 +718,7 @@ dependencies = [
  "mezgeb-engine",
  "mezgeb-offline",
  "mezgeb-ops",
+ "serde_json",
  "tokio",
 ]
 
