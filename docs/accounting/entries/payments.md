@@ -80,15 +80,23 @@ funds bank account (1010). From now on, that account holds slightly more than
 the platform owes its customers: the difference is earned fees. See the
 balance check after E18.
 
+**Template:** `merchant_payment.v1` with `channel = qr` and
+`merchant_fee = 2` ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)).
+
+**Decided in step 2.03:**
+
+- **Rounding is the client's.** The client applies its fee schedule and its
+  rounding rule, and sends the fee in santim. The ledger never rounds; it
+  checks only that the fees are at most the price and in its currency.
+- **A payer-paid fee is possible.** With `payer_fee`, the customer pays the
+  fee on top of the price: for a 100 ETB price and a 1 ETB payer fee, the
+  wallet is debited 101, the merchant credited 100 and fee revenue 1. Both
+  kinds of fee can apply to one payment; fee revenue gets both in one line.
+
 **Open questions:**
 
-- How are fees rounded when the percentage does not give a whole santim (for
-  example, 2% of 10.25 ETB = 0.205 ETB)? Round half up, round in the
-  merchant's favour, or banker's rounding? The rule must be written down,
-  because the engine refuses to round silently.
 - How often is earned fee money moved from the customer funds account to the
   platform's operating account (a "fee sweep")?
-- Does the platform ever charge the *customer* a fee on merchant payments?
 
 ## E08. Card tap payment
 
@@ -111,7 +119,8 @@ fingerprint (E09) are different ways for the customer to *authorise* a
 payment. Once authorised, the money moves the same way. The channel is stored
 as metadata on the entry (for reports and disputes), not as different
 accounts. This keeps one posting template, `merchant_payment.v1`, for all
-three (step 2.03).
+three, with `channel = card_tap` here. A phone tap books the same way, with
+`channel = phone_tap` ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)).
 
 **Open questions:**
 
@@ -171,6 +180,11 @@ in the ledger.
 - **The lines are the same as E06:** the platform owes Abebe 80 ETB less and
   Hana 80 ETB more. The entry references the request ID, so the request can
   be shown as "paid".
+
+**Template:** `payment_request_settle.v1`, which requires the
+`payment_request` it pays. Unlike `p2p_transfer.v1`, the payee can also be
+a merchant (an invoice), and the same fees as a merchant payment can apply
+([ADR-0014](../../adr/0014-payment-channels-and-fees.md)).
 
 **Balances after E01–E10:**
 
