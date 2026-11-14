@@ -27,6 +27,7 @@ back to the reason it exists.
 | [0013](0013-reversals-never-overdraw.md) | A reversal that would overdraw is refused; the mistake is corrected with an adjustment | E13 open question | Accepted |
 | [0014](0014-payment-channels-and-fees.md) | Payment channels are metadata; fees are lines in the payment's own entry | E07, E08 open questions | Accepted |
 | [0015](0015-refunds-and-disputes.md) | Refunds name the entry they refund and are capped by it; disputes hold merchant funds in their own sub-account | E11, E12 open questions; refund vs reversal | Accepted |
+| [0016](0016-accounting-periods.md) | Accounting periods follow posting order; a close switches periods under a lock | Spec §6; INV-10 | Accepted |
 
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.
