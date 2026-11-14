@@ -2,7 +2,7 @@
 
 [Accounting model](../README.md) · [Chart of accounts](../chart-of-accounts.md)
 
-Each entry is booked from the **platform's** point of view. IDs (E01–E20) are
+Each entry is booked from the **platform's** point of view. IDs (E01–E24) are
 stable and are referenced from code and tests in later steps.
 
 The entries form one continuous story. Read them in order: each one starts
@@ -58,6 +58,10 @@ apart means customer money can never pay the platform's bills.
 | E18 | [Escrow return on expiry](offline-escrow.md#e18-escrow-return-on-expiry) |
 | E19 | [Deposit with an unknown reference](suspense.md#e19-deposit-with-an-unknown-reference) |
 | E20 | [Suspense resolved](suspense.md#e20-suspense-resolved) |
+| E21 | [Dispute opened](disputes.md#e21-dispute-opened) |
+| E22 | [Dispute resolved for the payer](disputes.md#e22-dispute-resolved-for-the-payer) |
+| E23 | [Dispute opened](disputes.md#e23-dispute-opened) |
+| E24 | [Dispute resolved for the merchant](disputes.md#e24-dispute-resolved-for-the-merchant) |
 
 ## Entry template
 

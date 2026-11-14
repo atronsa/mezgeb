@@ -7,8 +7,8 @@ use mezgeb_core::{AccountType, Currency, Money, Side};
 pub const CHART: &str = include_str!("../../../../charts/wallet-provider.toml");
 pub const CHART_DOC: &str = include_str!("../../../../docs/accounting/chart-of-accounts.md");
 
-/// The opening position and worked entries E01–E20, by file, in story order.
-pub const ENTRY_DOCS: [(&str, &str); 7] = [
+/// The opening position and worked entries E01–E24, by file, in story order.
+pub const ENTRY_DOCS: [(&str, &str); 8] = [
     (
         "README.md",
         include_str!("../../../../docs/accounting/entries/README.md"),
@@ -36,6 +36,10 @@ pub const ENTRY_DOCS: [(&str, &str); 7] = [
     (
         "suspense.md",
         include_str!("../../../../docs/accounting/entries/suspense.md"),
+    ),
+    (
+        "disputes.md",
+        include_str!("../../../../docs/accounting/entries/disputes.md"),
     ),
 ];
 
@@ -137,11 +141,11 @@ pub fn fixtures() -> Result<Vec<Fixture>, String> {
 
 pub const TRIAL_BALANCE: &str = include_str!("../../../../docs/accounting/trial-balance.md");
 
-/// The rows of the trial balance after E20: each account reference and its
+/// The rows of the trial balance after E24: each account reference and its
 /// balance on its normal side, as printed in `docs/accounting/trial-balance.md`.
 pub fn trial_balance() -> Result<Vec<(String, Money)>, String> {
     let start = TRIAL_BALANCE
-        .find("## Trial balance after E20")
+        .find("## Trial balance after E24")
         .ok_or("no trial balance section")?;
     let section = &TRIAL_BALANCE[start..];
     let section = &section[..section.find("## Checks").unwrap_or(section.len())];

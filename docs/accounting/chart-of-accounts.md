@@ -49,6 +49,7 @@ sub-account belongs to:
 | `merch` | A merchant | 2030 |
 | `stl` | A merchant settlement | 2040 |
 | `vch` | An offline voucher | 2050 |
+| `dsp` | A dispute | 2060 |
 | `sus` | An unidentified payment (suspense item) | 9010 |
 | `wdt` | A withdrawal payout in transit | 9030 |
 
@@ -69,11 +70,12 @@ are fixed now, and the step named decides how they are posted.
 
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
-| 2010 | Customer wallets | Control | Cr | Active | E01, E02, E04–E14, E16, E18, E20 | Money the platform owes each customer, spendable online. |
+| 2010 | Customer wallets | Control | Cr | Active | E01, E02, E04–E14, E16, E18, E20, E22 | Money the platform owes each customer, spendable online. |
 | 2020 | Pending withdrawals | Control | Cr | Active | E02, E03, E04 | Customer money committed to a bank payout that has not been sent yet. Each sub-account returns to zero. |
-| 2030 | Merchant balances | Control | Cr | Active | E07–E09, E11, E12, E15, E17 | Money owed to each merchant for payments received, net of fees. |
+| 2030 | Merchant balances | Control | Cr | Active | E07–E09, E11, E12, E15, E17, E21, E23, E24 | Money owed to each merchant for payments received, net of fees. |
 | 2040 | Pending merchant settlements | Control | Cr | Active | E15 | Merchant money committed to a settlement payout that has not been sent yet. Each sub-account returns to zero. |
 | 2050 | Offline escrow | Control | Cr | Active | E16, E17, E18 | Customer money reserved for offline spending on one device. Each sub-account returns to zero when its voucher expires. |
+| 2060 | Disputed merchant funds | Control | Cr | Active | E21–E24 | Merchant money held while a payer's dispute is open, one sub-account per dispute. Each sub-account returns to zero ([refunds and disputes](refunds-and-disputes.md)). |
 
 ### Equity
 
@@ -113,7 +115,7 @@ The customer funds account (1010) backs these liabilities:
 | Group | Accounts |
 |---|---|
 | Customer money | 2010, 2020, 2050, 9030 |
-| Merchant money | 2030, 2040 |
+| Merchant money | 2030, 2040, 2060 |
 | Unidentified money | 9010 |
 
 At any time, **1010 must be at least the sum of these accounts.** The

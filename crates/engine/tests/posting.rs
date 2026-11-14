@@ -39,7 +39,7 @@ fn etb(amount: i64) -> Money {
     Money::from_minor(amount, Currency::ETB)
 }
 
-/// OB and E01–E20 from the docs post through `PgStore` in order. The final
+/// OB and E01–E24 from the docs post through `PgStore` in order. The final
 /// balances equal the trial balance, the history equals the reference
 /// ledger's, and the integrity checks are clean.
 #[tokio::test]
@@ -53,7 +53,7 @@ async fn the_worked_story_posts_on_postgresql() -> TestResult {
     let chart = Chart::from_toml(common::CHART)?;
 
     let fixtures = common::fixtures()?;
-    assert_eq!(fixtures.len(), 28);
+    assert_eq!(fixtures.len(), 32);
     let mut ids: BTreeMap<String, AccountId> = BTreeMap::new();
     for line in fixtures.iter().flat_map(|f| &f.lines) {
         if !ids.contains_key(&line.reference) {
