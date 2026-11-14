@@ -8,7 +8,10 @@ use mezgeb_core::{AccountsView, EntryDraft};
 use crate::deposits::{DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 use crate::error::TemplateError;
 use crate::p2p_transfer::P2pTransferV1;
-use crate::template::{OperationRequest, Role, Template, TemplateId, book_operation};
+use crate::payments::{MerchantPaymentV1, PaymentRequestSettleV1};
+use crate::template::{
+    MetadataField, OperationRequest, Role, Template, TemplateId, book_operation,
+};
 use crate::withdrawals::{
     WithdrawalConfirmedV1, WithdrawalFailedV1, WithdrawalRequestV1, WithdrawalSentV1,
 };
@@ -29,6 +32,9 @@ pub const RELEASED: &[&str] = &[
     "withdrawal_sent.v1",
     "withdrawal_confirmed.v1",
     "withdrawal_failed.v1",
+    // Step 2.03.
+    "merchant_payment.v1",
+    "payment_request_settle.v1",
 ];
 
 type Book = fn(&OperationRequest, &dyn AccountsView) -> Result<EntryDraft, TemplateError>;
@@ -37,6 +43,8 @@ type Book = fn(&OperationRequest, &dyn AccountsView) -> Result<EntryDraft, Templ
 struct Registered {
     roles: &'static [Role],
     amounts: &'static [&'static str],
+    optional_amounts: &'static [&'static str],
+    metadata: &'static [MetadataField],
     book: Book,
 }
 
@@ -90,6 +98,8 @@ impl TemplateRegistry {
             TemplateRegistry::register::<WithdrawalSentV1>,
             TemplateRegistry::register::<WithdrawalConfirmedV1>,
             TemplateRegistry::register::<WithdrawalFailedV1>,
+            TemplateRegistry::register::<MerchantPaymentV1>,
+            TemplateRegistry::register::<PaymentRequestSettleV1>,
         ];
         for register in builtin {
             register(&mut registry)
@@ -111,6 +121,8 @@ impl TemplateRegistry {
             Registered {
                 roles: T::ROLES,
                 amounts: T::AMOUNTS,
+                optional_amounts: T::OPTIONAL_AMOUNTS,
+                metadata: T::METADATA,
                 book: book_operation::<T>,
             },
         );
@@ -130,6 +142,19 @@ impl TemplateRegistry {
     /// The amounts a template version reads.
     pub fn amounts(&self, template: &str) -> Result<&'static [&'static str], TemplateError> {
         Ok(self.find(template)?.amounts)
+    }
+
+    /// The amounts a template version reads if they are given.
+    pub fn optional_amounts(
+        &self,
+        template: &str,
+    ) -> Result<&'static [&'static str], TemplateError> {
+        Ok(self.find(template)?.optional_amounts)
+    }
+
+    /// The metadata keys a template version checks.
+    pub fn metadata(&self, template: &str) -> Result<&'static [MetadataField], TemplateError> {
+        Ok(self.find(template)?.metadata)
     }
 
     /// Books `request` with the template version it names.
