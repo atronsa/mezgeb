@@ -116,6 +116,20 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   `IdempotencyKeyReused`. A refused posting does not use up its key. A
   client that lost a response can look up the entry by its key
   ([db-schema.md](db-schema.md#idempotency-and-retention), INV-13).
+- **4.6 Posting templates.** A business event is booked by a named,
+  versioned template such as `p2p_transfer.v1` (`crates/ops`,
+  [ADR-0002](adr/0002-three-layer-separation.md), step 2.01). A template
+  books lines against roles such as `payer_wallet`, never account IDs; the
+  request binds each role to an account, which must be opened under one of
+  the chart codes the role allows (TM-07). The draft records its template
+  in the reserved metadata key `template`, and then passes the posting
+  rules like any other entry. A released version is never changed or
+  removed. Refusals have stable codes: invalid template ID (2001), unknown
+  template (2002), unknown version (2003), missing amount (2004),
+  unexpected amount (2005), amount not positive (2006), missing account
+  (2007), unexpected account (2008), account not found (2009), account not
+  allowed for its role (2010), same account for two roles (2011), reserved
+  metadata (2012), template books an undeclared role (2013).
 
 ## 5. Offline sync
 
