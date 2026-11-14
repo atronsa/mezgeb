@@ -436,8 +436,9 @@ async fn the_database_enforces_the_refund_rules_on_its_own() -> TestResult {
     let mut tx = sqlx::Connection::begin(&mut conn).await?;
     let refund_id = entry(50)?;
     sqlx::query(
-        "INSERT INTO journal_entries (id, client_id, idempotency_key, kind, refunds_entry_id)
-         VALUES ($1, $2, 'direct-refund', 'refund', $3)",
+        "INSERT INTO journal_entries
+             (id, client_id, idempotency_key, kind, refunds_entry_id, period_id)
+         VALUES ($1, $2, 'direct-refund', 'refund', $3, (SELECT id FROM periods WHERE status = 'open'))",
     )
     .bind(refund_id.as_uuid())
     .bind(uuid7(0xc11e).parse::<uuid::Uuid>()?)

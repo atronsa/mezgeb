@@ -246,6 +246,12 @@ pub enum LedgerError {
     CannotReverseRefund(EntryId),
     /// An adjustment cannot also be a refund.
     RefundAsAdjustment,
+    /// No accounting period is open, so nothing can be posted (INV-10).
+    /// Never produced by `MemLedger`.
+    NoOpenPeriod,
+    /// A report asked for a period that is not closed, so it has no
+    /// snapshot (INV-10). Never produced by `MemLedger`.
+    PeriodNotClosed(i64),
 }
 
 impl fmt::Display for LedgerError {
@@ -329,6 +335,8 @@ impl fmt::Display for LedgerError {
                 write!(f, "entry {id} is a refund and cannot be reversed")
             }
             LedgerError::RefundAsAdjustment => f.write_str("an adjustment cannot be a refund"),
+            LedgerError::NoOpenPeriod => f.write_str("no accounting period is open"),
+            LedgerError::PeriodNotClosed(id) => write!(f, "period {id} is not closed"),
             LedgerError::AccountIsHeld(id) => {
                 write!(
                     f,

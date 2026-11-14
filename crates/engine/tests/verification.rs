@@ -277,8 +277,8 @@ async fn an_entry_without_lines_is_found() -> TestResult {
     tamper(
         &db,
         &format!(
-            "INSERT INTO journal_entries (id, client_id, idempotency_key)
-             VALUES ('{}', '{}', 'planted')",
+            "INSERT INTO journal_entries (id, client_id, idempotency_key, period_id)
+             VALUES ('{}', '{}', 'planted', (SELECT id FROM periods WHERE status = 'open'))",
             entry_uuid(9)?,
             uuid7(0xc11e)
         ),

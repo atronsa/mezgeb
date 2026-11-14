@@ -34,10 +34,11 @@ async fn load(conn: &mut PgConnection, start: i64, count: i64) -> Result<()> {
                   100 + k % 997 AS amount,
                   k % {WALLETS} AS wallet
              FROM generate_series({first}, {last}) k;
-         INSERT INTO journal_entries (id, sequence, client_id, idempotency_key, recorded_time)
+         INSERT INTO journal_entries
+             (id, sequence, client_id, idempotency_key, recorded_time, period_id)
            OVERRIDING SYSTEM VALUE
            SELECT entry_id, k, '00000000-0000-7000-8000-00000000c11e', 'bench-' || k,
-                  now() - interval '1 hour'
+                  now() - interval '1 hour', (SELECT id FROM periods WHERE status = 'open')
              FROM batch;
          INSERT INTO journal_lines
              (entry_id, line_no, account_id, side, amount, currency, debits_after, credits_after)
