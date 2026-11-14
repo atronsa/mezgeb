@@ -11,6 +11,7 @@ reading order.
 | [regulatory.md](regulatory.md) | Which laws may apply to an operator, as questions with sources and status | You want to know what regulation may require |
 | [architecture.md](architecture.md) | System shape, stack choices and the ten architectural questions | You want to know why it is built this way |
 | [adr/](adr/README.md) | Architecture decision records: one binding decision per file, with alternatives | You want the reason behind a table, crate or rule |
+| [api/](api/README.md) | The REST API contract (`openapi/mezgeb.v1.yaml`), its conventions, error catalogue and OWASP review | You integrate with the ledger or change the API |
 | [db-schema.md](db-schema.md) | PostgreSQL tables, the constraint behind each invariant, roles, and how to run the database tests | You want to know what the database itself guarantees |
 | [accounting/](accounting/README.md) | Chart of accounts and worked journal entries for every money flow | You want to know how money is booked |
 | [runbooks/](runbooks/README.md) | Step-by-step operator procedures, such as the daily period close | You operate a ledger |
