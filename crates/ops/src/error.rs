@@ -21,10 +21,16 @@
 //! | 2013 | `UndeclaredRole` | A template books only roles it declares (a defect in the template) |
 //! | 2014 | `AmountNotBalance` | An item that moves whole moves its account's whole balance |
 //! | 2015 | `AccountNotNew` | An item that opens its own sub-account opens one never posted to |
+//! | 2016 | `FeeExceedsAmount` | The fees on a payment are at most its amount |
+//! | 2017 | `CurrencyMismatch` | Every amount of a request is in one currency |
+//! | 2018 | `AmountOverflow` | An amount the template adds up still fits in an `i64` |
+//! | 2019 | `MissingMetadata` | Every metadata key the template requires is set |
+//! | 2020 | `InvalidMetadata` | A metadata key the template checks has one of its allowed values |
 //!
 //! Rules are checked in this order: 2001–2003, 2004–2006, 2007–2011, then the
-//! template's own rules (such as 2014 and 2015, in the order the template
-//! checks them), then 2012 and 2013. Within a rule, amounts and roles are
+//! template's own rules (such as 2014–2018, in the order the template checks
+//! them), then 2012, 2019–2020, and finally 2007 for an optional role the
+//! booking needs, and 2013. Within a rule, amounts and roles are
 //! checked in the order the template declares them, then any extra names in
 //! sorted order, so the same request always gets the same error.
 //!
@@ -54,6 +60,11 @@ pub enum TemplateError {
     UndeclaredRole(String),
     AmountNotBalance(String),
     AccountNotNew(String),
+    FeeExceedsAmount,
+    CurrencyMismatch(String),
+    AmountOverflow,
+    MissingMetadata(String),
+    InvalidMetadata(String),
 }
 
 impl TemplateError {
@@ -75,6 +86,11 @@ impl TemplateError {
             TemplateError::UndeclaredRole(_) => 2013,
             TemplateError::AmountNotBalance(_) => 2014,
             TemplateError::AccountNotNew(_) => 2015,
+            TemplateError::FeeExceedsAmount => 2016,
+            TemplateError::CurrencyMismatch(_) => 2017,
+            TemplateError::AmountOverflow => 2018,
+            TemplateError::MissingMetadata(_) => 2019,
+            TemplateError::InvalidMetadata(_) => 2020,
         }
     }
 }
@@ -124,6 +140,18 @@ impl fmt::Display for TemplateError {
                     "the account for role {role:?} has already been posted to"
                 )
             }
+            TemplateError::FeeExceedsAmount => write!(f, "the fees are more than the amount"),
+            TemplateError::CurrencyMismatch(name) => {
+                write!(f, "amount {name:?} is not in the request's currency")
+            }
+            TemplateError::AmountOverflow => write!(f, "an amount is too large"),
+            TemplateError::MissingMetadata(key) => write!(f, "metadata {key:?} is missing"),
+            TemplateError::InvalidMetadata(key) => {
+                write!(
+                    f,
+                    "metadata {key:?} has a value this template does not allow"
+                )
+            }
         }
     }
 }
@@ -162,9 +190,14 @@ mod tests {
             TemplateError::UndeclaredRole(String::new()),
             TemplateError::AmountNotBalance(String::new()),
             TemplateError::AccountNotNew(String::new()),
+            TemplateError::FeeExceedsAmount,
+            TemplateError::CurrencyMismatch(String::new()),
+            TemplateError::AmountOverflow,
+            TemplateError::MissingMetadata(String::new()),
+            TemplateError::InvalidMetadata(String::new()),
         ];
         let codes: Vec<u16> = all.iter().map(TemplateError::code).collect();
-        assert_eq!(codes, (2001..=2015).collect::<Vec<u16>>());
+        assert_eq!(codes, (2001..=2020).collect::<Vec<u16>>());
         for error in &all {
             assert!(
                 error
