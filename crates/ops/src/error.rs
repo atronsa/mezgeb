@@ -19,8 +19,12 @@
 //! | 2011 | `SameAccount` | No two roles are bound to the same account |
 //! | 2012 | `ReservedMetadata` | The request's metadata does not set the template key |
 //! | 2013 | `UndeclaredRole` | A template books only roles it declares (a defect in the template) |
+//! | 2014 | `AmountNotBalance` | An item that moves whole moves its account's whole balance |
+//! | 2015 | `AccountNotNew` | An item that opens its own sub-account opens one never posted to |
 //!
-//! Rules are checked in this order. Within a rule, amounts and roles are
+//! Rules are checked in this order: 2001–2003, 2004–2006, 2007–2011, then the
+//! template's own rules (such as 2014 and 2015, in the order the template
+//! checks them), then 2012 and 2013. Within a rule, amounts and roles are
 //! checked in the order the template declares them, then any extra names in
 //! sorted order, so the same request always gets the same error.
 //!
@@ -48,6 +52,8 @@ pub enum TemplateError {
     SameAccount { role: String, other: String },
     ReservedMetadata,
     UndeclaredRole(String),
+    AmountNotBalance(String),
+    AccountNotNew(String),
 }
 
 impl TemplateError {
@@ -67,6 +73,8 @@ impl TemplateError {
             TemplateError::SameAccount { .. } => 2011,
             TemplateError::ReservedMetadata => 2012,
             TemplateError::UndeclaredRole(_) => 2013,
+            TemplateError::AmountNotBalance(_) => 2014,
+            TemplateError::AccountNotNew(_) => 2015,
         }
     }
 }
@@ -107,6 +115,15 @@ impl fmt::Display for TemplateError {
             TemplateError::UndeclaredRole(role) => {
                 write!(f, "the template books undeclared role {role:?}")
             }
+            TemplateError::AmountNotBalance(role) => {
+                write!(f, "the amount is not the whole balance of role {role:?}")
+            }
+            TemplateError::AccountNotNew(role) => {
+                write!(
+                    f,
+                    "the account for role {role:?} has already been posted to"
+                )
+            }
         }
     }
 }
@@ -143,9 +160,11 @@ mod tests {
             },
             TemplateError::ReservedMetadata,
             TemplateError::UndeclaredRole(String::new()),
+            TemplateError::AmountNotBalance(String::new()),
+            TemplateError::AccountNotNew(String::new()),
         ];
         let codes: Vec<u16> = all.iter().map(TemplateError::code).collect();
-        assert_eq!(codes, (2001..=2013).collect::<Vec<u16>>());
+        assert_eq!(codes, (2001..=2015).collect::<Vec<u16>>());
         for error in &all {
             assert!(
                 error
