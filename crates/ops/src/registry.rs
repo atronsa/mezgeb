@@ -5,16 +5,31 @@ use std::fmt;
 
 use mezgeb_core::{AccountsView, EntryDraft};
 
+use crate::deposits::{DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 use crate::error::TemplateError;
 use crate::p2p_transfer::P2pTransferV1;
 use crate::template::{OperationRequest, Role, Template, TemplateId, book_operation};
+use crate::withdrawals::{
+    WithdrawalConfirmedV1, WithdrawalFailedV1, WithdrawalRequestV1, WithdrawalSentV1,
+};
 
 /// Every template version this crate has released, in release order.
 ///
 /// Append only. Entries name the version that booked them, so a released
 /// version is never changed or removed; a test checks that
 /// [`TemplateRegistry::standard`] registers exactly these.
-pub const RELEASED: &[&str] = &["p2p_transfer.v1"];
+pub const RELEASED: &[&str] = &[
+    // Step 2.01.
+    "p2p_transfer.v1",
+    // Step 2.02.
+    "deposit_confirmed.v1",
+    "deposit_unmatched.v1",
+    "suspense_resolve.v1",
+    "withdrawal_request.v1",
+    "withdrawal_sent.v1",
+    "withdrawal_confirmed.v1",
+    "withdrawal_failed.v1",
+];
 
 type Book = fn(&OperationRequest, &dyn AccountsView) -> Result<EntryDraft, TemplateError>;
 
@@ -66,9 +81,20 @@ impl TemplateRegistry {
     /// A registry with every released template ([`RELEASED`]).
     pub fn standard() -> TemplateRegistry {
         let mut registry = TemplateRegistry::new();
-        registry
-            .register::<P2pTransferV1>()
-            .unwrap_or_else(|e| unreachable!("built-in templates are distinct: {e}"));
+        let builtin = [
+            TemplateRegistry::register::<P2pTransferV1>,
+            TemplateRegistry::register::<DepositConfirmedV1>,
+            TemplateRegistry::register::<DepositUnmatchedV1>,
+            TemplateRegistry::register::<SuspenseResolveV1>,
+            TemplateRegistry::register::<WithdrawalRequestV1>,
+            TemplateRegistry::register::<WithdrawalSentV1>,
+            TemplateRegistry::register::<WithdrawalConfirmedV1>,
+            TemplateRegistry::register::<WithdrawalFailedV1>,
+        ];
+        for register in builtin {
+            register(&mut registry)
+                .unwrap_or_else(|e| unreachable!("built-in templates are distinct: {e}"));
+        }
         registry
     }
 

@@ -106,7 +106,7 @@ name = "Service fee revenue"
 type = "revenue"
 kind = "system"
 status = "reserved"
-description = "Fees for services such as withdrawals or instant settlement. Decided in step 2.02."
+description = "Fees for services such as withdrawals or instant settlement. Decided in step 2.03."
 
 # Expenses
 
@@ -124,7 +124,7 @@ name = "Bank charges"
 type = "expense"
 kind = "system"
 status = "reserved"
-description = "Fees the partner bank charges for transfers and returns. Decided in step 2.02."
+description = "Fees the partner bank charges for transfers and returns. Decided in step 2.03."
 
 [[accounts]]
 code = 5030
@@ -140,9 +140,10 @@ description = "Receipts paid out after their escrow was returned, under the loss
 code = 9010
 name = "Suspense: unidentified funds"
 type = "liability"
-kind = "system"
-status = "reserved"
-description = "Money in the bank that cannot yet be matched to a customer or merchant. Decided in step 2.02."
+kind = "control"
+prefix = "sus"
+status = "active"
+description = "Money in the bank that cannot yet be matched to a customer or merchant, one sub-account per item. Each sub-account returns to zero."
 
 [[accounts]]
 code = 9020
@@ -150,4 +151,13 @@ name = "Clearing: deposits in transit"
 type = "asset"
 kind = "system"
 status = "reserved"
-description = "Deposits confirmed by the bank but not yet settled into 1010. Decided in step 2.02."
+description = "Deposits confirmed by the bank but not yet settled into 1010. Unused: the bank notices booked today are already final (step 2.02)."
+
+[[accounts]]
+code = 9030
+name = "Clearing: withdrawals in transit"
+type = "liability"
+kind = "control"
+prefix = "wdt"
+status = "active"
+description = "Customer payouts submitted to the bank and not yet confirmed or rejected, one sub-account per withdrawal. Each sub-account returns to zero."

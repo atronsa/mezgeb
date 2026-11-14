@@ -36,7 +36,7 @@ related accounts.
 
 | Kind | Meaning | Example |
 |---|---|---|
-| **Control** | A family of sub-accounts, one per customer, merchant, withdrawal, settlement or voucher. Entries post to a sub-account, never to the control account itself. The control account's balance is the sum of its sub-accounts. | `2010:cust-abebe` |
+| **Control** | A family of sub-accounts, one per customer, merchant, withdrawal, settlement, voucher or suspense item. Entries post to a sub-account, never to the control account itself. The control account's balance is the sum of its sub-accounts. | `2010:cust-abebe` |
 | **System** | A single account. Entries post to it directly. | `4010` |
 
 Sub-accounts are written `<code>:<prefix>-<id>`. The prefix says what the
@@ -49,6 +49,8 @@ sub-account belongs to:
 | `merch` | A merchant | 2030 |
 | `stl` | A merchant settlement | 2040 |
 | `vch` | An offline voucher | 2050 |
+| `sus` | An unidentified payment (suspense item) | 9010 |
+| `wdt` | A withdrawal payout in transit | 9030 |
 
 ## Accounts
 
@@ -60,14 +62,14 @@ are fixed now, and the step named decides how they are posted.
 
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
-| 1010 | Bank: customer funds account | System | Dr | Active | E01, E03, E05, E13, E14, E15 | The account at the partner bank that holds customer and merchant money, plus fees not yet swept. |
+| 1010 | Bank: customer funds account | System | Dr | Active | E01, E03, E05, E13, E14, E15, E19 | The account at the partner bank that holds customer and merchant money, plus fees not yet swept. |
 | 1020 | Bank: operating account | System | Dr | Active | OB, E14 | The platform's own money. Never mixed with customer funds. |
 
 ### Liabilities
 
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
-| 2010 | Customer wallets | Control | Cr | Active | E01, E02, E04–E14, E16, E18 | Money the platform owes each customer, spendable online. |
+| 2010 | Customer wallets | Control | Cr | Active | E01, E02, E04–E14, E16, E18, E20 | Money the platform owes each customer, spendable online. |
 | 2020 | Pending withdrawals | Control | Cr | Active | E02, E03, E04 | Customer money committed to a bank payout that has not been sent yet. Each sub-account returns to zero. |
 | 2030 | Merchant balances | Control | Cr | Active | E07–E09, E11, E12, E15, E17 | Money owed to each merchant for payments received, net of fees. |
 | 2040 | Pending merchant settlements | Control | Cr | Active | E15 | Merchant money committed to a settlement payout that has not been sent yet. Each sub-account returns to zero. |
@@ -84,22 +86,25 @@ are fixed now, and the step named decides how they are posted.
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
 | 4010 | Payment fee revenue | System | Cr | Active | E07–E09, E11, E12, E17 | Fees earned on merchant payments, online and offline. Reduced by fees given back on refunds. |
-| 4020 | Service fee revenue | System | Cr | Reserved (step 2.02) | E02, E15 open questions | Fees charged to customers or merchants for services such as withdrawals or instant settlement. |
+| 4020 | Service fee revenue | System | Cr | Reserved (step 2.03) | E02, E15 open questions | Fees charged to customers or merchants for services such as withdrawals or instant settlement. |
 
 ### Expenses
 
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
 | 5010 | Customer compensation expense | System | Dr | Active | E14 | Goodwill credits and compensation paid from the platform's own money. |
-| 5020 | Bank charges | System | Dr | Reserved (step 2.02) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
+| 5020 | Bank charges | System | Dr | Reserved (step 2.03) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
 | 5030 | Offline settlement losses | System | Dr | Reserved (step 2.13) | E18 open questions | Receipts the platform pays out after the escrow behind them was already returned, under the written loss policy. |
 
 ### Suspense and clearing
 
 | Code | Name | Type | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|---|
-| 9010 | Suspense: unidentified funds | Liability | System | Cr | Reserved (step 2.02) | E01, E05, E13 open questions | Money that has arrived in the bank but cannot yet be matched to a customer or merchant. Every item must be cleared to its owner or returned. |
-| 9020 | Clearing: deposits in transit | Asset | System | Dr | Reserved (step 2.02) | E01 open questions | Deposits the bank has confirmed but not yet settled into the customer funds account (1010). Every item must clear to 1010. |
+| 9010 | Suspense: unidentified funds | Liability | Control | Cr | Active | E19, E20 | Money that has arrived in the bank but cannot yet be matched to a customer or merchant, one sub-account per item. Every item must be cleared to its owner or returned. |
+| 9020 | Clearing: deposits in transit | Asset | System | Dr | Reserved (unused, step 2.02) | E01 open questions | Deposits the bank has confirmed but not yet settled into the customer funds account (1010). Unused while the bank notices booked are final. |
+| 9030 | Clearing: withdrawals in transit | Liability | Control | Cr | Active | E03, E04 | Customer payouts submitted to the bank and not yet confirmed or rejected, one sub-account per withdrawal. Each sub-account returns to zero. |
+
+How these accounts are used: [clearing and suspense](clearing-and-suspense.md).
 
 ## Account groups and the safeguarding check
 
@@ -107,7 +112,7 @@ The customer funds account (1010) backs these liabilities:
 
 | Group | Accounts |
 |---|---|
-| Customer money | 2010, 2020, 2050 |
+| Customer money | 2010, 2020, 2050, 9030 |
 | Merchant money | 2030, 2040 |
 | Unidentified money | 9010 |
 

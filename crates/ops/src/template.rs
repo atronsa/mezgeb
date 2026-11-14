@@ -6,7 +6,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use mezgeb_core::{
-    AccountId, AccountsView, EntryDraft, LineDraft, Money, PositiveAmount, Side, Timestamp,
+    Account, AccountId, AccountsView, EntryDraft, LineDraft, Money, PositiveAmount, Side, Timestamp,
 };
 
 use crate::error::TemplateError;
@@ -141,6 +141,61 @@ impl Input<'_> {
     }
 }
 
+/// The accounts a request binds to a template's roles, as the template sees
+/// them while booking: by role, never by ID. Every role is bound, allowed and
+/// distinct by the time the template sees them.
+#[derive(Debug, Clone)]
+pub struct Accounts<'a> {
+    bound: Vec<(&'static str, AccountId, &'a Account)>,
+}
+
+impl Accounts<'_> {
+    fn get(&self, role: &str) -> Result<&Account, TemplateError> {
+        self.bound
+            .iter()
+            .find(|(name, ..)| *name == role)
+            .map(|(.., account)| *account)
+            .ok_or_else(|| TemplateError::UndeclaredRole(role.to_owned()))
+    }
+
+    /// The balance of the account bound to `role`, on its normal side.
+    pub fn balance(&self, role: &str) -> Result<Money, TemplateError> {
+        Ok(self.get(role)?.balance())
+    }
+
+    /// Whether the account bound to `role` has never been posted to.
+    pub fn is_new(&self, role: &str) -> Result<bool, TemplateError> {
+        let account = self.get(role)?;
+        Ok(account.debits_total() == 0 && account.credits_total() == 0)
+    }
+
+    /// Refuses with [`TemplateError::AccountNotNew`] unless the account bound
+    /// to `role` has never been posted to: an item that opens its own
+    /// sub-account.
+    pub fn require_new(&self, role: &str) -> Result<(), TemplateError> {
+        if self.is_new(role)? {
+            Ok(())
+        } else {
+            Err(TemplateError::AccountNotNew(role.to_owned()))
+        }
+    }
+
+    /// Refuses with [`TemplateError::AmountNotBalance`] unless `amount` is
+    /// the whole balance of the account bound to `role`: an item that moves
+    /// whole.
+    pub fn require_whole_balance(
+        &self,
+        role: &str,
+        amount: PositiveAmount,
+    ) -> Result<(), TemplateError> {
+        if self.balance(role)? == amount.money() {
+            Ok(())
+        } else {
+            Err(TemplateError::AmountNotBalance(role.to_owned()))
+        }
+    }
+}
+
 /// One template version: how one kind of business event is booked.
 ///
 /// A released version never changes: entries name the version that booked
@@ -163,8 +218,15 @@ pub trait Template {
     /// Builds the typed request from a request's amounts.
     fn request(input: &Input<'_>) -> Result<Self::Request, TemplateError>;
 
-    /// The booking: lines against roles, in the order they are posted.
-    fn book(request: &Self::Request) -> Result<Vec<Leg>, TemplateError>;
+    /// The booking: lines against roles, in the order they are posted. The
+    /// template may read the bound accounts' balances to check its own
+    /// rules, such as [`Accounts::require_whole_balance`].
+    ///
+    /// Those checks see the accounts as they were when the draft was made.
+    /// The posting rules check the balances again when the engine posts the
+    /// draft, with the accounts locked, so a check here is never the only
+    /// guard against a concurrent posting.
+    fn book(request: &Self::Request, accounts: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError>;
 }
 
 /// A request to book a business event with a template, by name: the form a
@@ -197,7 +259,6 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     view: &V,
 ) -> Result<EntryDraft, TemplateError> {
     let id = TemplateId::new(T::NAME, T::VERSION)?;
-    let legs = T::book(request)?;
 
     for role in T::ROLES {
         if !accounts.contains_key(role.name) {
@@ -210,7 +271,7 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     {
         return Err(TemplateError::UnexpectedAccount(extra.clone()));
     }
-    let mut bound: Vec<(&Role, AccountId)> = Vec::with_capacity(T::ROLES.len());
+    let mut bound: Vec<(&'static str, AccountId, &Account)> = Vec::with_capacity(T::ROLES.len());
     for role in T::ROLES {
         let id = accounts
             .get(role.name)
@@ -228,16 +289,18 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
                 account: id,
             });
         }
-        bound.push((role, id));
+        bound.push((role.name, id, account));
     }
-    for (i, (role, id)) in bound.iter().enumerate() {
-        if let Some((other, _)) = bound[..i].iter().find(|(_, other)| other == id) {
+    for (i, (role, id, _)) in bound.iter().enumerate() {
+        if let Some((other, ..)) = bound[..i].iter().find(|(_, other, _)| other == id) {
             return Err(TemplateError::SameAccount {
-                role: role.name.to_owned(),
-                other: other.name.to_owned(),
+                role: (*role).to_owned(),
+                other: (*other).to_owned(),
             });
         }
     }
+    let accounts = Accounts { bound };
+    let legs = T::book(request, &accounts)?;
 
     if metadata.contains_key(TEMPLATE_KEY) {
         return Err(TemplateError::ReservedMetadata);
@@ -245,9 +308,10 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
 
     let mut lines = Vec::with_capacity(legs.len());
     for leg in legs {
-        let (_, account) = bound
+        let (_, account, _) = accounts
+            .bound
             .iter()
-            .find(|(role, _)| role.name == leg.role)
+            .find(|(role, ..)| *role == leg.role)
             .ok_or_else(|| TemplateError::UndeclaredRole(leg.role.to_owned()))?;
         lines.push(LineDraft {
             account: *account,

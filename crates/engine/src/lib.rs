@@ -8,6 +8,7 @@
 //!
 //! Migrations live in the top-level `migrations/` directory.
 
+mod ageing;
 mod concurrency;
 mod holds;
 mod post;
@@ -16,6 +17,7 @@ mod store;
 pub mod verification;
 pub mod verify;
 
+pub use ageing::{OpenItem, ageing};
 pub use concurrency::{FaultPoint, Isolation, PostOptions, RetryStats};
 pub use holds::{
     CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,

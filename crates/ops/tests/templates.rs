@@ -12,8 +12,8 @@ use mezgeb_core::{
     Side, Timestamp, validate,
 };
 use mezgeb_ops::{
-    Input, Leg, OperationRequest, P2pTransferRequest, P2pTransferV1, RELEASED, RegisterError, Role,
-    TEMPLATE_KEY, Template, TemplateError, TemplateRegistry, draft,
+    Accounts, Input, Leg, OperationRequest, P2pTransferRequest, P2pTransferV1, RELEASED,
+    RegisterError, Role, TEMPLATE_KEY, Template, TemplateError, TemplateRegistry, draft,
 };
 use proptest::prelude::*;
 
@@ -323,7 +323,7 @@ impl Template for FeeSweepV1 {
         input.amount("amount")
     }
 
-    fn book(amount: &PositiveAmount) -> Result<Vec<Leg>, TemplateError> {
+    fn book(amount: &PositiveAmount, _: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError> {
         Ok(vec![
             Leg::debit("operating_bank", *amount),
             Leg::credit("customer_funds", *amount),
@@ -345,7 +345,7 @@ impl Template for FeeSweepV2 {
         Ok((input.amount("amount")?, input.amount("bank_charge")?))
     }
 
-    fn book(request: &Self::Request) -> Result<Vec<Leg>, TemplateError> {
+    fn book(request: &Self::Request, _: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError> {
         let (amount, _charge) = *request;
         Ok(vec![
             Leg::debit("operating_bank", amount),
@@ -368,7 +368,7 @@ impl Template for Defective {
         input.amount("amount")
     }
 
-    fn book(amount: &PositiveAmount) -> Result<Vec<Leg>, TemplateError> {
+    fn book(amount: &PositiveAmount, _: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError> {
         Ok(vec![
             Leg::debit("payer_wallet", *amount),
             Leg::credit("somewhere_else", *amount),
@@ -390,7 +390,7 @@ impl Template for BadName {
         Ok(())
     }
 
-    fn book(_: &()) -> Result<Vec<Leg>, TemplateError> {
+    fn book(_: &(), _: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError> {
         Ok(Vec::new())
     }
 }
@@ -610,7 +610,7 @@ proptest! {
                 prop_assert_eq!(draft.lines.len(), 2);
                 prop_assert!(draft.lines.iter().all(|l| l.amount.is_positive()));
             }
-            Err(error) => prop_assert!((2001..=2013).contains(&error.code())),
+            Err(error) => prop_assert!((2001..=2015).contains(&error.code())),
         }
     }
 }
