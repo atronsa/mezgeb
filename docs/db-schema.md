@@ -20,12 +20,15 @@ own, with constraints, triggers and role privileges.
 | `verification_runs` | Verification run | Scope (full or incremental), the entries it covered (`from_sequence` < sequence ≤ `to_sequence`), duration, lines checked, result and findings (migration 0004, step 1.13) |
 | `verification_checkpoints` | Account at a clean run's checkpoint | Each account's totals as of that run's `to_sequence`, the starting point for the next incremental run |
 | `holds` | Hold | The account it holds from, its own held account, amount and currency, `captured`, status (`active`, `captured`, `released`, `expired`), `expires_at`, the entry that placed it and the entry that ended it (migration 0005, step 1.14) |
+| `periods` | Accounting period | Label, status (`open`, `closing`, `closed`), the entry range it holds (`after_sequence` < sequence ≤ `last_sequence`), when it opened, stopped taking postings and closed (migration 0007, step 2.05) |
+| `period_snapshots` | Account at the end of a closed period | The account's totals from every line up to the period's `last_sequence`; append-only |
 | `refund_tallies` | Account of a refunded entry | What the entry's refunds have moved back on that account (`refunded`) and the most they may (`limit_amount`); it only grows (migration 0006, step 2.04) |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal`, `adjustment` or, since migration 0006, `refund`), and
 corrections record `reason_code`, `requested_by` and `approved_by`. A
-refund records the entry it refunds in `refunds_entry_id`.
+refund records the entry it refunds in `refunds_entry_id`. Since migration
+0007, every new entry records its accounting period in `period_id`.
 
 Amounts are `BIGINT` minor units ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
 IDs are `UUID` ([ADR-0006](adr/0006-uuidv7-identifiers.md)). Status, type and
@@ -202,6 +205,28 @@ alone (it names an unreversed standard entry, its lines move each account
 the allowed way, all refunds of the original stay within it), and refuses a
 reversal of a refund or of a refunded entry (`MZ007`).
 
+## Periods
+
+Every entry belongs to the period that was open when it was posted
+(INV-10, [ADR-0016](adr/0016-accounting-periods.md), step 2.05). The
+operator's procedure is the [close runbook](runbooks/close-period.md).
+
+- **One open period.** A partial unique index allows one `open` and one
+  `closing` period. A period only moves `open` → `closing` → `closed`, and
+  nothing else about it changes (`MZ008`); periods are never deleted.
+- **The switch.** Each posting takes `pg_advisory_xact_lock_shared` on the
+  period lock, then reads the open period, and holds the lock until it
+  commits. `begin_close` takes the lock exclusively: it waits for postings
+  under way, records the period's `last_sequence`, marks it `closing` and
+  opens the next one, in one transaction.
+- **Into an open period only.** A trigger refuses an entry or a line whose
+  period is not open when it is written, and a deferred trigger checks the
+  entry again at commit (`MZ008`). Entries posted before migration 0007
+  have no period.
+- **Snapshots.** `finish_close` verifies the closing period in one
+  `REPEATABLE READ` transaction, then writes `period_snapshots` and marks the
+  period `closed`. Snapshots are append-only.
+
 ## Crash safety
 
 Every write is one transaction (step 1.15). What a crash leaves behind
@@ -264,6 +289,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ005` | Forbidden account change: identity column, reopening, totals going down |
 | `MZ006` | Forbidden hold change: an ended hold changed, or a change other than ending it (INV-16) |
 | `MZ007` | Invalid refund, a refund tally changed other than by growing, or a reversal of a refund or of a refunded entry (INV-15) |
+| `MZ008` | Posting into a period that is not open, or a forbidden period change (INV-10) |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
@@ -277,7 +303,7 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, and on `refund_tallies.refunded`, only. No DELETE anywhere. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, and on a period's `status` and end, only. No DELETE anywhere. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
 

@@ -204,9 +204,20 @@ merchant uploads receipt twice, payer and payee upload the same receipt.
 
 ## 6. Periods and daily close
 
-- Close a period: freeze balances, compute and sign a journal hash.
-- Late-arriving offline receipts post into the current open period with a
-  reference to their event_time.
+- Every entry belongs to the period that is open when it is posted. Exactly
+  one period is open; a period is open, then closing, then closed, and a
+  closed period's balances never change (INV-10,
+  [ADR-0016](adr/0016-accounting-periods.md)).
+- A period holds a contiguous range of entry sequences. Closing it switches
+  postings to the next period under a lock, verifies the period, writes each
+  account's totals as a snapshot, and marks it closed
+  ([runbook](runbooks/close-period.md)). Planned: sign a journal hash at
+  each close (step 2.09).
+- Late events, such as offline receipts, post into the current open period
+  and keep their original date in `event_time`.
+- Reports: the trial balance as of now, the end of a closed period (from its
+  snapshot) or a point in time, and the general ledger of an account between
+  two times. Every trial balance balances in every currency (INV-2).
 
 ## 7. Audit and tamper evidence
 
