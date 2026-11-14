@@ -14,6 +14,8 @@
 //!   entries it booked name it forever.
 //! - [`TemplateError`]: why a request could not be booked, with stable
 //!   numeric codes in the 2000 range.
+//! - [`AGED_ACCOUNTS`]: the clearing and suspense accounts whose open items
+//!   the ageing report lists (`docs/accounting/clearing-and-suspense.md`).
 //!
 //! The draft records its template in the entry metadata under
 //! [`TEMPLATE_KEY`]. The engine stores the metadata and includes it in the
@@ -23,12 +25,25 @@
 //! Each template maps to a worked entry in `docs/accounting/entries/` and is
 //! tested against it.
 
+mod deposits;
 mod error;
 mod p2p_transfer;
 mod registry;
 mod template;
+mod withdrawals;
 
+pub use deposits::{AmountRequest, DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 pub use error::TemplateError;
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
 pub use registry::{RELEASED, RegisterError, TemplateRegistry};
-pub use template::{Input, Leg, OperationRequest, Role, TEMPLATE_KEY, Template, TemplateId, draft};
+pub use template::{
+    Accounts, Input, Leg, OperationRequest, Role, TEMPLATE_KEY, Template, TemplateId, draft,
+};
+pub use withdrawals::{
+    WithdrawalConfirmedV1, WithdrawalFailedV1, WithdrawalRequestV1, WithdrawalSentV1,
+};
+
+/// The chart accounts whose open items the ageing report lists: 2020 Pending
+/// withdrawals, 9010 Suspense and 9030 Clearing: withdrawals in transit. Each
+/// sub-account is one item, open while its balance is not zero.
+pub const AGED_ACCOUNTS: &[u16] = &[2020, 9010, 9030];
