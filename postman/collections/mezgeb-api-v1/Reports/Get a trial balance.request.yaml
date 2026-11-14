@@ -1,0 +1,19 @@
+$kind: http-request
+description: Every account with postings, with its totals and balance. As of now by default; as of the end of a closed period with `period_id`, from its snapshot, which never changes; or as of a time with `as_of`. At most one of `period_id` and `as_of`. Always balances in every currency.
+url: '{{baseUrl}}/v1/reports/trial-balance?period_id=12'
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: period_id
+    value: '12'
+    description: A closed period.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a trial balance.resources/examples
+order: 1000

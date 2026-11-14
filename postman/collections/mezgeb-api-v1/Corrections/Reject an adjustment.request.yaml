@@ -1,0 +1,33 @@
+$kind: http-request
+description: The checker rejects a pending request. Nothing is posted.
+url: "{{baseUrl}}/v1/adjustments/:adjustment_id/rejection"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: adjustment_id
+    value: 20cf8dab-cdad-75e2-a21d-1ef445629699
+    disabled: false
+    description: (Required) The adjustment request.
+body:
+  type: json
+  content: |-
+    {
+      "note": "No evidence of the outage on this account."
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Reject an adjustment.resources/examples
+order: 5000

@@ -1,0 +1,34 @@
+$kind: http-request
+description: "Changes the account status: `open`, `frozen` (no postings), or `closed` (only at a zero balance; final). Operator only."
+url: "{{baseUrl}}/v1/accounts/:account_id/status"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: account_id
+    value: db42271e-18fb-74c3-be54-32899ef41292
+    disabled: false
+    description: (Required) The account.
+body:
+  type: json
+  content: |-
+    {
+      "status": "frozen",
+      "reason": "fraud_review"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Change an account status.resources/examples
+order: 6000

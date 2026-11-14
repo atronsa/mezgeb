@@ -1,0 +1,20 @@
+$kind: http-request
+description: One template version, such as `merchant_payment.v1`.
+url: "{{baseUrl}}/v1/templates/:template_id"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: template_id
+    value: merchant_payment.v1
+    disabled: false
+    description: (Required) The template, as `name.vN`.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a posting template.resources/examples
+order: 2000

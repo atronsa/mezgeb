@@ -1,0 +1,59 @@
+$kind: http-example
+name: The account was opened.
+request:
+  url: "{{baseUrl}}/v1/accounts"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "reference": "2010:cust-abebe"
+      }
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    - key: Location
+      value: string
+      disabled: false
+      description: The URL of the created resource.
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "0192f3c4-0000-7000-8000-000000000002",
+        "reference": "2010:cust-abebe",
+        "code": 2010,
+        "sub_account": "cust-abebe",
+        "name": "Customer wallets",
+        "type": "liability",
+        "normal_side": "credit",
+        "currency": "ETB",
+        "status": "open",
+        "allow_negative": false,
+        "balance": {
+          "amount": "0.00",
+          "currency": "ETB"
+        },
+        "debits_total": {
+          "amount": "0.00",
+          "currency": "ETB"
+        },
+        "credits_total": {
+          "amount": "0.00",
+          "currency": "ETB"
+        }
+      }
+order: 1000

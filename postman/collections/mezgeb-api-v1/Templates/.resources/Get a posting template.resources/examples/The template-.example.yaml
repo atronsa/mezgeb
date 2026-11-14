@@ -1,0 +1,74 @@
+$kind: http-example
+name: The template.
+request:
+  url: "{{baseUrl}}/v1/templates/:template_id"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  pathVariables:
+    - key: template_id
+      value: merchant_payment.v1
+      disabled: false
+      description: (Required) The template, as `name.vN`.
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "merchant_payment.v1",
+        "roles": [
+          {
+            "name": "payer_wallet",
+            "codes": [
+              2010
+            ],
+            "optional": false
+          },
+          {
+            "name": "merchant_balance",
+            "codes": [
+              2030
+            ],
+            "optional": false
+          },
+          {
+            "name": "fee_revenue",
+            "codes": [
+              4010
+            ],
+            "optional": true
+          }
+        ],
+        "amounts": [
+          "amount"
+        ],
+        "optional_amounts": [
+          "merchant_fee",
+          "payer_fee"
+        ],
+        "metadata": [
+          {
+            "name": "channel",
+            "required": true,
+            "values": [
+              "qr",
+              "card_tap",
+              "phone_tap",
+              "fingerprint"
+            ]
+          }
+        ],
+        "refunds": false
+      }
+order: 1000

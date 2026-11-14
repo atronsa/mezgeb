@@ -1,0 +1,38 @@
+$kind: http-request
+description: Books `dispute_resolve_payer.v1` (worked entries E22). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked. The request names the entry it refunds, and the ledger caps the refund by it (INV-15).
+url: "{{baseUrl}}/v1/operations/dispute_resolve_payer.v1"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "dispute_item": "2060:dsp-0001",
+        "payer_wallet": "2010:cust-abebe"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "100.00",
+          "currency": "ETB"
+        }
+      },
+      "refunds": "0192f3c4-0000-7000-8000-000000000009"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Resolve a dispute for the payer.resources/examples
+order: 3000

@@ -1,0 +1,59 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/accounts/:account_id/status"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/json
+  pathVariables:
+    - key: account_id
+      value: db42271e-18fb-74c3-be54-32899ef41292
+      disabled: false
+      description: (Required) The account.
+  body:
+    type: json
+    content: |-
+      {
+        "status": "frozen",
+        "reason": "fraud_review"
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "1df59d11-3c28-7005-a27f-415947a7f0d9",
+        "reference": "2010:cust-abebe",
+        "code": 2221,
+        "name": "string",
+        "type": "asset",
+        "normal_side": "debit",
+        "currency": "ETB",
+        "status": "closed",
+        "allow_negative": false,
+        "balance": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "debits_total": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "credits_total": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "sub_account": "string"
+      }
+order: 1000

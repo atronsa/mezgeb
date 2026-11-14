@@ -1,0 +1,49 @@
+$kind: http-request
+description: The only way to post arbitrary lines. Creates a pending adjustment request with its reason; the requester is the authenticated caller. Nothing is posted until a different person approves it (INV-25).
+url: "{{baseUrl}}/v1/adjustments"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "reason": "goodwill_credit",
+      "lines": [
+        {
+          "account": "5010",
+          "side": "debit",
+          "amount": {
+            "amount": "10.00",
+            "currency": "ETB"
+          }
+        },
+        {
+          "account": "2010:cust-abebe",
+          "side": "credit",
+          "amount": {
+            "amount": "10.00",
+            "currency": "ETB"
+          }
+        }
+      ],
+      "metadata": {
+        "ticket": "CS-2201"
+      }
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Request an adjustment.resources/examples
+order: 2000

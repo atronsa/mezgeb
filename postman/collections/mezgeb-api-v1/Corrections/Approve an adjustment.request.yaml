@@ -1,0 +1,25 @@
+$kind: http-request
+description: The checker approves a pending request, and the adjustment is posted with both people recorded (INV-25). The approver is the authenticated caller and must not be the requester.
+url: "{{baseUrl}}/v1/adjustments/:adjustment_id/approval"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: adjustment_id
+    value: 20cf8dab-cdad-75e2-a21d-1ef445629699
+    disabled: false
+    description: (Required) The adjustment request.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Approve an adjustment.resources/examples
+order: 4000

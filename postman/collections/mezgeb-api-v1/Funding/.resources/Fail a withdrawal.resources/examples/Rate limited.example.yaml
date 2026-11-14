@@ -1,0 +1,51 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/operations/withdrawal_failed.v1"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "accounts": {
+          "withdrawal_in_transit": "9030:wdt-0001",
+          "customer_wallet": "2010:cust-hana"
+        },
+        "amounts": {
+          "amount": {
+            "amount": "100.00",
+            "currency": "ETB"
+          }
+        }
+      }
+response:
+  statusCode: 429
+  statusText: Too Many Requests
+  headers:
+    - key: Retry-After
+      value: "4810"
+      disabled: false
+      description: Seconds to wait before retrying.
+    - key: Content-Type
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:rate_limited",
+        "title": "Too many requests",
+        "status": 429,
+        "code": "rate_limited",
+        "detail": "Too many requests.",
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 8000

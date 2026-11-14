@@ -1,0 +1,82 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/accounts/:account_id/ledger?from=2026-11-01T00:00:00Z&to=2026-12-01T00:00:00Z&limit=50&cursor=string"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  queryParams:
+    from: 2026-11-01T00:00:00Z
+    to: 2026-12-01T00:00:00Z
+    limit: "50"
+    cursor: string
+  pathVariables:
+    - key: account_id
+      value: db42271e-18fb-74c3-be54-32899ef41292
+      disabled: false
+      description: (Required) The account.
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "account": "ba662481-ad8f-7ade-bc28-4eb57e77a1d2",
+        "opening_balance": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "items": [
+          {
+            "entry": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "sequence": 5462,
+            "recorded_at": "2015-09-06T16:55:17.404Z",
+            "side": "credit",
+            "amount": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "balance": {
+              "description": "After this line, on the normal side.",
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            }
+          },
+          {
+            "entry": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "sequence": 2351,
+            "recorded_at": "2017-06-03T21:51:46.347Z",
+            "side": "credit",
+            "amount": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "balance": {
+              "description": "After this line, on the normal side.",
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            }
+          }
+        ],
+        "next_cursor": "string"
+      }
+order: 1000

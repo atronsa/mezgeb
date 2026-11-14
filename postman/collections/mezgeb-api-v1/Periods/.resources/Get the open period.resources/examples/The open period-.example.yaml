@@ -1,0 +1,33 @@
+$kind: http-example
+name: The open period.
+request:
+  url: "{{baseUrl}}/v1/periods/current"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": 13,
+        "label": "2026-11-15",
+        "status": "open",
+        "opened_at": "2026-11-14T00:00:03.120000Z",
+        "after_sequence": 845913,
+        "last_sequence": null,
+        "closing_at": null,
+        "closed_at": null
+      }
+order: 1000

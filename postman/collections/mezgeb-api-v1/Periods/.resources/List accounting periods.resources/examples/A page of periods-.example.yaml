@@ -1,0 +1,51 @@
+$kind: http-example
+name: A page of periods.
+request:
+  url: "{{baseUrl}}/v1/periods?limit=50&cursor=string"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  queryParams:
+    limit: "50"
+    cursor: string
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "items": [
+          {
+            "id": 3634,
+            "label": "jbEVnrMspzPFhrZVZI9bEwfylojelP3EQ1c5HH",
+            "status": "open",
+            "opened_at": "2010-02-11T07:28:01.854Z",
+            "after_sequence": 5364,
+            "last_sequence": 7543,
+            "closing_at": "2010-02-16T02:19:37.586Z",
+            "closed_at": "1962-05-26T05:44:54.675Z"
+          },
+          {
+            "id": 1028,
+            "label": "3cITj2",
+            "status": "closing",
+            "opened_at": "2015-05-20T08:12:52.197Z",
+            "after_sequence": 4358,
+            "last_sequence": 7253,
+            "closing_at": "2007-07-25T15:45:12.539Z",
+            "closed_at": "1955-01-03T01:07:24.523Z"
+          }
+        ],
+        "next_cursor": "string"
+      }
+order: 1000

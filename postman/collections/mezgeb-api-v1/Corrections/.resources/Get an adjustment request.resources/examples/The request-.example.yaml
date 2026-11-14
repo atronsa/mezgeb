@@ -1,0 +1,71 @@
+$kind: http-example
+name: The request.
+request:
+  url: "{{baseUrl}}/v1/adjustments/:adjustment_id"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  pathVariables:
+    - key: adjustment_id
+      value: 20cf8dab-cdad-75e2-a21d-1ef445629699
+      disabled: false
+      description: (Required) The adjustment request.
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "5352c2a4-f817-7ea9-b64a-1811a383f9a7",
+        "status": "rejected",
+        "reason": "string",
+        "lines": [
+          {
+            "account": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "side": "debit",
+            "amount": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          },
+          {
+            "account": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "side": "credit",
+            "amount": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          }
+        ],
+        "requested_by": "string",
+        "requested_at": "1967-07-22T03:55:34.066Z",
+        "metadata": {
+          "key_0": "string"
+        },
+        "decided_by": "string",
+        "decided_at": "2005-05-21T07:19:31.464Z",
+        "entry": "bf218495-4f95-7302-9ece-9244651f93b3"
+      }
+order: 1000

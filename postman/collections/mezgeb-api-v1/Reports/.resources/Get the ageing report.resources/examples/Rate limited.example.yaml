@@ -1,0 +1,40 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/reports/ageing?code=4898&code=1663"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/problem+json
+  queryParams:
+    - key: code
+      value: "4898"
+    - key: code
+      value: "1663"
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 429
+  statusText: Too Many Requests
+  headers:
+    - key: Retry-After
+      value: "4810"
+      disabled: false
+      description: Seconds to wait before retrying.
+    - key: Content-Type
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:rate_limited",
+        "title": "Too many requests",
+        "status": 429,
+        "code": "rate_limited",
+        "detail": "Too many requests.",
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 5000

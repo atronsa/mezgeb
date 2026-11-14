@@ -1,0 +1,24 @@
+$kind: http-request
+description: The balance from every entry recorded at or before `as_of` (the posting time, not the event time). Without `as_of`, the balance now.
+url: '{{baseUrl}}/v1/accounts/:account_id/balance?as_of=2026-11-14T00:00:00Z'
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: as_of
+    value: '2026-11-14T00:00:00Z'
+    description: An RFC 3339 time.
+pathVariables:
+  - key: account_id
+    value: db42271e-18fb-74c3-be54-32899ef41292
+    disabled: false
+    description: (Required) The account.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a balance at a time.resources/examples
+order: 4000

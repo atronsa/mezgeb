@@ -1,0 +1,143 @@
+$kind: http-example
+name: The trial balance.
+request:
+  url: "{{baseUrl}}/v1/reports/trial-balance?period_id=12&as_of=2026-11-14T00:00:00Z"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  queryParams:
+    period_id: "12"
+    as_of: 2026-11-14T00:00:00Z
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "as_of": {
+          "period_id": 4480,
+          "time": "2002-05-05T14:54:05.349Z"
+        },
+        "rows": [
+          {
+            "account": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "reference": "2010:cust-abebe",
+            "type": "revenue",
+            "debits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "debit_balance": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credit_balance": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          },
+          {
+            "account": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "reference": "2010:cust-abebe",
+            "type": "revenue",
+            "debits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "debit_balance": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credit_balance": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          }
+        ],
+        "totals": [
+          {
+            "debit_balances": {
+              "amount": "39.20",
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credit_balances": {
+              "amount": "39.20",
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          },
+          {
+            "debit_balances": {
+              "amount": "39.20",
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credit_balances": {
+              "amount": "39.20",
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            }
+          }
+        ],
+        "balanced": true
+      }
+order: 1000

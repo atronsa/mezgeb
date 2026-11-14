@@ -1,0 +1,20 @@
+$kind: http-request
+description: "The entry the caller posted with this key. A client that lost a response uses it to learn the outcome without posting again (ADR-0008). Keys are per client: another client's key is never found."
+url: "{{baseUrl}}/v1/entries/by-idempotency-key/:idempotency_key"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: idempotency_key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) The key the entry was posted with.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Find an entry by idempotency key.resources/examples
+order: 2000

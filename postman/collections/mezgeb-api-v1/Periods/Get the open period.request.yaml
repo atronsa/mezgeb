@@ -1,0 +1,15 @@
+$kind: http-request
+description: The period postings go to now.
+url: "{{baseUrl}}/v1/periods/current"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get the open period.resources/examples
+order: 2000

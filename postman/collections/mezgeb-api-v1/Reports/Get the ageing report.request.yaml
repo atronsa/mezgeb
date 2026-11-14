@@ -1,0 +1,24 @@
+$kind: http-request
+description: Every open item (a sub-account with a balance) under the clearing, suspense, pending and dispute accounts, oldest first, with its age (step 2.02).
+url: "{{baseUrl}}/v1/reports/ageing?code=4898&code=1663"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: code
+    value: "4898"
+    disabled: false
+    description: "Only these chart accounts. Default: 2020, 2060, 9010, 9030."
+  - key: code
+    value: "1663"
+    disabled: false
+    description: "Only these chart accounts. Default: 2020, 2060, 9010, 9030."
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get the ageing report.resources/examples
+order: 2000

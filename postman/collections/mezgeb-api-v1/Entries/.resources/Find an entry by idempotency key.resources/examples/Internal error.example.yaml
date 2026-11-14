@@ -1,0 +1,35 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/entries/by-idempotency-key/:idempotency_key"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/problem+json
+  pathVariables:
+    - key: idempotency_key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) The key the entry was posted with.
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 500
+  statusText: Internal Server Error
+  headers:
+    Content-Type: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:internal_error",
+        "title": "Internal error",
+        "status": 500,
+        "code": "internal_error",
+        "detail": "Internal error.",
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 7000

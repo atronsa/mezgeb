@@ -1,0 +1,20 @@
+$kind: http-request
+description: A hold and what happened to it.
+url: "{{baseUrl}}/v1/holds/:hold_id"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: hold_id
+    value: df1b2b83-8b54-739e-852e-21a0f85d0007
+    disabled: false
+    description: (Required) The hold.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a hold.resources/examples
+order: 2000

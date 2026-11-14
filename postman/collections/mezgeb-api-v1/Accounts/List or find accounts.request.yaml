@@ -1,0 +1,28 @@
+$kind: http-request
+description: Lists the accounts the caller owns, oldest first, or finds one by its chart reference. An operator token with `accounts:read_all` sees every account.
+url: "{{baseUrl}}/v1/accounts?reference=2010:cust-abebe&limit=50&cursor=string"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: reference
+    value: 2010:cust-abebe
+    disabled: false
+    description: Find the account with this chart reference.
+  - key: limit
+    value: "50"
+    disabled: false
+    description: Page size.
+  - key: cursor
+    value: string
+    disabled: false
+    description: An opaque cursor from `next_cursor`.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List or find accounts.resources/examples
+order: 2000
