@@ -131,7 +131,7 @@ A merchant working alone or together with a customer.
 
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
-| TM-22 | Issues fake refunds to move money out or to recover fees | T | A1 | Refunds reference the original payment and are capped by it (INV-15); refund-ratio monitoring | Client | 2.04 |
+| TM-22 | Issues fake refunds to move money out or to recover fees | T | A1 | Refunds reference the original payment and are capped by it per account, including its fee, and can only go back to whoever paid (INV-15, ADR-0015); refund-ratio monitoring | Client | 2.04 |
 | TM-23 | Uploads made-up offline receipts | S | A1 | A receipt must be signed by the payer's device (INV-22); a merchant cannot sign as a payer | Maintainers | 2.12 |
 | TM-24 | Refunds more than the merchant balance after settlement, leaving a debt it never repays | T | A1 | Merchant accounts do not allow negative balances (INV-8) unless a receivable policy is chosen; open question in the [chart of accounts](accounting/chart-of-accounts.md#open-questions) | Client | 2.04, 3.07 |
 

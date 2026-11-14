@@ -47,16 +47,19 @@ sale that did not happen.
 refund is a separate business event on a later date, and it may differ from
 the original (see E12). A reversal is only for entries booked by mistake (E13).
 
-**Open questions:**
+**Template:** `merchant_refund.v1`, naming E08, with `fee_refund = 3`.
 
-- Who keeps the fee on a refund is a business policy, not an accounting rule.
-  Should the platform keep it (the merchant pays 200 and Abebe gets 200), or
-  return it, as here? Many card networks keep it.
-- What if the merchant's balance is lower than the refund because it was
-  already paid out (E15)? Does the refund fail, does the merchant's balance go
-  negative, or does the merchant need to fund it first?
-- Should the fee be reversed into a separate contra-revenue account ("fee
-  refunds") so gross fee income stays visible in reports?
+**Decided in step 2.04** ([refunds and disputes](../refunds-and-disputes.md),
+[ADR-0015](../../adr/0015-refunds-and-disputes.md)):
+
+- **Who keeps the fee is the client's decision, per refund.** `fee_refund`
+  says how much of the refund comes out of fee revenue; here, all 3 ETB.
+- **A refund names the payment it refunds**, and the ledger never lets the
+  refunds of a payment give back more than it moved, on any account.
+- **A merchant balance too low for the refund** refuses the refund: the
+  balance never goes below zero. The merchant is funded first, or the
+  platform pays it with an approved adjustment.
+- **No contra-revenue account.** Fee refunds reduce 4010 directly.
 
 ## E12. Partial refund
 
@@ -83,13 +86,14 @@ returns the fee in proportion: 2% of 40 ETB = 0.80 ETB.
   can never exceed 100 ETB. The ledger checks this, not only the client
   application.
 
-**Open questions:**
+**Template:** `merchant_refund.v1`, naming E07, with `fee_refund = 0.80`.
 
-- When the proportional fee does not divide evenly into santim (for example,
-  2% of 33.33 ETB), who gets the extra santim, the merchant or the platform?
-  This must match the rounding rule chosen in E07.
-- Should several partial refunds against one payment be tracked so that their
-  fee refunds add up exactly to the original fee?
+**Decided in step 2.04:**
+
+- **Rounding is the client's**, by the same rule as its fees (ADR-0014).
+- **Partial refunds are tracked per payment and account.** Their fee refunds
+  can never add up to more than the original fee, and the payer can never
+  get back more than they paid, however the refunds are split (INV-15).
 
 ## E13. Reversal
 
