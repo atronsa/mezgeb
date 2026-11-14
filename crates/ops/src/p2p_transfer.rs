@@ -14,7 +14,7 @@
 use mezgeb_core::PositiveAmount;
 
 use crate::error::TemplateError;
-use crate::template::{Input, Leg, Role, Template};
+use crate::template::{Accounts, Input, Leg, Role, Template};
 
 /// 2010 Customer wallets.
 const CUSTOMER_WALLETS: &[u16] = &[2010];
@@ -47,7 +47,7 @@ impl Template for P2pTransferV1 {
         })
     }
 
-    fn book(request: &P2pTransferRequest) -> Result<Vec<Leg>, TemplateError> {
+    fn book(request: &P2pTransferRequest, _: &Accounts<'_>) -> Result<Vec<Leg>, TemplateError> {
         Ok(vec![
             Leg::debit("payer_wallet", request.amount),
             Leg::credit("payee_wallet", request.amount),
