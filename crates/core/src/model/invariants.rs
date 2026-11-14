@@ -2,9 +2,9 @@
 //! applies to the ledger so far, checked from the stored data alone.
 //!
 //! Checked: INV-1, INV-2, INV-3, INV-5, INV-6, INV-7, INV-8, INV-12,
-//! INV-14, INV-16, INV-17, INV-18, INV-24 (accounts exist), INV-25, and
-//! the status rule that a closed account has a zero balance. Later steps add the rest (holds, periods,
-//! idempotency, offline).
+//! INV-14, INV-15, INV-16, INV-17, INV-18, INV-24 (accounts exist), INV-25,
+//! and the status rule that a closed account has a zero balance. Later
+//! steps add the rest (periods, idempotency, offline).
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
@@ -44,7 +44,74 @@ pub fn check_invariants(ledger: &MemLedger) -> Result<(), InvariantViolation> {
     check_balances(ledger)?;
     check_reversals(ledger)?;
     check_authorizations(ledger)?;
+    check_refunds(ledger)?;
     check_holds(ledger)
+}
+
+/// INV-15: every refund names a standard, unreversed entry; every refund
+/// line moves an account the way the rule allows; all of an entry's refunds
+/// together stay within what it moved; and the ledger's refund tallies agree
+/// with its refund entries.
+pub(super) fn check_refunds(ledger: &MemLedger) -> Result<(), InvariantViolation> {
+    use crate::entry::LineDraft;
+    use crate::ids::EntryId;
+    use crate::refund::RefundLimits;
+
+    let mut tallies: BTreeMap<EntryId, BTreeMap<AccountId, i64>> = BTreeMap::new();
+    for entry in ledger.entries() {
+        let (Some(original), kind) = (entry.refunds(), entry.kind()) else {
+            if entry.kind() == EntryKind::Refund {
+                return fail("INV-15", format!("refund {} names no entry", entry.id()));
+            }
+            continue;
+        };
+        if kind != EntryKind::Refund {
+            return fail(
+                "INV-15",
+                format!("{kind} entry {} names a refunded entry", entry.id()),
+            );
+        }
+        let Some(refunded) = ledger.entry(original) else {
+            return fail(
+                "INV-15",
+                format!("refund {} names a missing entry", entry.id()),
+            );
+        };
+        if refunded.kind() != EntryKind::Standard || ledger.reversal_of(original).is_some() {
+            return fail(
+                "INV-15",
+                format!(
+                    "refund {} refunds {original}, which cannot be refunded",
+                    entry.id()
+                ),
+            );
+        }
+        let lines: Vec<LineDraft> = entry
+            .lines()
+            .iter()
+            .map(|l| LineDraft {
+                account: l.account(),
+                side: l.side(),
+                amount: l.amount().money(),
+            })
+            .collect();
+        let before = tallies.entry(original).or_default();
+        match RefundLimits::of(refunded).check(&lines, before) {
+            Ok(after) => before.extend(after),
+            Err(error) => {
+                return fail("INV-15", format!("refund {}: {error}", entry.id()));
+            }
+        }
+    }
+    for (original, tally) in &tallies {
+        if ledger.refunded(*original) != *tally {
+            return fail(
+                "INV-15",
+                format!("the refund tally of {original} disagrees with its refunds"),
+            );
+        }
+    }
+    Ok(())
 }
 
 /// INV-16 (a hold ends at most once, recorded by one closing entry), INV-17

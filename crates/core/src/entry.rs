@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 use crate::account::Account;
 use crate::chart::Side;
 use crate::currency::Currency;
-use crate::ids::AccountId;
+use crate::ids::{AccountId, EntryId};
 use crate::money::{Money, PositiveAmount};
 use crate::time::Timestamp;
 
@@ -43,6 +43,11 @@ pub struct EntryDraft {
     /// Allow two lines with the same account and side. Off by default: such
     /// lines are usually a mistake, and one line with the sum says the same.
     pub allow_duplicate_lines: bool,
+    /// The entry this one refunds, if it is a refund (step 2.04, INV-15).
+    /// A refund may credit only accounts the original debited, and moves
+    /// each account of the original back by at most what the original moved
+    /// on it, across all of the original's refunds.
+    pub refunds: Option<EntryId>,
 }
 
 impl EntryDraft {
@@ -102,6 +107,7 @@ pub struct BalancedEntry {
     lines: Vec<Line>,
     metadata: BTreeMap<String, String>,
     event_time: Option<Timestamp>,
+    refunds: Option<EntryId>,
 }
 
 impl BalancedEntry {
@@ -110,11 +116,13 @@ impl BalancedEntry {
         lines: Vec<Line>,
         metadata: BTreeMap<String, String>,
         event_time: Option<Timestamp>,
+        refunds: Option<EntryId>,
     ) -> BalancedEntry {
         BalancedEntry {
             lines,
             metadata,
             event_time,
+            refunds,
         }
     }
 
@@ -137,6 +145,11 @@ impl BalancedEntry {
 
     pub const fn event_time(&self) -> Option<Timestamp> {
         self.event_time
+    }
+
+    /// The entry this one refunds, if it is a refund.
+    pub const fn refunds(&self) -> Option<EntryId> {
+        self.refunds
     }
 
     /// The total debited in each currency, which equals the total credited.

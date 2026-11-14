@@ -8,6 +8,7 @@
 //! - [`chart`], [`account`]: the chart of accounts and accounts.
 //! - [`entry`], [`validate`], [`error`]: journal entries and posting rules.
 //!   A [`BalancedEntry`] can only be created by [`validate`].
+//! - [`refund`]: what a refund may give back (INV-15).
 //! - [`model`]: the in-memory reference ledger and invariant checker.
 
 pub mod account;
@@ -21,6 +22,7 @@ pub mod hold;
 pub mod ids;
 pub mod model;
 pub mod money;
+pub mod refund;
 pub mod time;
 pub mod validate;
 
@@ -43,5 +45,6 @@ pub use model::{
     check_invariants,
 };
 pub use money::{Money, MoneyError, ParseMoneyError, PositiveAmount};
+pub use refund::RefundLimits;
 pub use time::Timestamp;
 pub use validate::validate;

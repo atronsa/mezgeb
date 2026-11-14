@@ -126,7 +126,12 @@ pub fn validate<V: AccountsView + ?Sized>(
         }
     }
 
-    Ok(BalancedEntry::new(lines, draft.metadata, draft.event_time))
+    Ok(BalancedEntry::new(
+        lines,
+        draft.metadata,
+        draft.event_time,
+        draft.refunds,
+    ))
 }
 
 #[cfg(test)]
