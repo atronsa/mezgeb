@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use mezgeb_core::{
     AccountId, Authorization, ClientId, EntryDraft, EntryId, EntryKind, Fingerprint,
-    IdempotencyKey, LedgerError, LineDraft, PostedEntry, PostedLine, Side, adjustment_fingerprint,
-    reversal_fingerprint, validate,
+    IdempotencyKey, LedgerError, LineDraft, PostedEntry, PostedLine, RefundLimits, Side,
+    adjustment_fingerprint, reversal_fingerprint, validate,
 };
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -108,6 +108,9 @@ pub async fn post_entry_with(
             if entry_exists(&mut tx, request.entry_id).await? {
                 return Err(LedgerError::DuplicateEntry(request.entry_id));
             }
+            if request.authorization.is_some() && request.draft.refunds.is_some() {
+                return Err(LedgerError::RefundAsAdjustment);
+            }
             let fingerprint = match &request.authorization {
                 None => request.draft.fingerprint(),
                 Some(auth) => {
@@ -120,7 +123,19 @@ pub async fn post_entry_with(
             if let Claim::Existing(original) = claim_key(&mut tx, &request, &fingerprint).await? {
                 return Ok(original);
             }
+            // A refund is checked against its original with the original's
+            // refund tallies locked, so concurrent refunds queue (INV-15).
+            let refund = match request.draft.refunds {
+                Some(original) => {
+                    let totals = check_refund(&mut tx, original, &request.draft.lines).await?;
+                    Some((original, totals))
+                }
+                None => None,
+            };
             let posted = post_in_transaction(&mut tx, request.clone(), None, options).await?;
+            if let Some((original, totals)) = refund {
+                record_refund(&mut tx, original, &totals).await?;
+            }
             options.commit(tx).await?;
             Ok(posted)
         }
@@ -147,10 +162,12 @@ pub(crate) async fn post_in_transaction(
         draft,
         authorization,
     } = request;
-    let kind = match (reverses, &authorization) {
-        (Some(_), _) => EntryKind::Reversal,
-        (None, Some(_)) => EntryKind::Adjustment,
-        (None, None) => EntryKind::Standard,
+    let refunds = draft.refunds;
+    let kind = match (reverses, &authorization, refunds) {
+        (Some(_), _, _) => EntryKind::Reversal,
+        (None, Some(_), _) => EntryKind::Adjustment,
+        (None, None, Some(_)) => EntryKind::Refund,
+        (None, None, None) => EntryKind::Standard,
     };
     Authorization::check(kind, authorization.as_ref())?;
     options.fault_at(FaultPoint::BeforeLock)?;
@@ -180,10 +197,10 @@ pub(crate) async fn post_in_transaction(
     let inserted = sqlx::query(
         "INSERT INTO journal_entries
              (id, client_id, idempotency_key, reverses_entry_id, metadata, event_time,
-              kind, reason_code, requested_by, approved_by)
+              kind, reason_code, requested_by, approved_by, refunds_entry_id)
          VALUES ($1, $2, $3, $4, $5::jsonb,
                  timestamptz 'epoch' + $6::bigint * interval '1 microsecond',
-                 $7, $8, $9, $10)
+                 $7, $8, $9, $10, $11)
          RETURNING sequence",
     )
     .bind(entry_id.as_uuid())
@@ -205,6 +222,7 @@ pub(crate) async fn post_in_transaction(
             .and_then(|a| a.approved_by.as_ref())
             .map(|a| a.as_str().to_owned()),
     )
+    .bind(refunds.map(|r| r.as_uuid()))
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| entry_insert_error(e, entry_id, reverses))?;
@@ -280,7 +298,107 @@ pub(crate) async fn post_in_transaction(
         entry.event_time(),
         kind,
         authorization,
-    ))
+    )
+    .refunding(refunds))
+}
+
+/// Locks the refund tallies of `original`, creating them on first use, and
+/// returns what its refunds have moved back so far, per account (INV-15).
+/// Refunds and reversals of one entry both take these locks first, in
+/// account order, so they queue behind each other.
+async fn lock_tallies(
+    conn: &mut PgConnection,
+    original: EntryId,
+    limits: &RefundLimits,
+) -> Result<BTreeMap<AccountId, i64>, LedgerError> {
+    let (accounts, amounts): (Vec<Uuid>, Vec<i64>) = limits
+        .accounts()
+        .map(|(account, _, limit)| (account.as_uuid(), limit))
+        .unzip();
+    if accounts.is_empty() {
+        return Ok(BTreeMap::new());
+    }
+    sqlx::query(
+        "INSERT INTO refund_tallies (entry_id, account_id, limit_amount)
+         SELECT $1::uuid, account_id, limit_amount
+           FROM UNNEST($2::uuid[], $3::int8[]) AS t(account_id, limit_amount)
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(original.as_uuid())
+    .bind(&accounts)
+    .bind(&amounts)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    let rows = sqlx::query(
+        "SELECT account_id, refunded FROM refund_tallies
+          WHERE entry_id = $1 ORDER BY account_id FOR UPDATE",
+    )
+    .bind(original.as_uuid())
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let mut refunded = BTreeMap::new();
+    for row in &rows {
+        let account = crate::rows::account_id(row.try_get("account_id").map_err(db)?)?;
+        refunded.insert(account, row.try_get::<i64, _>("refunded").map_err(db)?);
+    }
+    Ok(refunded)
+}
+
+async fn is_reversed(conn: &mut PgConnection, entry: EntryId) -> Result<bool, LedgerError> {
+    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM journal_entries WHERE reverses_entry_id = $1)")
+        .bind(entry.as_uuid())
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(db)
+}
+
+/// Checks a refund of `original` against it and its earlier refunds, with
+/// its tallies locked, and returns the new tallies (INV-15).
+async fn check_refund(
+    conn: &mut PgConnection,
+    original: EntryId,
+    lines: &[LineDraft],
+) -> Result<BTreeMap<AccountId, i64>, LedgerError> {
+    let entry = load_entry(conn, original)
+        .await?
+        .ok_or(LedgerError::EntryNotFound(original))?;
+    if entry.kind() != EntryKind::Standard {
+        return Err(LedgerError::NotRefundable(original));
+    }
+    let limits = RefundLimits::of(&entry);
+    let refunded = lock_tallies(conn, original, &limits).await?;
+    // Read after the lock: a reversal that committed while this refund
+    // waited is seen here.
+    if is_reversed(conn, original).await? {
+        return Err(LedgerError::RefundOfReversedEntry(original));
+    }
+    limits.check(lines, &refunded)
+}
+
+/// Stores a refund's new tallies, in the refund's transaction.
+async fn record_refund(
+    conn: &mut PgConnection,
+    original: EntryId,
+    totals: &BTreeMap<AccountId, i64>,
+) -> Result<(), LedgerError> {
+    let (accounts, amounts): (Vec<Uuid>, Vec<i64>) = totals
+        .iter()
+        .map(|(account, total)| (account.as_uuid(), *total))
+        .unzip();
+    sqlx::query(
+        "UPDATE refund_tallies t SET refunded = v.refunded
+           FROM UNNEST($2::uuid[], $3::int8[]) AS v(account_id, refunded)
+          WHERE t.entry_id = $1 AND t.account_id = v.account_id",
+    )
+    .bind(original.as_uuid())
+    .bind(&accounts)
+    .bind(&amounts)
+    .execute(&mut *conn)
+    .await
+    .map_err(db)?;
+    Ok(())
 }
 
 async fn insert_lines(
@@ -428,26 +546,22 @@ async fn reverse_once(
     if let Claim::Existing(reversal) = claim_key(&mut tx, &request, &fingerprint).await? {
         return Ok(reversal);
     }
-    let target: Option<Option<Uuid>> =
-        sqlx::query_scalar("SELECT reverses_entry_id FROM journal_entries WHERE id = $1")
+    let target: Option<(Option<Uuid>, String)> =
+        sqlx::query_as("SELECT reverses_entry_id, kind FROM journal_entries WHERE id = $1")
             .bind(original.as_uuid())
             .fetch_optional(&mut *tx)
             .await
             .map_err(db)?;
-    match target {
+    let kind = match target {
         None => return Err(LedgerError::EntryNotFound(original)),
-        Some(Some(_)) => return Err(LedgerError::CannotReverseReversal(original)),
-        Some(None) => {}
-    }
-    let reversed: bool = sqlx::query_scalar(
-        "SELECT EXISTS (SELECT 1 FROM journal_entries WHERE reverses_entry_id = $1)",
-    )
-    .bind(original.as_uuid())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(db)?;
-    if reversed {
+        Some((Some(_), _)) => return Err(LedgerError::CannotReverseReversal(original)),
+        Some((None, kind)) => kind,
+    };
+    if is_reversed(&mut tx, original).await? {
         return Err(LedgerError::AlreadyReversed(original));
+    }
+    if kind == EntryKind::Refund.as_str() {
+        return Err(LedgerError::CannotReverseRefund(original));
     }
 
     let rows = sqlx::query(
@@ -462,6 +576,16 @@ async fn reverse_once(
         .iter()
         .map(crate::rows::line_from_row)
         .collect::<Result<Vec<_>, _>>()?;
+    // A standard entry with refunds cannot be reversed: the money would go
+    // back twice. The tallies are locked first, as a refund locks them, so a
+    // refund and a reversal of one entry never both succeed (INV-15).
+    if kind == EntryKind::Standard.as_str() {
+        let limits = RefundLimits::from_lines(&original_lines);
+        let refunded = lock_tallies(&mut tx, original, &limits).await?;
+        if refunded.values().any(|moved| *moved > 0) {
+            return Err(LedgerError::RefundedEntryCannotBeReversed(original));
+        }
+    }
     let accounts: Vec<AccountId> = original_lines.iter().map(|l| l.account()).collect();
     crate::holds::refuse_held(&mut tx, &accounts).await?;
     let mut mirror = EntryDraft {
@@ -552,7 +676,7 @@ pub(crate) async fn load_entry(
     id: EntryId,
 ) -> Result<Option<PostedEntry>, LedgerError> {
     let Some(row) = sqlx::query(
-        "SELECT id, sequence, reverses_entry_id, metadata::text AS metadata,
+        "SELECT id, sequence, reverses_entry_id, refunds_entry_id, metadata::text AS metadata,
                 (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros,
                 kind, reason_code, requested_by, approved_by
            FROM journal_entries WHERE id = $1",

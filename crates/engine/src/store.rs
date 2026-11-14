@@ -229,7 +229,7 @@ impl Ledger for PgStore {
             lines.entry(entry).or_default().push(line_from_row(row)?);
         }
         let entry_rows = sqlx::query(
-            "SELECT id, sequence, reverses_entry_id, metadata::text AS metadata,
+            "SELECT id, sequence, reverses_entry_id, refunds_entry_id, metadata::text AS metadata,
                     (extract(epoch FROM event_time) * 1000000)::bigint AS event_time_micros,
                     kind, reason_code, requested_by, approved_by
                FROM journal_entries ORDER BY sequence",

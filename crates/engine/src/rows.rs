@@ -100,6 +100,7 @@ pub(crate) fn entry_from_row(
 ) -> Result<PostedEntry, LedgerError> {
     let sequence: i64 = row.try_get("sequence").map_err(storage)?;
     let reverses: Option<Uuid> = row.try_get("reverses_entry_id").map_err(storage)?;
+    let refunds: Option<Uuid> = row.try_get("refunds_entry_id").map_err(storage)?;
     let metadata: String = row.try_get("metadata").map_err(storage)?;
     let event_time: Option<i64> = row.try_get("event_time_micros").map_err(storage)?;
     let kind: String = row.try_get("kind").map_err(storage)?;
@@ -125,7 +126,8 @@ pub(crate) fn entry_from_row(
         event_time.map(Timestamp::from_micros),
         kind,
         authorization,
-    ))
+    )
+    .refunding(refunds.map(entry_id).transpose()?))
 }
 
 /// The SQLSTATE and constraint name of a database error, if it is one.
