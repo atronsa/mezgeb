@@ -20,10 +20,12 @@ own, with constraints, triggers and role privileges.
 | `verification_runs` | Verification run | Scope (full or incremental), the entries it covered (`from_sequence` < sequence ≤ `to_sequence`), duration, lines checked, result and findings (migration 0004, step 1.13) |
 | `verification_checkpoints` | Account at a clean run's checkpoint | Each account's totals as of that run's `to_sequence`, the starting point for the next incremental run |
 | `holds` | Hold | The account it holds from, its own held account, amount and currency, `captured`, status (`active`, `captured`, `released`, `expired`), `expires_at`, the entry that placed it and the entry that ended it (migration 0005, step 1.14) |
+| `refund_tallies` | Account of a refunded entry | What the entry's refunds have moved back on that account (`refunded`) and the most they may (`limit_amount`); it only grows (migration 0006, step 2.04) |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
-`reversal` or `adjustment`), and corrections record `reason_code`,
-`requested_by` and `approved_by`.
+`reversal`, `adjustment` or, since migration 0006, `refund`), and
+corrections record `reason_code`, `requested_by` and `approved_by`. A
+refund records the entry it refunds in `refunds_entry_id`.
 
 Amounts are `BIGINT` minor units ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
 IDs are `UUID` ([ADR-0006](adr/0006-uuidv7-identifiers.md)). Status, type and
@@ -172,6 +174,34 @@ idempotency key `hold-expire:<hold id>`.
   done, and the rest is still due. The key, the entry and the status change
   commit together, so no hold is expired twice.
 
+## Refunds
+
+A refund names the standard entry it refunds (`refunds_entry_id`) and is
+capped by it, account by account (INV-15,
+[ADR-0015](adr/0015-refunds-and-disputes.md), step 2.04):
+
+1. **The engine locks the original's tallies.** On a refund, it creates the
+   original's `refund_tallies` rows if needed (`INSERT … ON CONFLICT DO
+   NOTHING`, one per account, with the limit taken from the original's
+   lines) and locks them, in account order, with `FOR UPDATE`. Concurrent
+   refunds of one entry wait here, so each sees what the one before it gave
+   back. Refunds of different entries do not touch each other's rows.
+2. **It checks the refund** with `RefundLimits`, the same rule the reference
+   ledger uses, after re-reading whether the original was reversed while it
+   waited.
+3. **It posts the refund and updates the tallies** in the same transaction.
+
+A reversal takes the same tally locks before it checks that the entry has
+no refunds, so a refund and a reversal of one entry never both succeed.
+
+The database guards the rule on its own: `refund_tallies` refuses a
+`refunded` above `limit_amount` (`23514`), a tally that shrinks or changes
+anything else (`MZ007`), and any delete. At commit, the deferred trigger
+`journal_entries_refund_rules` checks every refund again from the journal
+alone (it names an unreversed standard entry, its lines move each account
+the allowed way, all refunds of the original stay within it), and refuses a
+reversal of a refund or of a refunded entry (`MZ007`).
+
 ## Crash safety
 
 Every write is one transaction (step 1.15). What a crash leaves behind
@@ -233,6 +263,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ004` | Line posted to an account that is not open (INV-24) |
 | `MZ005` | Forbidden account change: identity column, reopening, totals going down |
 | `MZ006` | Forbidden hold change: an ended hold changed, or a change other than ending it (INV-16) |
+| `MZ007` | Invalid refund, a refund tally changed other than by growing, or a reversal of a refund or of a refunded entry (INV-15) |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
@@ -246,7 +277,7 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status` only. No DELETE anywhere. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, and on `refund_tallies.refunded`, only. No DELETE anywhere. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
 

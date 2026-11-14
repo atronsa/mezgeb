@@ -61,7 +61,7 @@ listed by ID in the [traceability matrix](#traceability-matrix).
 |---|---|---|---|
 | INV-13 | An idempotency key is applied at most once per client. A repeat with the same request returns the original result; a repeat with a different request is rejected ([ADR-0008](adr/0008-idempotency-in-posting-transaction.md)). | Engine, DB | T-13a, T-13b, T-13c |
 | INV-14 | An entry is reversed at most once, and a reversal is the exact mirror of its original: same accounts, same amounts, opposite sides. A reversal can never itself be reversed; if a reversal was a mistake, the original is posted again as a new entry. | Engine, DB | T-14a, T-14b, T-14c |
-| INV-15 | The total refunded against a payment never exceeds the payment's original amount. | Engine | T-15a, T-15b |
+| INV-15 | The total refunded against a payment never exceeds the payment's original amount. Per account of the original: an account it debited may only be credited by its refunds, an account it credited may only be debited, each by at most what the original moved on it across all refunds together, and an account it did not touch may only be debited. Only an unreversed standard entry can be refunded, an entry with refunds cannot be reversed, and a refund is never reversed ([ADR-0015](adr/0015-refunds-and-disputes.md)). | Engine, DB | T-15a, T-15b, T-15c, T-15d |
 
 ### Holds
 
@@ -146,6 +146,8 @@ Every invariant has at least one planned test. Test kinds:
 | T-14c | INV-14 | Unit | Reversing a reversal is rejected | 1.12 |
 | T-15a | INV-15 | Unit | A refund above the remaining refundable amount is rejected | 2.04 |
 | T-15b | INV-15 | Concurrency | Parallel partial refunds never exceed the original in total | 2.04 |
+| T-15c | INV-15 | Property | Any sequence of refunds and reversals of a payment never gives back more than it moved, on any account | 2.04 |
+| T-15d | INV-15 | DB | The database refuses an over-refund written around the engine, and a refund tally that shrinks or exceeds its limit | 2.04 |
 | T-16a | INV-16 | Unit | Capturing or releasing an already resolved hold is rejected | 1.14 |
 | T-16b | INV-16 | Concurrency | Capture and expiry racing on one hold: exactly one wins | 1.14 |
 | T-17a | INV-17 | Unit | A capture above the held amount is rejected; a partial capture releases the rest | 1.14 |
@@ -207,9 +209,19 @@ dropping it.
 | T-25a | INV-25 | `model`: `adjustments_need_a_reason_and_a_second_person`; `corrections.rs`: `adjustments_need_two_different_people` |
 
 Planned for later steps: T-07b and T-10a/b (2.05), T-11a/b, T-12a and
-T-26a/b (2.09), T-15a/b (2.04), and T-19a to T-23a (2.12–2.14). T-12a's
+T-26a/b (2.09), and T-19a to T-23a (2.12–2.14). T-15a to T-15d are in
+[step 2.04's tests](#step-204-tests). T-12a's
 measurement already exists: `concurrency.rs`, `recorded_time_against_sequence`
 (step 1.10).
+
+### Step 2.04 tests
+
+| Test | Invariant | Where |
+|---|---|---|
+| T-15a | INV-15 | `refund.rs`: `partial_refunds_add_up_to_the_original`, `money_goes_back_only_to_whoever_paid`; `refunds.rs` (engine): `partial_refunds_up_to_the_cap_and_not_one_santim_more`, `refunds_go_back_only_to_whoever_paid`, `refunds_and_reversals_exclude_each_other` |
+| T-15b | INV-15 | `refunds.rs` (engine): `fifty_concurrent_partial_refunds_never_exceed_the_cap` |
+| T-15c | INV-15 | `crates/core/tests/refunds.rs`: `refunds_never_give_back_more_than_was_paid` (10,000 cases); `check_refunds` in `check_invariants` |
+| T-15d | INV-15 | `refunds.rs` (engine): `the_database_enforces_the_refund_rules_on_its_own` |
 
 ## Mapping from the draft spec
 

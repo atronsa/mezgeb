@@ -134,7 +134,8 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   an item that opens its own sub-account (2015), fees more than the
   amount (2016), amounts in different currencies (2017), an amount too
   large (2018), required metadata missing (2019), metadata value not
-  allowed (2020). A template may also have optional amounts (such as a
+  allowed (2020), refund template without the entry it refunds (2021),
+  another template naming one (2022). A template may also have optional amounts (such as a
   fee), optional roles (such as fee revenue, needed only with a fee) and
   metadata keys it checks (such as `channel`).
 - **4.7 Clearing and suspense.** Money in flight and money with no known
@@ -152,6 +153,17 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   channel (`qr`, `card_tap`, `phone_tap`, `fingerprint`) is metadata, never
   an account ([ADR-0014](adr/0014-payment-channels-and-fees.md), step
   2.03).
+- **4.9 Refunds and disputes.** A refund is an entry of kind `refund` that
+  names the standard entry it refunds. It may credit only accounts the
+  original debited, and all of an entry's refunds together move each
+  account of the original back by at most what the original moved on it
+  (INV-15). The engine enforces this with the original's refund tallies
+  locked; the database checks it again at commit. A reversed entry cannot be
+  refunded and a refunded entry cannot be reversed. A dispute holds the
+  merchant's money in its own `2060:dsp-…` sub-account until it is decided
+  wholly for one side; a decision for the payer is a refund of the payment
+  ([ADR-0015](adr/0015-refunds-and-disputes.md),
+  [policy](accounting/refunds-and-disputes.md), step 2.04).
 
 ## 5. Offline sync
 
