@@ -1,0 +1,3 @@
+$kind: collection
+description: Transfers, merchant payments and payment requests (ADR-0014).
+order: 3000

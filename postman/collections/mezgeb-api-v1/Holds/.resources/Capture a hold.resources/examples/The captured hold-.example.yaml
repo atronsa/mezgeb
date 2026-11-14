@@ -1,0 +1,56 @@
+$kind: http-example
+name: The captured hold.
+request:
+  url: "{{baseUrl}}/v1/holds/:hold_id/capture"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/json
+  pathVariables:
+    - key: hold_id
+      value: df1b2b83-8b54-739e-852e-21a0f85d0007
+      disabled: false
+      description: (Required) The hold.
+  body:
+    type: json
+    content: |-
+      {
+        "destination": "2030:merch-coffee",
+        "amount": {
+          "amount": "250.00",
+          "currency": "ETB"
+        }
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "6ee852d2-07a6-7c02-a27a-5cfe11b2da61",
+        "account": "6439a22c-1d8d-71be-8a20-50270d0392e4",
+        "held_account": "b27ec136-ce79-7433-86df-56a333d5403b",
+        "amount": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "captured": {
+          "amount": "39.20",
+          "currency": "ETB"
+        },
+        "status": "active",
+        "expires_at": "2004-08-31T16:56:09.418Z",
+        "place_entry": "9b32cf9e-4a3f-7ee0-a8ab-5f94a7ee07eb",
+        "close_entry": "93d2f39e-4a2c-7304-a023-49f1d8f0754c"
+      }
+order: 1000

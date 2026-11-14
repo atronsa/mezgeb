@@ -1,0 +1,34 @@
+$kind: http-request
+description: Posts the exact mirror of an entry posted by mistake (INV-14). The requester is the authenticated caller. A refunded entry, a refund or a reversal cannot be reversed; correct those with an adjustment.
+url: "{{baseUrl}}/v1/entries/:entry_id/reversal"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: entry_id
+    value: 29b46c48-b477-782c-b68b-e0edd5ef8070
+    disabled: false
+    description: (Required) The entry.
+body:
+  type: json
+  content: |-
+    {
+      "reason": "booking_error",
+      "note": "Credited to the wrong wallet; see ticket OPS-118."
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Reverse an entry.resources/examples
+order: 1000

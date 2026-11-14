@@ -1,0 +1,22 @@
+$kind: http-request
+description: "Closes the open period and opens the next one, named `next_label` (see the close runbook). If a close stopped part-way, finishes that one instead. Idempotent by `next_label`: a label is used once."
+url: "{{baseUrl}}/v1/periods/close"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "next_label": "2026-11-15"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Close the open period.resources/examples
+order: 4000

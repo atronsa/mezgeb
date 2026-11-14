@@ -1,0 +1,153 @@
+$kind: http-example
+name: The templates.
+request:
+  url: "{{baseUrl}}/v1/templates"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      [
+        {
+          "id": "merchant_payment.v1",
+          "roles": [
+            {
+              "name": "string",
+              "codes": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "string",
+              "codes": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ],
+              "optional": true
+            }
+          ],
+          "amounts": [
+            "string",
+            "string"
+          ],
+          "optional_amounts": [
+            "string",
+            "string"
+          ],
+          "metadata": [
+            {
+              "name": "string",
+              "required": false,
+              "values": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ]
+            },
+            {
+              "name": "string",
+              "required": true,
+              "values": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ]
+            }
+          ],
+          "refunds": false
+        },
+        {
+          "id": "merchant_payment.v1",
+          "roles": [
+            {
+              "name": "string",
+              "codes": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ],
+              "optional": true
+            },
+            {
+              "name": "string",
+              "codes": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ],
+              "optional": false
+            }
+          ],
+          "amounts": [
+            "string",
+            "string"
+          ],
+          "optional_amounts": [
+            "string",
+            "string"
+          ],
+          "metadata": [
+            {
+              "name": "string",
+              "required": false,
+              "values": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ]
+            },
+            {
+              "name": "string",
+              "required": false,
+              "values": [
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                },
+                {
+                  "value": "<Error: Too many levels of nesting to fake this schema>"
+                }
+              ]
+            }
+          ],
+          "refunds": true
+        }
+      ]
+order: 1000

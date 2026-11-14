@@ -1,0 +1,28 @@
+$kind: http-request
+description: Opens an account for a chart reference, such as `2010:cust-abebe` for a customer wallet. The caller owns the accounts it opens. System accounts (such as `1010`) are opened by the operator.
+url: "{{baseUrl}}/v1/accounts"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "reference": "2010:cust-abebe"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Open an account.resources/examples
+order: 1000

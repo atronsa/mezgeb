@@ -1,0 +1,34 @@
+$kind: http-request
+description: Reserves money by moving it from an account into the hold's own held account, until it is captured, released or expires (ADR-0004). The held account is a new, unused account of the same type.
+url: "{{baseUrl}}/v1/holds"
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: pay-2026-11-14-0001
+    disabled: false
+    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "account": "2010:cust-abebe",
+      "held_account": "2010:cust-abebe-hold-0001",
+      "amount": {
+        "amount": "300.00",
+        "currency": "ETB"
+      },
+      "expires_at": "2026-11-15T09:00:00Z"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Place a hold.resources/examples
+order: 1000

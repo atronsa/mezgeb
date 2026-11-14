@@ -1,0 +1,50 @@
+$kind: http-example
+name: The period was closed.
+request:
+  url: "{{baseUrl}}/v1/periods/close"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "next_label": "2026-11-15"
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "period": {
+          "id": 6730,
+          "label": "IidAqcBLJPQBSo",
+          "status": "closed",
+          "opened_at": "2005-11-29T09:59:52.173Z",
+          "after_sequence": 9979,
+          "last_sequence": 1062,
+          "closing_at": "1989-05-18T05:33:47.126Z",
+          "closed_at": "2020-07-09T18:37:38.031Z"
+        },
+        "next": {
+          "id": 2350,
+          "label": "E6GamET:cHWWfEfa5XtmBThl.adJDnUuINR3paQdi_Bt2bRd3yC:HAr",
+          "status": "open",
+          "opened_at": "2025-03-19T05:43:33.907Z",
+          "after_sequence": 3871,
+          "last_sequence": 3674,
+          "closing_at": "2003-08-12T08:18:00.557Z",
+          "closed_at": "1963-10-14T06:05:38.547Z"
+        },
+        "entries": 4439,
+        "snapshots": 6925
+      }
+order: 1000

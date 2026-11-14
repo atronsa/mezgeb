@@ -1,0 +1,20 @@
+$kind: http-request
+description: "An adjustment request: pending, approved (with the posted entry) or rejected."
+url: "{{baseUrl}}/v1/adjustments/:adjustment_id"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: adjustment_id
+    value: 20cf8dab-cdad-75e2-a21d-1ef445629699
+    disabled: false
+    description: (Required) The adjustment request.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get an adjustment request.resources/examples
+order: 3000

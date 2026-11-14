@@ -1,0 +1,20 @@
+$kind: http-request
+description: One period.
+url: "{{baseUrl}}/v1/periods/:period_id"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: period_id
+    value: "2330"
+    disabled: false
+    description: (Required) The period.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a period.resources/examples
+order: 3000

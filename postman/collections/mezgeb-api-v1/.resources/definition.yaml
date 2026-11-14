@@ -1,0 +1,22 @@
+$kind: collection
+description: |-
+  The public API of the Mezgeb ledger (ADR-0009). Status: **v1-draft**, frozen for implementation in step 2.07.
+
+  Conventions (docs/api/README.md):
+
+  - Amounts are decimal strings with a currency, `{"amount": "39.20", "currency": "ETB"}`, never JSON numbers.
+  - Every write that posts an entry or places a hold takes an `Idempotency-Key` header.
+  - Errors are RFC 9457 Problem Details (`application/problem+json`) with a stable `code`; the catalogue is docs/api/errors.md.
+  - Lists are cursor-paginated: `limit` and `cursor`, answered with `next_cursor`.
+  - Times are RFC 3339 with microseconds, in UTC.
+  - Clients post only through posting templates, one endpoint each. The only endpoint that takes arbitrary lines is the operator-only, maker-checker adjustment.
+variables:
+  baseUrl: http://localhost:8080
+auth:
+  - id: 4ec58ee8-6bf2-4d2b-a17a-a09894e64069
+    type: oauth2
+    name: oauth2 auth
+    credentials:
+      accessTokenUrl: /oauth/token
+      scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+      grant_type: client_credentials

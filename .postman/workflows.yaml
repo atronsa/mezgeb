@@ -1,0 +1,6 @@
+workflows:
+  syncSpecToCollection:
+    - spec: ../openapi/mezgeb.v1.yaml
+      collection: ../postman/collections/mezgeb-api-v1
+      options:
+        folderStrategy: Tags

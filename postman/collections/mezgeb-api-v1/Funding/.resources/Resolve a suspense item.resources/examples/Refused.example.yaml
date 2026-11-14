@@ -1,0 +1,48 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/operations/suspense_resolve.v1"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "accounts": {
+          "suspense_item": "9010:sus-0001",
+          "owner": "2010:cust-hana"
+        },
+        "amounts": {
+          "amount": {
+            "amount": "100.00",
+            "currency": "ETB"
+          }
+        }
+      }
+response:
+  statusCode: 422
+  statusText: Unprocessable Entity (WebDAV) (RFC 4918)
+  headers:
+    Content-Type: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:missing_amount",
+        "title": "An amount the template needs is missing",
+        "status": 422,
+        "code": "missing_amount",
+        "rule": 2004,
+        "detail": "An amount the template needs is missing.",
+        "name": "amount",
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 7000

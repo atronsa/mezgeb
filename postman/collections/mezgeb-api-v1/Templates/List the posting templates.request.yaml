@@ -1,0 +1,15 @@
+$kind: http-request
+description: Every template version this ledger accepts, with its roles, amounts and metadata. A released version never changes.
+url: "{{baseUrl}}/v1/templates"
+method: GET
+headers:
+  Accept: application/json
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List the posting templates.resources/examples
+order: 1000

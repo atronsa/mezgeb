@@ -1,0 +1,60 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/operations/merchant_payment.v1"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "accounts": {
+          "payer_wallet": "2010:cust-abebe",
+          "merchant_balance": "2030:merch-coffee",
+          "fee_revenue": "4010"
+        },
+        "amounts": {
+          "amount": {
+            "amount": "100.00",
+            "currency": "ETB"
+          },
+          "merchant_fee": {
+            "amount": "2.00",
+            "currency": "ETB"
+          }
+        },
+        "metadata": {
+          "channel": "qr",
+          "order": "order-81"
+        }
+      }
+response:
+  statusCode: 503
+  statusText: Service Unavailable
+  headers:
+    - key: Retry-After
+      value: "4810"
+      disabled: false
+      description: Seconds to wait before retrying.
+    - key: Content-Type
+      value: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:busy",
+        "title": "The accounts are busy; retry later",
+        "status": 503,
+        "code": "busy",
+        "detail": "An account stayed locked longer than the lock timeout. Retry after the Retry-After interval.",
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 10000

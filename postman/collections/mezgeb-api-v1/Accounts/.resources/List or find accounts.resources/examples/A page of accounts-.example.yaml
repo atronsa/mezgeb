@@ -1,0 +1,100 @@
+$kind: http-example
+name: A page of accounts.
+request:
+  url: "{{baseUrl}}/v1/accounts?reference=2010:cust-abebe&limit=50&cursor=string"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  queryParams:
+    reference: 2010:cust-abebe
+    limit: "50"
+    cursor: string
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "items": [
+          {
+            "id": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "reference": "2010:cust-abebe",
+            "code": 6801,
+            "name": "string",
+            "type": "equity",
+            "normal_side": "debit",
+            "currency": "ETB",
+            "status": "open",
+            "allow_negative": true,
+            "balance": {
+              "description": "On the normal side.",
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "debits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "sub_account": "string"
+          },
+          {
+            "id": {
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "reference": "2010:cust-abebe",
+            "code": 9399,
+            "name": "string",
+            "type": "liability",
+            "normal_side": "debit",
+            "currency": "ETB",
+            "status": "closed",
+            "allow_negative": false,
+            "balance": {
+              "description": "On the normal side.",
+              "value": "<Error: Too many levels of nesting to fake this schema>"
+            },
+            "debits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "credits_total": {
+              "amount": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              },
+              "currency": {
+                "value": "<Error: Too many levels of nesting to fake this schema>"
+              }
+            },
+            "sub_account": "string"
+          }
+        ],
+        "next_cursor": "string"
+      }
+order: 1000

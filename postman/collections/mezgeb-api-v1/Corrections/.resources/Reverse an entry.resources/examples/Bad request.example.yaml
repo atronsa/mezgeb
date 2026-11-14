@@ -1,0 +1,49 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/entries/:entry_id/reversal"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/problem+json
+  pathVariables:
+    - key: entry_id
+      value: 29b46c48-b477-782c-b68b-e0edd5ef8070
+      disabled: false
+      description: (Required) The entry.
+  body:
+    type: json
+    content: |-
+      {
+        "reason": "booking_error",
+        "note": "Credited to the wrong wallet; see ticket OPS-118."
+      }
+response:
+  statusCode: 400
+  statusText: Bad Request
+  headers:
+    Content-Type: application/problem+json
+  body:
+    type: json
+    content: |-
+      {
+        "type": "urn:mezgeb:problem:invalid_request",
+        "title": "The request is malformed",
+        "status": 400,
+        "code": "invalid_request",
+        "detail": "The request is malformed.",
+        "errors": [
+          {
+            "pointer": "/amounts/amount",
+            "detail": "\"10.255\" has more decimal places than ETB allows"
+          }
+        ],
+        "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+      }
+order: 3000

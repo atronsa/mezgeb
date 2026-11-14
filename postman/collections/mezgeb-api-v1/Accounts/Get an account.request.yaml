@@ -1,0 +1,20 @@
+$kind: http-request
+description: The account, with its balance and totals as stored now.
+url: "{{baseUrl}}/v1/accounts/:account_id"
+method: GET
+headers:
+  Accept: application/json
+pathVariables:
+  - key: account_id
+    value: db42271e-18fb-74c3-be54-32899ef41292
+    disabled: false
+    description: (Required) The account.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get an account.resources/examples
+order: 3000
