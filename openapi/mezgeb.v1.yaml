@@ -34,9 +34,9 @@ tags:
     description: "The posting templates this ledger accepts."
   - name: "Payments"
     description: "Transfers, merchant payments and payment requests (ADR-0014)."
-  - name: "Deposits and withdrawals"
+  - name: "Funding"
     description: "Money entering and leaving, clearing and suspense."
-  - name: "Refunds and disputes"
+  - name: "Refunds"
     description: "Refunds capped by the original, and disputes (ADR-0015)."
   - name: "Entries"
     description: "Reading posted entries."
@@ -108,7 +108,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "An account already exists for this reference, or the idempotency key was reused"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -226,7 +226,7 @@ paths:
       operationId: "getAccountBalance"
       tags:
         - "Accounts"
-      summary: "Get the balance at a point in time"
+      summary: "Get a balance at a time"
       description: "The balance from every entry recorded at or before `as_of` (the posting time, not the event time). Without `as_of`, the balance now."
       security:
         - oauth2:
@@ -281,14 +281,14 @@ paths:
       operationId: "getAccountLedger"
       tags:
         - "Accounts"
-      summary: "Get the account history (general ledger)"
+      summary: "Get the account history"
       description: "Every line of the account from `from` (inclusive) to `to` (exclusive), by posting time, in posting order, with the balance after each line. The first page carries the opening balance; pages continue with `cursor`."
       security:
         - oauth2:
             - "accounts:read"
       responses:
         "200":
-          description: "A page of the account history."
+          description: "OK"
           content:
             application/json:
               schema:
@@ -335,7 +335,7 @@ paths:
       operationId: "changeAccountStatus"
       tags:
         - "Accounts"
-      summary: "Freeze, unfreeze or close an account"
+      summary: "Change an account status"
       description: "Changes the account status: `open`, `frozen` (no postings), or `closed` (only at a zero balance; final). Operator only."
       security:
         - oauth2:
@@ -359,7 +359,7 @@ paths:
               reason: "fraud_review"
       responses:
         "200":
-          description: "The account, with its new status."
+          description: "OK"
           content:
             application/json:
               schema:
@@ -373,7 +373,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "The status change is not allowed"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -469,7 +469,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
-          description: "No such template or version, or a malformed template ID"
+          description: "Not found"
           content:
             "application/problem+json":
               schema:
@@ -499,7 +499,7 @@ paths:
       operationId: "postP2pTransferV1"
       tags:
         - "Payments"
-      summary: "Send money from one customer to another"
+      summary: "Send money to a customer"
       description: "Books `p2p_transfer.v1` (worked entries E06). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "p2p_transfer.v1", "roles": ["payer_wallet", "payee_wallet"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -533,7 +533,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -542,7 +542,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -619,7 +619,7 @@ paths:
       operationId: "postMerchantPaymentV1"
       tags:
         - "Payments"
-      summary: "Pay a merchant, with fees, from any channel"
+      summary: "Pay a merchant"
       description: "Books `merchant_payment.v1` (worked entries E07, E08, E09). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "merchant_payment.v1", "roles": ["payer_wallet", "merchant_balance"], "optional_roles": ["fee_revenue"], "amounts": ["amount"], "optional_amounts": ["merchant_fee", "payer_fee"], "metadata": ["channel"], "refunds": false}
       security:
@@ -660,7 +660,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -669,7 +669,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -783,7 +783,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -792,7 +792,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -868,8 +868,8 @@ paths:
     post:
       operationId: "postDepositConfirmedV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "Book money a known customer deposited"
+        - "Funding"
+      summary: "Book a deposit"
       description: "Books `deposit_confirmed.v1` (worked entries E01, E05). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "deposit_confirmed.v1", "roles": ["customer_funds", "customer_wallet"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -903,7 +903,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -912,7 +912,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -988,8 +988,8 @@ paths:
     post:
       operationId: "postDepositUnmatchedV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "Book money whose owner is unknown into a new suspense item"
+        - "Funding"
+      summary: "Book an unidentified deposit"
       description: "Books `deposit_unmatched.v1` (worked entries E19). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "deposit_unmatched.v1", "roles": ["customer_funds", "suspense_item"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1023,7 +1023,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1032,7 +1032,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1108,8 +1108,8 @@ paths:
     post:
       operationId: "postSuspenseResolveV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "Move a whole suspense item to its owner"
+        - "Funding"
+      summary: "Resolve a suspense item"
       description: "Books `suspense_resolve.v1` (worked entries E20). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "suspense_resolve.v1", "roles": ["suspense_item", "owner"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1143,7 +1143,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1152,7 +1152,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1228,8 +1228,8 @@ paths:
     post:
       operationId: "postWithdrawalRequestV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "Reserve a customer payout in a new pending withdrawal"
+        - "Funding"
+      summary: "Request a withdrawal"
       description: "Books `withdrawal_request.v1` (worked entries E02). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "withdrawal_request.v1", "roles": ["customer_wallet", "pending_withdrawal"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1263,7 +1263,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1272,7 +1272,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1348,8 +1348,8 @@ paths:
     post:
       operationId: "postWithdrawalSentV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "Move a whole pending withdrawal into transit"
+        - "Funding"
+      summary: "Send a withdrawal"
       description: "Books `withdrawal_sent.v1` (worked entries E03 (a)). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "withdrawal_sent.v1", "roles": ["pending_withdrawal", "withdrawal_in_transit"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1383,7 +1383,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1392,7 +1392,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1468,8 +1468,8 @@ paths:
     post:
       operationId: "postWithdrawalConfirmedV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "The bank confirmed a payout: the cash leaves"
+        - "Funding"
+      summary: "Confirm a withdrawal"
       description: "Books `withdrawal_confirmed.v1` (worked entries E03 (b)). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "withdrawal_confirmed.v1", "roles": ["withdrawal_in_transit", "customer_funds"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1503,7 +1503,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1512,7 +1512,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1588,8 +1588,8 @@ paths:
     post:
       operationId: "postWithdrawalFailedV1"
       tags:
-        - "Deposits and withdrawals"
-      summary: "The bank rejected a payout: the money goes back"
+        - "Funding"
+      summary: "Fail a withdrawal"
       description: "Books `withdrawal_failed.v1` (worked entries E04 (c)). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "withdrawal_failed.v1", "roles": ["withdrawal_in_transit", "customer_wallet"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -1623,7 +1623,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1632,7 +1632,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1708,8 +1708,8 @@ paths:
     post:
       operationId: "postMerchantRefundV1"
       tags:
-        - "Refunds and disputes"
-      summary: "Refund a payment, from the merchant and optionally the fee"
+        - "Refunds"
+      summary: "Refund a payment"
       description: "Books `merchant_refund.v1` (worked entries E11, E12). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked. The request names the entry it refunds, and the ledger caps the refund by it (INV-15)."
       x-mezgeb-template: {"id": "merchant_refund.v1", "roles": ["merchant_balance", "payer_wallet"], "optional_roles": ["fee_revenue"], "amounts": ["amount"], "optional_amounts": ["fee_refund"], "metadata": [], "refunds": true}
       security:
@@ -1748,7 +1748,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request, or the original cannot be refunded"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1761,7 +1761,7 @@ paths:
                 refund_of_reversed_entry:
                   $ref: "#/components/examples/error-refund_of_reversed_entry"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1841,8 +1841,8 @@ paths:
     post:
       operationId: "postDisputeOpenV1"
       tags:
-        - "Refunds and disputes"
-      summary: "Hold the disputed part of a merchant's balance in a new dispute item"
+        - "Refunds"
+      summary: "Open a dispute"
       description: "Books `dispute_open.v1` (worked entries E21, E23). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "dispute_open.v1", "roles": ["merchant_balance", "dispute_item"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": ["disputed_entry"], "refunds": false}
       security:
@@ -1878,7 +1878,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -1887,7 +1887,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -1963,8 +1963,8 @@ paths:
     post:
       operationId: "postDisputeResolvePayerV1"
       tags:
-        - "Refunds and disputes"
-      summary: "Decide a dispute for the payer: a refund of the disputed payment"
+        - "Refunds"
+      summary: "Resolve a dispute for the payer"
       description: "Books `dispute_resolve_payer.v1` (worked entries E22). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked. The request names the entry it refunds, and the ledger caps the refund by it (INV-15)."
       x-mezgeb-template: {"id": "dispute_resolve_payer.v1", "roles": ["dispute_item", "payer_wallet"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": true}
       security:
@@ -1999,7 +1999,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request, or the original cannot be refunded"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2012,7 +2012,7 @@ paths:
                 refund_of_reversed_entry:
                   $ref: "#/components/examples/error-refund_of_reversed_entry"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -2092,8 +2092,8 @@ paths:
     post:
       operationId: "postDisputeResolveMerchantV1"
       tags:
-        - "Refunds and disputes"
-      summary: "Decide a dispute for the merchant"
+        - "Refunds"
+      summary: "Resolve a dispute for merchant"
       description: "Books `dispute_resolve_merchant.v1` (worked entries E24). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
       x-mezgeb-template: {"id": "dispute_resolve_merchant.v1", "roles": ["dispute_item", "merchant_balance"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
       security:
@@ -2127,7 +2127,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was used for a different request"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2136,7 +2136,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A template rule or a posting rule refused the request; nothing was posted"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -2402,7 +2402,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "The reason is not allowed, or a posting rule refused the mirror"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -2457,7 +2457,7 @@ paths:
                 ticket: "CS-2201"
       responses:
         "202":
-          description: "The request is pending approval."
+          description: "Accepted"
           content:
             application/json:
               schema:
@@ -2469,7 +2469,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was reused"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2478,7 +2478,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "The reason or lines are not valid"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -2537,7 +2537,7 @@ paths:
       operationId: "approveAdjustment"
       tags:
         - "Corrections"
-      summary: "Approve and post an adjustment"
+      summary: "Approve an adjustment"
       description: "The checker approves a pending request, and the adjustment is posted with both people recorded (INV-25). The approver is the authenticated caller and must not be the requester."
       security:
         - oauth2:
@@ -2560,7 +2560,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
-          description: "The token lacks the scope, or the approver is the requester"
+          description: "Forbidden"
           content:
             "application/problem+json":
               schema:
@@ -2573,7 +2573,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "The request is no longer pending"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2584,7 +2584,7 @@ paths:
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
-          description: "A posting rule refused the adjustment"
+          description: "Refused"
           content:
             "application/problem+json":
               schema:
@@ -2644,7 +2644,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "The request is no longer pending"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2685,7 +2685,7 @@ paths:
               expires_at: "2026-11-15T09:00:00Z"
       responses:
         "200":
-          description: "A repeat of a request that already placed this hold."
+          description: "OK"
           content:
             application/json:
               schema:
@@ -2717,7 +2717,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The idempotency key was reused"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -2843,7 +2843,7 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "409":
-          description: "The hold has ended or expired"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -3078,7 +3078,7 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "409":
-          description: "The label is used, or verification found problems (the period stays closing)"
+          description: "Conflict"
           content:
             "application/problem+json":
               schema:
@@ -3158,7 +3158,7 @@ paths:
       operationId: "getAgeing"
       tags:
         - "Reports"
-      summary: "Get the ageing of open items"
+      summary: "Get the ageing report"
       description: "Every open item (a sub-account with a balance) under the clearing, suspense, pending and dispute accounts, oldest first, with its age (step 2.02)."
       security:
         - oauth2:
@@ -3380,7 +3380,7 @@ components:
         minimum: 1
   responses:
     EntryPosted:
-      description: "The entry was posted."
+      description: "Posted"
       headers:
         Location:
           $ref: "#/components/headers/Location"
@@ -3421,7 +3421,7 @@ components:
             authorization: null
             receipt: null
     EntryReplayed:
-      description: "A repeat of a request already posted with this idempotency key: the original entry, unchanged."
+      description: "Replayed"
       headers:
         Idempotent-Replayed:
           $ref: "#/components/headers/IdempotentReplayed"
@@ -3430,7 +3430,7 @@ components:
           schema:
             $ref: "#/components/schemas/Entry"
     BadRequest:
-      description: "The request is malformed"
+      description: "Bad request"
       content:
         "application/problem+json":
           schema:
@@ -3441,7 +3441,7 @@ components:
             idempotency_key_required:
               $ref: "#/components/examples/error-idempotency_key_required"
     Unauthenticated:
-      description: "Authentication is required"
+      description: "Unauthenticated"
       content:
         "application/problem+json":
           schema:
@@ -3450,7 +3450,7 @@ components:
             unauthenticated:
               $ref: "#/components/examples/error-unauthenticated"
     Forbidden:
-      description: "The token lacks the scope"
+      description: "Forbidden"
       content:
         "application/problem+json":
           schema:
@@ -3459,7 +3459,7 @@ components:
             forbidden:
               $ref: "#/components/examples/error-forbidden"
     NotFound:
-      description: "Not found, or not visible to the caller"
+      description: "Not found"
       content:
         "application/problem+json":
           schema:
@@ -3468,7 +3468,7 @@ components:
             not_found:
               $ref: "#/components/examples/error-not_found"
     InternalError:
-      description: "An internal error; the request may or may not have taken effect. Retry with the same Idempotency-Key, or look the entry up by its key"
+      description: "Internal error"
       content:
         "application/problem+json":
           schema:
@@ -3479,7 +3479,7 @@ components:
             template_defect:
               $ref: "#/components/examples/error-template_defect"
     RateLimited:
-      description: "Too many requests"
+      description: "Rate limited"
       content:
         "application/problem+json":
           schema:
@@ -3491,7 +3491,7 @@ components:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
     Unavailable:
-      description: "Busy, in contention, or no period is open; safe to retry"
+      description: "Unavailable"
       content:
         "application/problem+json":
           schema:
