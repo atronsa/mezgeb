@@ -26,8 +26,11 @@
 //! | 2018 | `AmountOverflow` | An amount the template adds up still fits in an `i64` |
 //! | 2019 | `MissingMetadata` | Every metadata key the template requires is set |
 //! | 2020 | `InvalidMetadata` | A metadata key the template checks has one of its allowed values |
+//! | 2021 | `MissingRefundedEntry` | A refund template is given the entry it refunds |
+//! | 2022 | `UnexpectedRefundedEntry` | Any other template is not |
 //!
-//! Rules are checked in this order: 2001–2003, 2004–2006, 2007–2011, then the
+//! Rules are checked in this order: 2001–2003, 2004–2006, 2021–2022,
+//! 2007–2011, then the
 //! template's own rules (such as 2014–2018, in the order the template checks
 //! them), then 2012, 2019–2020, and finally 2007 for an optional role the
 //! booking needs, and 2013. Within a rule, amounts and roles are
@@ -65,6 +68,8 @@ pub enum TemplateError {
     AmountOverflow,
     MissingMetadata(String),
     InvalidMetadata(String),
+    MissingRefundedEntry,
+    UnexpectedRefundedEntry,
 }
 
 impl TemplateError {
@@ -91,6 +96,8 @@ impl TemplateError {
             TemplateError::AmountOverflow => 2018,
             TemplateError::MissingMetadata(_) => 2019,
             TemplateError::InvalidMetadata(_) => 2020,
+            TemplateError::MissingRefundedEntry => 2021,
+            TemplateError::UnexpectedRefundedEntry => 2022,
         }
     }
 }
@@ -152,6 +159,12 @@ impl fmt::Display for TemplateError {
                     "metadata {key:?} has a value this template does not allow"
                 )
             }
+            TemplateError::MissingRefundedEntry => {
+                f.write_str("a refund must name the entry it refunds")
+            }
+            TemplateError::UnexpectedRefundedEntry => {
+                f.write_str("only a refund template can name an entry to refund")
+            }
         }
     }
 }
@@ -195,9 +208,11 @@ mod tests {
             TemplateError::AmountOverflow,
             TemplateError::MissingMetadata(String::new()),
             TemplateError::InvalidMetadata(String::new()),
+            TemplateError::MissingRefundedEntry,
+            TemplateError::UnexpectedRefundedEntry,
         ];
         let codes: Vec<u16> = all.iter().map(TemplateError::code).collect();
-        assert_eq!(codes, (2001..=2020).collect::<Vec<u16>>());
+        assert_eq!(codes, (2001..=2022).collect::<Vec<u16>>());
         for error in &all {
             assert!(
                 error

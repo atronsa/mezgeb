@@ -6,7 +6,8 @@ use std::fmt;
 use std::str::FromStr;
 
 use mezgeb_core::{
-    Account, AccountId, AccountsView, EntryDraft, LineDraft, Money, PositiveAmount, Side, Timestamp,
+    Account, AccountId, AccountsView, EntryDraft, EntryId, LineDraft, Money, PositiveAmount, Side,
+    Timestamp,
 };
 
 use crate::error::TemplateError;
@@ -274,6 +275,10 @@ pub trait Template {
     /// Metadata keys the template checks, such as a required `channel`.
     /// Other keys are copied into the entry unchecked.
     const METADATA: &'static [MetadataField] = &[];
+    /// Whether the template books a refund of an earlier entry, which the
+    /// request names. The engine then checks the refund against that entry
+    /// (INV-15).
+    const REFUNDS: bool = false;
 
     /// The typed request.
     type Request;
@@ -306,6 +311,9 @@ pub struct OperationRequest {
     /// Client references, copied into the entry.
     pub metadata: BTreeMap<String, String>,
     pub event_time: Option<Timestamp>,
+    /// The entry this request refunds, for a template that books refunds
+    /// ([`Template::REFUNDS`]).
+    pub refunds: Option<EntryId>,
 }
 
 /// Books a typed request with template `T`: resolves each role to the
@@ -319,9 +327,15 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
     accounts: &BTreeMap<String, AccountId>,
     mut metadata: BTreeMap<String, String>,
     event_time: Option<Timestamp>,
+    refunds: Option<EntryId>,
     view: &V,
 ) -> Result<EntryDraft, TemplateError> {
     let id = TemplateId::new(T::NAME, T::VERSION)?;
+    match (T::REFUNDS, refunds) {
+        (true, None) => return Err(TemplateError::MissingRefundedEntry),
+        (false, Some(_)) => return Err(TemplateError::UnexpectedRefundedEntry),
+        _ => {}
+    }
 
     for role in T::ROLES {
         if !role.optional && !accounts.contains_key(role.name) {
@@ -404,7 +418,7 @@ pub fn draft<T: Template, V: AccountsView + ?Sized>(
         metadata,
         event_time,
         allow_duplicate_lines: false,
-        refunds: None,
+        refunds,
     })
 }
 
@@ -440,6 +454,7 @@ pub(crate) fn book_operation<T: Template>(
         &request.accounts,
         request.metadata.clone(),
         request.event_time,
+        request.refunds,
         view,
     )
 }
