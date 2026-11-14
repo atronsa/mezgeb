@@ -26,6 +26,7 @@ back to the reason it exists.
 | [0012](0012-stored-running-balances.md) | Balances are stored running totals, proven against the lines | [§5.7](../architecture.md#57-calculating-and-verifying-balances-efficiently) | Accepted |
 | [0013](0013-reversals-never-overdraw.md) | A reversal that would overdraw is refused; the mistake is corrected with an adjustment | E13 open question | Accepted |
 | [0014](0014-payment-channels-and-fees.md) | Payment channels are metadata; fees are lines in the payment's own entry | E07, E08 open questions | Accepted |
+| [0015](0015-refunds-and-disputes.md) | Refunds name the entry they refund and are capped by it; disputes hold merchant funds in their own sub-account | E11, E12 open questions; refund vs reversal | Accepted |
 
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.
