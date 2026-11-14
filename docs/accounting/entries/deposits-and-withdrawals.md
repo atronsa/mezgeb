@@ -49,7 +49,9 @@ normal balance.
 
 - If the bank charges a fee for incoming transfers, who pays it, the customer
   or the platform? If the platform pays, it is an expense (5xxx) booked in a
-  separate line. Decided with fees in step 2.03.
+  separate line. **Decided in step 2.03** ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)): no deposit
+  fees in this version; 5020 Bank charges stays reserved until a bank charges
+  one.
 
 ## E02. Withdrawal: requested
 
@@ -109,7 +111,9 @@ back even after the payout had gone to the bank.
 
 - Should a withdrawal fee be charged at request time (in this entry) or only
   when the payout succeeds (E03)? Charging at request time means refunding it
-  in E04. Decided with fees in step 2.03.
+  in E04. **Decided in step 2.03** ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)): no withdrawal fees
+  in this version. A fee would be a new version of `withdrawal_request` with
+  a fee line to 4020, never a separate entry.
 
 ## E03. Withdrawal: sent and confirmed
 
@@ -174,7 +178,7 @@ a customer is backed by a birr in the bank.
 - If the bank charges a fee for each outgoing transfer, who pays it? If the
   platform pays, it is an expense line (Dr 5xxx bank charges / Cr 1010). If the
   customer pays, it is booked in E02 as a withdrawal fee (revenue 4xxx).
-  Decided with fees in step 2.03.
+  **Decided in step 2.03** ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)): none in this version.
 - Payouts usually run in batches. Is the batch one journal entry with one
   pair of lines per withdrawal, or one entry per withdrawal? Step 2.02 books
   one entry per withdrawal, which keeps each withdrawal's history simple;
@@ -262,7 +266,7 @@ confirmation, is refused: each withdrawal has exactly one outcome.
 - **Fee refund.** If a withdrawal fee was charged at request time, should it
   be refunded when the payout fails? Most providers refund it when the failure
   is not the customer's fault, but an invalid account number arguably is.
-  Decided with fees in step 2.03.
+  Open until withdrawal fees exist ([ADR-0014](../../adr/0014-payment-channels-and-fees.md)).
 - **Cancelled before sending.** A request the platform cancels before the
   batch runs (for example, after a compliance check) would move the money
   from 2020 straight back to 2010. No template books that yet.
