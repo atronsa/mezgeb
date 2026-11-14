@@ -172,6 +172,11 @@ pub(crate) async fn post_in_transaction(
     Authorization::check(kind, authorization.as_ref())?;
     options.fault_at(FaultPoint::BeforeLock)?;
 
+    // 0. The open period, under the shared period lock, held until commit
+    //    (INV-10). Taken before the account locks; closing a period takes
+    //    only this lock, so the two orders never cross.
+    let period = crate::periods::posting_period(conn).await?;
+
     // 1. Lock the accounts, in ascending ID order (ADR-0007).
     let ids: BTreeSet<AccountId> = draft.lines.iter().map(|l| l.account).collect();
     let uuids: Vec<Uuid> = ids.iter().map(|id| id.as_uuid()).collect();
@@ -197,10 +202,10 @@ pub(crate) async fn post_in_transaction(
     let inserted = sqlx::query(
         "INSERT INTO journal_entries
              (id, client_id, idempotency_key, reverses_entry_id, metadata, event_time,
-              kind, reason_code, requested_by, approved_by, refunds_entry_id)
+              kind, reason_code, requested_by, approved_by, refunds_entry_id, period_id)
          VALUES ($1, $2, $3, $4, $5::jsonb,
                  timestamptz 'epoch' + $6::bigint * interval '1 microsecond',
-                 $7, $8, $9, $10, $11)
+                 $7, $8, $9, $10, $11, $12)
          RETURNING sequence",
     )
     .bind(entry_id.as_uuid())
@@ -223,6 +228,7 @@ pub(crate) async fn post_in_transaction(
             .map(|a| a.as_str().to_owned()),
     )
     .bind(refunds.map(|r| r.as_uuid()))
+    .bind(period)
     .fetch_one(&mut *conn)
     .await
     .map_err(|e| entry_insert_error(e, entry_id, reverses))?;
