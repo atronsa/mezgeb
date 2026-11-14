@@ -264,8 +264,10 @@ async fn adjustments_need_two_different_people() -> TestResult {
     let raw = |id: u64, reason: &str, checker: &str| {
         format!(
             "INSERT INTO journal_entries
-                 (id, client_id, idempotency_key, kind, reason_code, requested_by, approved_by)
-             VALUES ('{}', '{}', 'raw-{id}', 'adjustment', '{reason}', 'agent:1', '{checker}')",
+                 (id, client_id, idempotency_key, kind, reason_code, requested_by, approved_by,
+                  period_id)
+             VALUES ('{}', '{}', 'raw-{id}', 'adjustment', '{reason}', 'agent:1', '{checker}',
+                     (SELECT id FROM periods WHERE status = 'open'))",
             uuid7(9_000 + id),
             uuid7(0xc11e)
         )

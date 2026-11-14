@@ -65,11 +65,13 @@ async fn post_lines(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO journal_entries
-             (id, client_id, idempotency_key, reverses_entry_id, kind, reason_code, requested_by)
+             (id, client_id, idempotency_key, reverses_entry_id, kind, reason_code, requested_by,
+              period_id)
          VALUES ($1::uuid, $2::uuid, $3, $4::uuid,
                  CASE WHEN $4 IS NULL THEN 'standard' ELSE 'reversal' END,
                  CASE WHEN $4 IS NULL THEN NULL ELSE 'booking_error' END,
-                 CASE WHEN $4 IS NULL THEN NULL ELSE 'ops:1' END)",
+                 CASE WHEN $4 IS NULL THEN NULL ELSE 'ops:1' END,
+                 (SELECT id FROM periods WHERE status = 'open'))",
     )
     .bind(id(entry))
     .bind(CLIENT)
@@ -524,7 +526,7 @@ async fn migrations_go_up_down_and_up() -> TestResult {
         sqlx::query_scalar::<_, i64>(tables)
             .fetch_one(&mut owner)
             .await?,
-        10
+        12
     );
     MIGRATOR.undo(&mut owner, 0).await?;
     assert_eq!(
@@ -538,7 +540,7 @@ async fn migrations_go_up_down_and_up() -> TestResult {
         sqlx::query_scalar::<_, i64>(tables)
             .fetch_one(&mut owner)
             .await?,
-        10
+        12
     );
     drop(owner);
     db.drop().await?;
