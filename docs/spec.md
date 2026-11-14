@@ -129,7 +129,17 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
   unexpected amount (2005), amount not positive (2006), missing account
   (2007), unexpected account (2008), account not found (2009), account not
   allowed for its role (2010), same account for two roles (2011), reserved
-  metadata (2012), template books an undeclared role (2013).
+  metadata (2012), template books an undeclared role (2013), amount not
+  the whole balance of an item that moves whole (2014), account not new for
+  an item that opens its own sub-account (2015).
+- **4.7 Clearing and suspense.** Money in flight and money with no known
+  owner sit in per-item sub-accounts (`2020:wd-…` pending withdrawals,
+  `9030:wdt-…` withdrawals in transit, `9010:sus-…` suspense) that each
+  return to zero. Every item moves whole and has exactly one outcome, which
+  the posting rules enforce because none of these accounts may go below
+  zero. Cash in 1010 moves only when the bank statement shows it
+  ([clearing and suspense](accounting/clearing-and-suspense.md), step
+  2.02). The ageing query lists open items with their age.
 
 ## 5. Offline sync
 
