@@ -51,7 +51,7 @@ listed by ID in the [traceability matrix](#traceability-matrix).
 | ID | Invariant | Enforced at | Tests |
 |---|---|---|---|
 | INV-9 | A posted entry or line is never updated or deleted. Corrections are new entries ([ADR-0011](adr/0011-append-only-history.md)). | DB (trigger and role privileges) | T-09a, T-09b |
-| INV-10 | No entry is posted into a closed accounting period, and a closed period's balances never change. | Engine, DB | T-10a, T-10b |
+| INV-10 | No entry is posted into a closed accounting period, and a closed period's balances never change. Every entry belongs to the period open when it is posted, and a period stops taking postings only once every posting under way has committed ([ADR-0016](adr/0016-accounting-periods.md)). | Engine, DB | T-10a, T-10b, T-10c |
 | INV-11 | Every entry's hash equals the hash of its canonical content and the previous entry's hash. The chain verifies from the first entry to the last. | Engine, Job | T-11a, T-11b |
 | INV-12 | The ledger's `recorded_time` strictly increases in posting order. A client's `event_time` is never used for ordering. | Engine, DB | T-12a |
 
@@ -135,6 +135,7 @@ Every invariant has at least one planned test. Test kinds:
 | T-09b | INV-9 | DB | The ledger's runtime role has no `UPDATE` or `DELETE` privilege | 1.08 |
 | T-10a | INV-10 | Unit | Posting with an effective date in a closed period is rejected | 2.05 |
 | T-10b | INV-10 | Verify | Closed-period balances match their snapshot | 2.05 |
+| T-10c | INV-10 | Concurrency | Closing while postings are in flight: no posting lands in a period after it stopped taking postings | 2.05 |
 | T-11a | INV-11 | Verify | The hash chain verifies from the first entry | 2.09 |
 | T-11b | INV-11 | DB | Changing any stored entry byte is detected by verification | 2.09 |
 | T-12a | INV-12 | Concurrency | `recorded_time` is strictly increasing under parallel posting (measured in 1.10; guaranteed by the single commit order of the hash chain) | 2.09 |
@@ -208,7 +209,7 @@ dropping it.
 | T-24b | INV-24 | `schema.rs`: `account_status_rules` |
 | T-25a | INV-25 | `model`: `adjustments_need_a_reason_and_a_second_person`; `corrections.rs`: `adjustments_need_two_different_people` |
 
-Planned for later steps: T-07b and T-10a/b (2.05), T-11a/b, T-12a and
+Planned for later steps: T-07b, T-11a/b, T-12a and
 T-26a/b (2.09), and T-19a to T-23a (2.12–2.14). T-15a to T-15d are in
 [step 2.04's tests](#step-204-tests). T-12a's
 measurement already exists: `concurrency.rs`, `recorded_time_against_sequence`
@@ -222,6 +223,14 @@ measurement already exists: `concurrency.rs`, `recorded_time_against_sequence`
 | T-15b | INV-15 | `refunds.rs` (engine): `fifty_concurrent_partial_refunds_never_exceed_the_cap` |
 | T-15c | INV-15 | `crates/core/tests/refunds.rs`: `refunds_never_give_back_more_than_was_paid` (10,000 cases); `check_refunds` in `check_invariants` |
 | T-15d | INV-15 | `refunds.rs` (engine): `the_database_enforces_the_refund_rules_on_its_own` |
+
+### Step 2.05 tests
+
+| Test | Invariant | Where |
+|---|---|---|
+| T-10a | INV-10 | `periods.rs` (engine): `posting_into_a_closed_period_is_refused` (the engine with no open period, the database for an entry or a line written into a closed period) |
+| T-10b | INV-10 | `periods.rs` (engine): `thirty_days_of_snapshots_match_the_full_recomputation`, `a_snapshot_plus_later_lines_is_the_current_balance`, `a_close_that_stopped_is_finished_and_a_bad_period_stays_closing` |
+| T-10c | INV-10 | `periods.rs` (engine): `closing_while_postings_are_in_flight` |
 
 ## Mapping from the draft spec
 
