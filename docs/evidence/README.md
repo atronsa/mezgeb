@@ -31,3 +31,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.02 | [Deposits, withdrawals, clearing and suspense](2.02-deposits-withdrawals-and-clearing.md) | Passed |
 | 2.03 | [Transfers, merchant payments and fees](2.03-transfers-payments-and-fees.md) | Passed |
 | 2.04 | [Refunds and disputes](2.04-refunds-and-disputes.md) | Passed; dispute policy review pending |
+| 2.05 | [Accounting periods and closing](2.05-accounting-periods-and-closing.md) | Passed |
