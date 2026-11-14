@@ -34,18 +34,22 @@ from the platform's point of view a customer's balance is a debt it owes.
 That is why every customer wallet in Mezgeb is a liability with a credit
 normal balance.
 
+**Decided in step 2.02** ([clearing and suspense](../clearing-and-suspense.md)):
+
+- **Only final money is booked.** E01 is booked when the partner bank's
+  statement shows the credit in 1010, not on an earlier notification, so a
+  confirmed deposit needs no clearing step and E01 stays one entry. The
+  deposits-in-transit clearing account (9020) stays reserved until a bank
+  integration needs it.
+- **A deposit with a missing or wrong reference goes to suspense.** The money
+  is real but has no owner yet, so it is credited to its own suspense item in
+  9010 until it is matched ([E19, E20](suspense.md)).
+
 **Open questions:**
 
-- Bank notifications often arrive before the funds are final. Should a
-  confirmed-but-unsettled deposit go through a clearing account (9xxx) first,
-  and only reach the wallet when the bank settles? This decides whether E01
-  becomes two entries.
-- What happens when a deposit arrives with a missing or wrong customer
-  reference? The money is real but has no owner yet, so it probably belongs in
-  a suspense account until it is matched.
 - If the bank charges a fee for incoming transfers, who pays it, the customer
   or the platform? If the platform pays, it is an expense (5xxx) booked in a
-  separate line.
+  separate line. Decided with fees in step 2.03.
 
 ## E02. Withdrawal: requested
 
@@ -84,55 +88,73 @@ aged, and a payout that stays pending too long shows up as a balance that
 should have gone to zero. This matches the plan to model holds as postings,
 which step 1.02 records as an ADR.
 
-**What happens next:** the 2020:wd-0001 balance always ends at zero, by one of
-three paths:
+**What happens next:** the 2020:wd-0001 balance always ends at zero. The
+payout is sent, and the bank then either confirms it (E03) or rejects it
+(E04). A payout the bank confirmed can still come back later (E05):
 
-| Outcome | Entry | Effect |
+| Outcome | Entries | Effect |
 |---|---|---|
-| The payout is sent | E03 | Dr 2020 / Cr 1010: cash leaves the bank |
-| The payout fails before sending | E04 | Dr 2020 / Cr 2010: the 300 goes back to the wallet |
-| The bank returns it after sending | E05 | Cash comes back into 1010 and the wallet is restored |
+| Sent, then confirmed | E03 | Dr 2020 / Cr 9030 when sent, then Dr 9030 / Cr 1010: cash leaves the bank |
+| Sent, then rejected | E04 | Dr 2020 / Cr 9030 when sent, then Dr 9030 / Cr 2010: the money goes back to the wallet |
+| Confirmed, then returned | E05 | Cash comes back into 1010 and the wallet is restored |
+
+**Decided in step 2.02:** one sub-account per withdrawal (`2020:wd-…`), so a
+stuck payout shows up as a balance that should have gone to zero, and the
+[ageing report](../clearing-and-suspense.md#ageing) lists every pending
+withdrawal with its age. A withdrawal is booked with ordinary entries rather
+than a ledger hold, because a hold expires by itself and would give the money
+back even after the payout had gone to the bank.
 
 **Open questions:**
 
-- Should the money sit in a single shared 2020 account or in one sub-account
-  per withdrawal? Per withdrawal makes it easy to see which payouts are stuck
-  but creates many short-lived accounts. A hold reference on the entry lines
-  could give the same visibility with one account.
 - Should a withdrawal fee be charged at request time (in this entry) or only
   when the payout succeeds (E03)? Charging at request time means refunding it
-  in E04.
-- Is there a limit on how long a withdrawal can stay pending before it must be
-  sent or cancelled? That limit becomes an alert on the age of 2020 balances.
+  in E04. Decided with fees in step 2.03.
 
-## E03. Withdrawal: sent
+## E03. Withdrawal: sent and confirmed
 
-**Scenario:** The afternoon payout batch runs. The partner bank confirms it
-has sent 300 ETB from the platform's customer funds account to Abebe's
-personal bank account, completing withdrawal `wd-0001` from E02. There is no
-fee.
+**Scenario:** The afternoon payout batch runs. The platform submits the
+300 ETB payout for withdrawal `wd-0001` (E02) to the partner bank. The next
+morning, the bank's statement confirms that 300 ETB left the customer funds
+account for Abebe's personal bank account. There is no fee.
+
+When the payout is submitted, it moves from pending to in transit:
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
 | 1 | 2020:wd-0001 Pending withdrawals | Liability | 300 | |
+| 2 | 9030:wdt-0001 Clearing: withdrawals in transit | Liability | | 300 |
+| | **Total** | | **300** | **300** |
+
+When the bank confirms it, the cash leaves:
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 9030:wdt-0001 Clearing: withdrawals in transit | Liability | 300 | |
 | 2 | 1010 Bank: customer funds account | Asset | | 300 |
 | | **Total** | | **300** | **300** |
 
 **Why:**
 
-- **Line 1, debit Pending withdrawals (liability ↓).** The platform owed Abebe
-  a 300 ETB payout. Now that the payout has gone out, that debt is paid, and
-  liabilities decrease on the debit side. `2020:wd-0001` returns to zero, which
-  is how the books show that this withdrawal is finished.
-- **Line 2, credit the bank account (asset ↓).** 300 ETB of cash has left the
-  platform's bank account. Assets decrease on the credit side.
-- **The equation stays in balance:** Assets −300 = Liabilities −300. Both
-  sides shrink together: the platform has less cash and owes less. Equity does
-  not change, because paying back money the platform was holding is neither
-  income nor expense.
+- **(a) Sent: the money is in flight.** Once the payout is with the bank, the
+  platform can no longer cancel it, but the cash has not left 1010 either: the
+  bank may still reject it. The debt moves from "pending payout" (2020) to
+  "payout in transit" (9030). Both are liabilities, so total liabilities stay
+  at 1,000, and `2020:wd-0001` returns to zero.
+- **(b) Confirmed: the debt is paid.** The bank's statement shows the 300
+  leaving, so the books do too: 1010 decreases (asset ↓, credit), and the
+  in-transit debt is paid (liability ↓, debit). `9030:wdt-0001` returns to
+  zero, which is how the books show that this withdrawal is finished.
+- **1010 always matches the bank statement.** Between (a) and (b), the bank
+  still shows 1,000 ETB, and so does 1010. Without the clearing account, the
+  books would either show the cash gone a day early, or show nothing in
+  flight at all.
+- **The equation stays in balance:** (a) Assets 0 = Liabilities −300 + 300;
+  (b) Assets −300 = Liabilities −300. Equity does not change, because paying
+  back money the platform was holding is neither income nor expense.
 - **Abebe's wallet (2010) is not touched.** It was already reduced in E02.
-  Debiting it again here would take the 300 twice. This is the payoff of E02:
-  each step moves the money exactly once.
+  Debiting it again here would take the 300 twice. Each step moves the money
+  exactly once.
 
 **Balances after E01–E03:**
 
@@ -140,7 +162,8 @@ fee.
 |---|---:|---|
 | 1010 Bank: customer funds account | 700 Dr | The bank statement shows 700 ETB |
 | 2010:cust-abebe Customer wallet | 700 Cr | Abebe's spendable balance |
-| 2020:wd-0001 Pending withdrawals | 0 | The withdrawal is complete |
+| 2020:wd-0001 Pending withdrawals | 0 | The payout was sent |
+| 9030:wdt-0001 Clearing: withdrawals in transit | 0 | The bank confirmed it |
 
 The cash in the bank (700) equals what the platform owes customers (700). For
 a wallet provider that is the most important check of all: every birr owed to
@@ -148,20 +171,17 @@ a customer is backed by a birr in the bank.
 
 **Open questions:**
 
-- **When exactly is the payout "sent"?** When the platform submits the batch
-  file, when the bank accepts it, or when the bank confirms execution? If
-  there is a gap of hours or days, money may need to pass through a "payouts
-  in transit" clearing account (9xxx) first, so that 1010 always matches the
-  bank statement.
 - If the bank charges a fee for each outgoing transfer, who pays it? If the
   platform pays, it is an expense line (Dr 5xxx bank charges / Cr 1010). If the
   customer pays, it is booked in E02 as a withdrawal fee (revenue 4xxx).
+  Decided with fees in step 2.03.
 - Payouts usually run in batches. Is the batch one journal entry with one
-  pair of lines per withdrawal, or one entry per withdrawal? One entry per
-  withdrawal keeps each withdrawal's history simple. One batch entry matches
-  the single debit on the bank statement.
+  pair of lines per withdrawal, or one entry per withdrawal? Step 2.02 books
+  one entry per withdrawal, which keeps each withdrawal's history simple;
+  reconciliation (step 2.15) matches them to the single debit on the bank
+  statement.
 
-## E04. Withdrawal: failed
+## E04. Withdrawal: rejected by the bank
 
 **Scenario:** After E03, Abebe's wallet holds 700 ETB. Abebe requests a second
 withdrawal of 200 ETB (`wd-0002`), but types the bank account number wrong.
@@ -173,43 +193,51 @@ The request is booked exactly like E02:
 | 2 | 2020:wd-0002 Pending withdrawals | Liability | | 200 |
 | | **Total** | | **200** | **200** |
 
-When the payout batch runs, the partner bank rejects the transfer before
-sending it because the account number does not exist. No money leaves the
-platform's bank account. The platform books E04 to give the 200 ETB back:
+The payout batch submits it, exactly like E03(a):
 
 | # | Account | Type | Dr | Cr |
 |---|---|---|---:|---:|
 | 1 | 2020:wd-0002 Pending withdrawals | Liability | 200 | |
+| 2 | 9030:wdt-0002 Clearing: withdrawals in transit | Liability | | 200 |
+| | **Total** | | **200** | **200** |
+
+The partner bank rejects the transfer because the account number does not
+exist. No money leaves the platform's bank account. The platform books E04 to
+give the 200 ETB back:
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 9030:wdt-0002 Clearing: withdrawals in transit | Liability | 200 | |
 | 2 | 2010:cust-abebe Customer wallet | Liability | | 200 |
 | | **Total** | | **200** | **200** |
 
 **Why:**
 
-- **The bank account (1010) is not touched.** The bank rejected the transfer
-  before sending it, so the cash never left. The bank statement still shows
-  700 ETB, and the books must too.
-- **Line 1, debit Pending withdrawals (liability ↓).** The platform no longer
-  owes a 200 ETB bank payout, because that payout cannot happen.
-  `2020:wd-0002` returns to zero, which closes the withdrawal.
+- **The bank account (1010) is not touched.** The bank rejected the transfer,
+  so the cash never left. The bank statement still shows 700 ETB, and the
+  books must too.
+- **Line 1, debit the clearing account (liability ↓).** The platform no
+  longer owes a 200 ETB payout in transit, because that payout will not
+  happen. `9030:wdt-0002` returns to zero, which closes the withdrawal.
 - **Line 2, credit Abebe's wallet (liability ↑).** The platform still owes
   Abebe the 200 ETB. The debt goes back to being a spendable wallet balance,
   so Abebe can use it or request a new withdrawal with the right account
-  number.
+  number. The wallet gets back exactly the 200 that was requested: the
+  template refuses any other amount.
 - **The equation stays in balance:** Assets 0 = Liabilities −200 + 200. As in
   E02, the money only moves between two liabilities. Total liabilities stay
   at 700.
 
-**A new entry, not an edit of the request.** The E02-style request for
-`wd-0002` is not deleted or changed. It was a valid request at the time, so it
-stays in history, and E04 is a separate entry that records what happened next.
+**A new entry, not an edit of the request.** The request and the payout for
+`wd-0002` are not deleted or changed. They were valid at the time, so they
+stay in history, and E04 is a separate entry that records what happened next.
 The ledger can then answer "what happened to withdrawal `wd-0002`?" from its
-own records: requested, then failed, with the reason.
+own records: requested, sent, then rejected, with the reason.
 
 **Failed is not the same as reversed.** A reversal (E13) corrects an entry
 that was booked by mistake. Nothing was booked by mistake here: the request
 was real and the payout genuinely failed. E04 is a normal business event with
-its own reason code (e.g. `invalid_account`), even though its lines mirror the
-request.
+its own reason code (e.g. `invalid_account`).
 
 **Balances after E01–E04:**
 
@@ -217,24 +245,30 @@ request.
 |---|---:|---|
 | 1010 Bank: customer funds account | 700 Dr | The bank statement shows 700 ETB |
 | 2010:cust-abebe Customer wallet | 700 Cr | Abebe's spendable balance |
-| 2020:wd-0001 Pending withdrawals | 0 | Sent in E03 |
-| 2020:wd-0002 Pending withdrawals | 0 | Failed in E04 |
+| 2020:wd-0001, 2020:wd-0002 Pending withdrawals | 0 | Both were sent |
+| 9030:wdt-0001 Clearing: withdrawals in transit | 0 | Confirmed in E03 |
+| 9030:wdt-0002 Clearing: withdrawals in transit | 0 | Rejected in E04 |
 
 Cash in the bank still equals what customers are owed.
 
+**Duplicate notices are refused by the ledger.** Banks sometimes report the
+same outcome twice. Once `9030:wdt-0002` is back at zero, a second rejection
+would take it below zero, which the posting rules refuse (INV-8). For the
+same reason, a confirmation after a rejection, or a rejection after a
+confirmation, is refused: each withdrawal has exactly one outcome.
+
 **Open questions:**
 
-- **Duplicate failure notices.** Banks sometimes report the same failure
-  twice. The second notice must not credit the wallet again. If
-  `2020:wd-0002` may never go below zero, the second posting is rejected
-  automatically; an idempotency key on the bank's failure reference is the
-  other safeguard (step 1.11).
 - **Fee refund.** If a withdrawal fee was charged at request time, should it
   be refunded when the payout fails? Most providers refund it when the failure
   is not the customer's fault, but an invalid account number arguably is.
+  Decided with fees in step 2.03.
+- **Cancelled before sending.** A request the platform cancels before the
+  batch runs (for example, after a compliance check) would move the money
+  from 2020 straight back to 2010. No template books that yet.
 - **Retries.** Is a failed withdrawal ever retried automatically (for example,
-  after a temporary bank outage)? If so, does the retry keep `wd-0002` pending
-  instead of booking E04, and how long before it gives up?
+  after a temporary bank outage)? If so, the retry is a new withdrawal with
+  its own sub-accounts.
 
 ## E05. Withdrawal: returned by bank
 
@@ -261,11 +295,13 @@ references the original transfer. There is no return fee.
 - **The equation stays in balance:** Assets +300 = Liabilities +300. Both sides
   grow back by the amount E03 reduced them. The lines look like E01, because
   economically the money is arriving again.
-- **`2020:wd-0001` is not reopened.** That withdrawal closed at zero in E03,
-  and the payout was correctly booked: it did happen. E05 records a new event
-  on a later date and references `wd-0001` with a reason code (e.g.
-  `account_closed`), so the withdrawal's history reads: requested, sent,
-  returned.
+- **Neither `2020:wd-0001` nor `9030:wdt-0001` is reopened.** That
+  withdrawal closed at zero in E03, and the payout was correctly booked: it
+  did happen. E05 records a new event on a later date and references
+  `wd-0001` with a reason code (e.g. `account_closed`), so the withdrawal's
+  history reads: requested, sent, confirmed, returned. Because the lines are
+  the same as E01's, E05 is booked with the same template,
+  `deposit_confirmed.v1`.
 
 **Returned is not the same as failed or reversed:**
 
@@ -274,7 +310,7 @@ references the original transfer. There is no return fee.
 | Did cash leave the bank? | No | Yes, then came back | Depends on the entry |
 | Bank account (1010) | Not touched | Debited on return | Mirror of the original |
 | Was the original entry wrong? | No | No | **Yes** |
-| Lines | Dr 2020 / Cr 2010 | Dr 1010 / Cr 2010 | Mirror of the original |
+| Lines | Dr 9030 / Cr 2010 | Dr 1010 / Cr 2010 | Mirror of the original |
 
 E03 is not reversed, because it was correct: the bank statement shows 300 ETB
 leaving on day 1 and 300 ETB arriving on day 4. The books must show the same
@@ -287,17 +323,17 @@ would never match.
 |---|---:|---|
 | 1010 Bank: customer funds account | 1,000 Dr | The bank statement: +1,000, −300, +300 |
 | 2010:cust-abebe Customer wallet | 1,000 Cr | Abebe's spendable balance |
-| 2020:wd-0001 Pending withdrawals | 0 | Sent in E03, returned in E05 |
-| 2020:wd-0002 Pending withdrawals | 0 | Failed in E04 |
+| 2020:wd-0001, 9030:wdt-0001 | 0 | Sent and confirmed in E03, returned in E05 |
+| 2020:wd-0002, 9030:wdt-0002 | 0 | Rejected in E04 |
 
 Cash in the bank still equals what customers are owed.
 
+**Decided in step 2.02:** a return whose notice does not clearly reference
+the original transfer goes to suspense, like any unidentified deposit
+([E19](suspense.md)), not straight to a wallet.
+
 **Open questions:**
 
-- **Unmatched returns.** What if the return notice does not clearly reference
-  the original transfer? The cash is real but its owner is uncertain, so it
-  should go to a suspense account (9xxx) until it is matched, not straight to
-  a wallet.
 - **Return fees.** If the bank deducts a fee and returns only 290 ETB, who
   absorbs the 10 ETB? If the customer does, the wallet is credited 290. If the
   platform does, the wallet gets 300 and a separate line books 10 ETB as an
