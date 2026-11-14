@@ -9,6 +9,14 @@ supported.
 
 ### Added
 
+- **Accounting periods, closing and reports** (migration 0007): every entry
+  belongs to the period open when it is posted. `close_period` switches
+  postings to the next period under a lock, verifies the closed one, writes
+  its snapshots and closes it; nothing can be posted into a closed period
+  (INV-10, ADR-0016). Reports `trial_balance` (now, at a period's end, or at
+  a time) and `general_ledger`. `mezgeb-cli close-period`, and the
+  [close runbook](docs/runbooks/close-period.md).
+
 - **Posting templates** (`mezgeb-ops`, step 2.01): a `Template` trait that
   books a typed request against named roles, a `TemplateRegistry` keyed by
   `name.vN`, stable template errors 2001–2013, and the first template,

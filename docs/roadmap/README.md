@@ -178,7 +178,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 2.02 | [Deposits, Withdrawals, Clearing and Suspense Accounts](phase-2-operations-and-security/02-deposits-withdrawals-and-clearing.md) | 18 | Done ([evidence](../evidence/2.02-deposits-withdrawals-and-clearing.md)) |
 | 2.03 | [Transfers, Merchant Payments and Fees](phase-2-operations-and-security/03-transfers-payments-and-fees.md) | 19 | Done ([evidence](../evidence/2.03-transfers-payments-and-fees.md)) |
 | 2.04 | [Refunds and Disputes](phase-2-operations-and-security/04-refunds-and-disputes.md) | 20 | Done ([evidence](../evidence/2.04-refunds-and-disputes.md); dispute policy review pending) |
-| 2.05 | [Accounting Periods, Closing and Trial Balance](phase-2-operations-and-security/05-accounting-periods-and-closing.md) | 21 | Not started |
+| 2.05 | [Accounting Periods, Closing and Trial Balance](phase-2-operations-and-security/05-accounting-periods-and-closing.md) | 21 | Done ([evidence](../evidence/2.05-accounting-periods-and-closing.md)) |
 | 2.06 | [REST API Design (Contract First)](phase-2-operations-and-security/06-rest-api-design.md) | 22 | Not started |
 | 2.07 | [REST API Implementation (Axum)](phase-2-operations-and-security/07-rest-api-implementation.md) | 23 | Not started |
 | 2.08 | [Authentication, Authorization and Privilege Separation](phase-2-operations-and-security/08-authentication-and-authorization.md) | 24 | Not started |
