@@ -339,7 +339,9 @@ evidence, not a third ledger column.
 - Key hierarchy (issuer keys, receipt-signing keys, device keys), rotation,
   revocation list. Retired receipt keys stay published so old receipts remain
   verifiable.
-- Authentication between client apps and the ledger.
+- Authentication between client apps and the ledger: OAuth 2.0 client
+  credentials for short-lived opaque tokens, roles from a permission matrix,
+  and each client limited to its own accounts ([ADR-0017](adr/0017-authentication-and-authorization.md), step 2.08).
 
 ## 14. Open questions
 

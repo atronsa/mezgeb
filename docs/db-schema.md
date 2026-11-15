@@ -24,6 +24,9 @@ own, with constraints, triggers and role privileges.
 | `period_snapshots` | Account at the end of a closed period | The account's totals from every line up to the period's `last_sequence`; append-only |
 | `refund_tallies` | Account of a refunded entry | What the entry's refunds have moved back on that account (`refunded`) and the most they may (`limit_amount`); it only grows (migration 0006, step 2.04) |
 | `adjustment_requests` | Adjustment asked for through the API | Client and idempotency key, status (`pending`, `approving`, `approved`, `rejected`), reason code, the requested lines, who asked and when, who decided and when, and the entry an approval posted (migration 0008, step 2.07) |
+| `clients` | Client platform | Name, status (`active`, `disabled`), rate limit (`rate_per_second`, `burst`); a disabled client never becomes active again (migration 0009, step 2.08) |
+| `client_credentials` | Credential of a client | Its ID is the OAuth `client_id`; the actor, the roles, the Argon2id hash of the secret, when it was revoked. Only revoking it ever changes it |
+| `access_tokens` | Access token issued | The SHA-256 of the token, its credential, its scopes and when it expires; deleted once expired |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal`, `adjustment` or, since migration 0006, `refund`), and
@@ -232,6 +235,28 @@ operator's procedure is the [close runbook](runbooks/close-period.md).
   `REPEATABLE READ` transaction, then writes `period_snapshots` and marks the
   period `closed`. Snapshots are append-only.
 
+## Clients and credentials
+
+Who may call the ledger (ADR-0017, migration 0009, step 2.08; the
+operator's procedure is the
+[clients and credentials runbook](runbooks/clients-and-credentials.md)).
+
+- **Secrets and tokens are never stored.** A credential keeps the
+  Argon2id hash of its secret; a token, its SHA-256.
+- **A token is valid** while it has not expired and its credential is not
+  revoked and its client not disabled: the service checks all three on
+  every request, so revoking or disabling takes effect at once.
+- **Separation of duties.** A `CHECK` refuses a credential with both the
+  `operator` and `approver` roles, and one with a role outside the six of
+  the permission matrix.
+- **Only forward, never deleted.** A credential changes only by being
+  revoked, once; a client only by its status and rate limit, and a disabled
+  client stays disabled (`MZ010`). Neither is ever deleted.
+- **Privilege separation.** Only `mezgeb_admin` creates clients and
+  credentials or revokes them. The service (`mezgeb_app`) reads them, to
+  check a secret or a token, and inserts and deletes tokens: a compromised
+  service cannot mint itself a credential.
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
@@ -318,6 +343,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ007` | Invalid refund, a refund tally changed other than by growing, or a reversal of a refund or of a refunded entry (INV-15) |
 | `MZ008` | Posting into a period that is not open, or a forbidden period change (INV-10) |
 | `MZ009` | Forbidden adjustment request change: a field other than the decision, or a step backwards (INV-25) |
+| `MZ010` | Forbidden client or credential change: anything but revoking a credential, or enabling a disabled client |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
@@ -331,9 +357,10 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only. No DELETE anywhere. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens. No DELETE on anything else. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
+| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens; nothing in the ledger (step 2.08). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
 
 `mezgeb_app` also has `transaction_timeout = 30s`, which verification
 relies on (see [Verification](#verification)). Both are set in

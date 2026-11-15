@@ -71,12 +71,11 @@ stable `code` and, for posting and template rules, the numeric `rule`. The
 was recorded (`recorded_at`, its posting date, which decides its period and
 every report), and the optional `event_time`, when the event happened.
 
-**Authentication.** OAuth 2.0 client credentials, with a scope per kind of
-action; designed in step 2.08 (until then, see
-[Interim authentication](#interim-authentication)). A client sees only its own accounts and
-entries. Operator scopes (`accounts:admin`, `corrections:write`,
-`adjustments:*`, `periods:close`, `reports:read`) are never given to client
-platforms.
+**Authentication.** OAuth 2.0 client credentials (ADR-0017): a client
+exchanges its credential's ID and secret at `POST /oauth/token` for a
+15-minute token, and every operation needs one scope. A client sees and
+binds only its own accounts. See
+[Authentication and authorization](#authentication-and-authorization).
 
 **Batches.** Not in v1. Each request posts one entry, which keeps every
 entry atomic and idempotent on its own. A batch endpoint would be a later,
@@ -108,14 +107,17 @@ posting templates and the engine; it never builds lines itself.
 
 ```sh
 docker compose --profile api up -d --build   # PostgreSQL, migrations, the service on :8080
-curl -s http://localhost:8080/v1/templates -H 'Authorization: Bearer dev-client-token'
+# A token for the development wallet credential (deploy/clients.dev.toml):
+TOKEN=$(curl -s -u 0192f3c4-0000-7000-8000-0000000c0001:dev-wallet-secret-0001     -d grant_type=client_credentials http://localhost:8080/oauth/token | jq -r .access_token)
+curl -s http://localhost:8080/v1/templates -H "Authorization: Bearer $TOKEN"
 ```
 
 Or from a checkout, against the compose PostgreSQL:
 
 ```sh
 cargo run -p mezgeb-cli -- migrate     --database-url postgres://mezgeb_owner:mezgeb_owner@localhost:55432/mezgeb
-MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb MEZGEB_TOKENS=deploy/tokens.dev.toml cargo run -p mezgeb-api
+cargo run -p mezgeb-cli -- client seed deploy/clients.dev.toml     --database-url postgres://mezgeb_admin:mezgeb_admin@localhost:55432/mezgeb
+MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb cargo run -p mezgeb-api
 ```
 
 The configuration is read from the environment; every variable is listed in
@@ -140,20 +142,59 @@ as `mezgeb_owner`, before a new version starts.
 too. Requesting an adjustment answers `202` both times, with the replay
 header the second time.
 
-### Interim authentication
+### Authentication and authorization
 
-Step 2.08 builds OAuth 2.0. Until then the service reads static bearer
-tokens from the file named by `MEZGEB_TOKENS`, which holds only their
-SHA-256 hashes, each with its client ID, actor and scopes (format in
-[`crates/api/src/auth/tokens.rs`](../../crates/api/src/auth/tokens.rs)). Every route
-checks its scope: default deny. [`deploy/tokens.dev.toml`](../../deploy/tokens.dev.toml)
-has three tokens for development and CI, and must never be used anywhere
-else.
+Designed in [ADR-0017](../adr/0017-authentication-and-authorization.md).
 
-What the interim scheme does not do yet, and step 2.08 must: token expiry
-and rotation, a clients table, and limiting each client to its own accounts
-and entries (the API records who opened each account, ready for that).
-Until then, run the service only where every token holder is trusted.
+**Clients and credentials.** A *client* is a platform: it owns the accounts
+it opens, its idempotency keys and its rate limit. A *credential* is one key
+for one actor of a client (a service, or a person on the operator's staff)
+with one or more roles. The operator manages them with `mezgeb-cli client`
+and `mezgeb-cli credential`, as `mezgeb_admin`
+([runbook](../runbooks/clients-and-credentials.md)); the service itself can
+never create one.
+
+**Tokens.** `POST /oauth/token`, with HTTP Basic (the credential's ID and
+secret) and `grant_type=client_credentials`, answers a random token that
+lives `MEZGEB_TOKEN_TTL_SECONDS` (900). It carries the scopes the roles
+grant, or the subset asked for with `scope`. The secret is kept only as an
+Argon2id hash, the token only as its SHA-256; revoking the credential or
+disabling the client ends its tokens at once. Token errors follow RFC 6749
+(`{"error": "invalid_client"}`).
+
+**Roles.** The permission matrix is
+[`crates/api/permissions.toml`](../../crates/api/permissions.toml), built
+into the service:
+
+| Role | May |
+|---|---|
+| `poster` | open its accounts, post through the templates it lists, place holds |
+| `reader` | read its own accounts, entries and holds, and the periods |
+| `operator` | reversals, adjustment requests, the period close; read every client |
+| `approver` | approve or reject adjustment requests |
+| `auditor` | read everything, reports; change nothing |
+| `admin` | open system accounts; freeze, unfreeze or close accounts |
+
+One credential is never both `operator` and `approver` (the engine, the
+matrix and the database each refuse it), and the approver must be a
+different person from the requester (INV-25).
+
+**Authorization comes first.** Each handler's first extractor is
+`Auth<Scope>`: a caller without the scope gets `403 forbidden` before its
+query, body or idempotency key is read; then the template, for an
+operation.
+
+**Ownership.** A client reads only accounts it opened, and binds in a
+posting or a hold only its own accounts or system accounts (no sub-account,
+such as `1010`). It reads entries it posted or that touch its accounts, and
+holds on its accounts. Anything else is answered exactly as if it did not
+exist (`404`, or `422 bound_account_not_found` in a body). Only
+`accounts:read_all` (operator, auditor) reads across clients.
+
+**Rate limits.** Each client has a token bucket (`rate_per_second`,
+`burst`); over it, `429 rate_limited` with `Retry-After`. The token endpoint
+allows 2 attempts per second per credential, in bursts of 10, before any
+hashing (`429 slow_down`). The buckets are per process.
 
 ### Testing it
 
@@ -165,8 +206,10 @@ cargo test -p mezgeb-api
 
 | Test | What it proves |
 |---|---|
-| `tests/contract.rs` | One scenario calls all 42 operations of the contract and checks every response (status, headers, body) against the contract's schema for it; it fails if an operation is never called |
-| `tests/http.rs` | A client timeout followed by a retry gives one entry; bad, negative, float and oversized amounts and bodies are refused with their codes; a graceful shutdown under load loses no acknowledged request |
+| `tests/contract/` | One scenario calls all 43 operations of the contract, the token endpoint included, and checks every response (status, headers, body) against the contract's schema for it; it fails if an operation is never called |
+| `tests/authz.rs` | Every operation × every role, generated from the contract and the permission matrix: allowed exactly when the matrix says, `403` otherwise, `401` without a token. A client cannot touch another client's accounts, entries or holds; a revoked credential or a disabled client stops at once |
+| `tests/threats.rs` | The threat model's attacks through the API: a compromised client minting money (TM-07), an insider reopening a period (TM-13) |
+| `tests/http.rs` | A client timeout followed by a retry gives one entry; bad, negative, float and oversized amounts and bodies are refused with their codes; a graceful shutdown under load loses no acknowledged request; a missing scope is refused before the request is read; rate limits |
 | `tests/openapi.rs` | The contract itself, against the template registry and the error rules (step 2.06) |
 | CI `api-container` | The image, as compose runs it, and the Postman smoke collection against it |
 | [`scripts/chaos-api.sh`](../../scripts/chaos-api.sh) | The step 1.15 chaos run through the API: PostgreSQL or the service killed under load, then every request checked |

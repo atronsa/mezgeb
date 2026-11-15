@@ -9,6 +9,22 @@ supported.
 
 ### Added
 
+- **Authentication and authorization** (ADR-0017, migration 0009):
+  - OAuth 2.0 client credentials at `POST /oauth/token`, issuing 15-minute
+    opaque tokens; secrets are kept as Argon2id hashes, tokens as SHA-256.
+    Revoking a credential, or disabling its client, ends its tokens at once.
+  - A permission matrix of six roles (`crates/api/permissions.toml`), with
+    the templates each role may post. One credential is never both
+    `operator` and `approver`.
+  - Each operation's scope is checked before the request is read.
+  - A client touches only its own accounts, entries and holds; anything
+    else is answered as if it did not exist.
+  - Rate limits per client and per credential at the token endpoint.
+  - `mezgeb-cli client` and `mezgeb-cli credential`, as the new
+    `mezgeb_admin` role, and the
+    [clients and credentials runbook](docs/runbooks/clients-and-credentials.md).
+  - A generated role × operation test over the whole contract.
+
 - **The REST service, `mezgeb-api`** (Axum): all 42 operations of the
   v1-draft contract, calling the posting templates and the engine. Request
   IDs, a body limit, a timeout that answers `503 busy` without cancelling
@@ -72,6 +88,13 @@ supported.
   dispute policy (`docs/accounting/refunds-and-disputes.md`, review pending).
 
 ### Changed
+
+- The interim token file (`MEZGEB_TOKENS`, `deploy/tokens.dev.toml`) is
+  replaced by clients and credentials in the database;
+  `deploy/clients.dev.toml` seeds the development ones.
+- A missing or malformed query string is answered with Problem Details.
+- `getAdjustment` accepts `adjustments:approve` as well as
+  `adjustments:request`.
 
 - **A refunded entry can no longer be reversed, and a refund is never
   reversed** (step 2.04); corrections then go through adjustments.
