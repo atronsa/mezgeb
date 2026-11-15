@@ -101,7 +101,11 @@ async fn setup() -> Result<Option<(TestDb, PgPool)>, Fail> {
         return Ok(None);
     };
     let db = server.migrated().await?;
-    let pool = db.app_pool_of(4).await?;
+    // One connection: a retry then runs on the connection the failed
+    // attempt used, whose pending rollback runs first. With more, the retry
+    // could start while the dropped transaction still holds its row locks,
+    // and the expiry worker (`SKIP LOCKED`) would skip the hold.
+    let pool = db.app_pool_of(1).await?;
     let mut store = PgStore::new(pool.clone(), client()?);
     let chart = Chart::from_toml(CHART)?;
     store.open_account(account(BANK)?, &chart, "1010").await?;
