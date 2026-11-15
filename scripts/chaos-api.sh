@@ -116,14 +116,14 @@ for cycle in $(seq 1 "$CYCLES"); do
     $LOAD load "$BASE" "$LOG" "$cycle" "$WORKERS" "$LOAD_SECONDS" >"$OUT/load-$cycle.txt" &
     loader=$!
     sleep "$kill_after"
-    # A busy machine can delay the kill past the end of the load; such a
-    # cycle tests nothing, and the run fails.
-    if kill -0 "$loader" 2>/dev/null; then during=yes; else during=NO; fi
     if [[ $target == postgres ]]; then
         docker compose kill -s SIGKILL postgres >/dev/null 2>&1
     else
         kill_api
     fi
+    # Checked once the kill has finished: a busy machine can delay it past
+    # the end of the load, and such a cycle tests nothing, so the run fails.
+    if kill -0 "$loader" 2>/dev/null; then during=yes; else during=NO; fi
     wait "$loader"
     load_line=$(grep '^LOAD' "$OUT/load-$cycle.txt")
 
