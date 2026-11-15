@@ -1163,9 +1163,13 @@ dependencies = [
 name = "mezgeb-cli"
 version = "0.0.1"
 dependencies = [
+ "mezgeb-core",
  "mezgeb-engine",
+ "serde",
  "sqlx",
  "tokio",
+ "toml",
+ "uuid",
 ]
 
 [[package]]
