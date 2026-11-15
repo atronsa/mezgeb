@@ -154,6 +154,10 @@ impl IntoResponse for ApiError {
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/problem+json"),
         );
+        response
+            .extensions_mut()
+            .insert(crate::http::middleware::ProblemCode(self.0.code));
+        let headers = response.headers_mut();
         if matches!(self.0.status, 429 | 503) {
             headers.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
         }

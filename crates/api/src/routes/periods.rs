@@ -116,7 +116,19 @@ async fn close_period(
                         format!("A period is already labelled {:?}.", body.next_label),
                     ));
                 }
-                Ok(mezgeb_engine::close_period(&mut conn, &body.next_label).await?)
+                let report = mezgeb_engine::close_period(&mut conn, &body.next_label).await?;
+                // A closed period gets a signed checkpoint of the chains
+                // (ADR-0018), for clients to keep.
+                if let (true, Some(signer)) = (report.is_closed(), &state.options.signer) {
+                    mezgeb_engine::record_checkpoint(
+                        &mut conn,
+                        report.period.id,
+                        signer,
+                        crate::wire::now(),
+                    )
+                    .await?;
+                }
+                Ok(report)
             }
         })
         .await?;

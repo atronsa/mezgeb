@@ -42,12 +42,24 @@ async fn run() -> Result<(), String> {
         .map_err(|e| format!("cannot read {}: {e}", config.chart.display()))?;
     let chart = Chart::from_toml(&chart_text).map_err(|e| format!("chart: {e}"))?;
     let permissions = Permissions::built_in()?;
+    let signer = mezgeb_engine::Signer::from_file(&config.signing_key)?;
     let pool = PgPoolOptions::new()
         .max_connections(config.pool_size)
         .acquire_timeout(config.request_timeout)
         .connect(&config.database_url)
         .await
         .map_err(|e| format!("cannot connect to the database: {e}"))?;
+    // Publish the key's public half before signing anything with it.
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| format!("cannot connect to the database: {e}"))?;
+    signer
+        .register(&mut conn)
+        .await
+        .map_err(|e| format!("cannot register the signing key: {e}"))?;
+    drop(conn);
+    tracing::info!(key_id = signer.key_id(), "signing key loaded");
     let state = AppState {
         pool,
         chart: Arc::new(chart),
@@ -55,7 +67,10 @@ async fn run() -> Result<(), String> {
         token_ttl: config.token_ttl,
         limits: Arc::default(),
         registry: Arc::new(TemplateRegistry::standard()),
-        options: PostOptions::default(),
+        options: PostOptions {
+            signer: Some(Arc::new(signer)),
+            ..PostOptions::default()
+        },
         tasks: TaskTracker::new(),
         request_timeout: config.request_timeout,
         body_limit: config.body_limit,
