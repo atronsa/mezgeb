@@ -35,3 +35,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.06 | [REST API design](2.06-rest-api-design.md) | Passed; contract review pending |
 | 2.07 | [REST API implementation](2.07-rest-api-implementation.md) | Passed |
 | 2.08 | [Authentication, authorization and privilege separation](2.08-authentication-and-authorization.md) | Passed |
+| 2.09 | [Audit logging and tamper evidence](2.09-audit-logging-and-tamper-evidence.md) | Passed; chain head bottleneck recorded for 3.03 |
