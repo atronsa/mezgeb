@@ -13,6 +13,7 @@
 
 pub mod account;
 pub mod authorization;
+pub mod chain;
 pub mod chart;
 pub mod currency;
 pub mod entry;
