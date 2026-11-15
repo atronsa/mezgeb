@@ -12,6 +12,8 @@ description: |-
   - Clients post only through posting templates, one endpoint each. The only endpoint that takes arbitrary lines is the operator-only, maker-checker adjustment.
 variables:
   baseUrl: http://localhost:8080
+  clientId: 0192f3c4-0000-7000-8000-0000000c0001
+  clientSecret: dev-wallet-secret-0001
 auth:
   - id: 4ec58ee8-6bf2-4d2b-a17a-a09894e64069
     type: oauth2

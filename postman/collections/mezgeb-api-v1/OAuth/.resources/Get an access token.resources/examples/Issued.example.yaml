@@ -1,0 +1,31 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/oauth/token"
+  method: POST
+  headers:
+    - key: Authorization
+      value: Basic <client_id:client_secret>
+      description: "Added as a part of security scheme: clientSecretBasic"
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+  body:
+    type: text
+    content: grant_type=client_credentials&scope=accounts%3Aread%20operations%3Awrite
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+    - key: Cache-Control
+      value: "no-store"
+  body:
+    type: json
+    content: |-
+      {
+        "access_token": "mzt_4f9c2a8e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a",
+        "token_type": "Bearer",
+        "expires_in": 900,
+        "scope": "accounts:read operations:write"
+      }
+order: 1000
