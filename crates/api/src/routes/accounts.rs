@@ -1,7 +1,7 @@
 //! Accounts: open, get, list or find, balance, history, status.
 
 use axum::Router;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderValue, StatusCode};
 use axum::routing::{get, post};
 use mezgeb_core::{AccountId, AccountStatus, Ledger, Money, ReasonCode};
@@ -13,7 +13,7 @@ use super::common::{ApiResult, connection, owns, visible_account};
 use crate::AppState;
 use crate::auth::Principal;
 use crate::auth::scope::{AccountsAdmin, AccountsRead, AccountsWrite, Auth};
-use crate::http::extract::{IdemKey, JsonBody, parse_id};
+use crate::http::extract::{IdemKey, JsonBody, QueryParams, parse_id};
 use crate::http::pagination::limit;
 use crate::http::reply::{json_response, written};
 use crate::problem::ApiError;
@@ -94,7 +94,7 @@ struct ListAccountsQuery {
 async fn list_accounts(
     State(state): State<AppState>,
     Auth(caller, _): Auth<AccountsRead>,
-    Query(query): Query<ListAccountsQuery>,
+    QueryParams(query): QueryParams<ListAccountsQuery>,
 ) -> ApiResult {
     let limit = limit(query.limit)?;
     let mut conn = connection(&state).await?;
@@ -165,7 +165,7 @@ async fn get_balance(
     State(state): State<AppState>,
     Auth(caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
-    Query(query): Query<BalanceQuery>,
+    QueryParams(query): QueryParams<BalanceQuery>,
 ) -> ApiResult {
     let account = load_account(&state, &caller, &account_id).await?;
     let as_of = match &query.as_of {
@@ -217,7 +217,7 @@ async fn get_ledger(
     State(state): State<AppState>,
     Auth(caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
-    Query(query): Query<LedgerQuery>,
+    QueryParams(query): QueryParams<LedgerQuery>,
 ) -> ApiResult {
     let account = load_account(&state, &caller, &account_id).await?;
     let from = parse_time(&query.from, "/query/from")?;

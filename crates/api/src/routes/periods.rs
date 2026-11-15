@@ -1,7 +1,7 @@
 //! Periods: list, the open one, one by ID, close.
 
 use axum::Router;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use serde::Deserialize;
@@ -10,7 +10,7 @@ use serde_json::json;
 use super::common::{ApiResult, connection};
 use crate::AppState;
 use crate::auth::scope::{Auth, PeriodsClose, PeriodsRead};
-use crate::http::extract::{JsonBody, parse_id};
+use crate::http::extract::{JsonBody, QueryParams, parse_id};
 use crate::http::pagination::{Page, limit};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
@@ -27,7 +27,7 @@ pub(super) fn router() -> Router<AppState> {
 async fn list_periods(
     State(state): State<AppState>,
     Auth(_caller, _): Auth<PeriodsRead>,
-    Query(page): Query<Page>,
+    QueryParams(page): QueryParams<Page>,
 ) -> ApiResult {
     let limit = usize::try_from(limit(page.limit)?).unwrap_or(50);
     let before = page

@@ -32,6 +32,22 @@ impl FromRequestParts<AppState> for Caller {
     }
 }
 
+/// Query parameters. A missing, malformed or unknown parameter is
+/// `400 invalid_request`, as Problem Details (axum's own `Query` answers in
+/// plain text).
+pub struct QueryParams<T>(pub T);
+
+impl<S: Send + Sync, T: DeserializeOwned> FromRequestParts<S> for QueryParams<T> {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<QueryParams<T>, ApiError> {
+        axum::extract::Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|axum::extract::Query(value)| QueryParams(value))
+            .map_err(|rejection| ApiError::invalid("/query", rejection.body_text()))
+    }
+}
+
 /// A JSON request body. Every way the body can be wrong, including too
 /// large, is `400 invalid_request`.
 pub struct JsonBody<T>(pub T);
