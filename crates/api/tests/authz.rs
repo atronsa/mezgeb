@@ -305,3 +305,183 @@ async fn a_client_cannot_touch_another_clients_accounts() -> Result<(), BoxError
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// A path from the contract with its parameters filled in: IDs that exist
+/// nowhere, so an allowed call answers something other than `403`.
+fn concrete(path: &str) -> String {
+    path.replace("{template_id}", "p2p_transfer.v1")
+        .replace("{key}", "authz-none")
+        .replace("{period_id}", "999999")
+        .split('/')
+        .map(|part| {
+            if part.starts_with('{') {
+                "0192f3c4-0000-7000-8000-00000000dead"
+            } else {
+                part
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The acceptance criterion of step 2.08: every operation of the contract,
+/// called by a credential holding each single role, is allowed exactly when
+/// the permission matrix grants one of the operation's scopes (and, for a
+/// template, lists the template), and refused with `403 forbidden`
+/// otherwise; called with no token, every one is `401`. The cases are
+/// generated from `openapi/mezgeb.v1.yaml` and `crates/api/permissions.toml`,
+/// so a new operation or a changed permission is covered without editing
+/// this test.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn every_role_gets_exactly_what_the_matrix_allows() -> Result<(), BoxError> {
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract.clone());
+    let permissions = mezgeb_api::auth::Permissions::built_in()?;
+
+    // Every operation that takes a bearer token, with the scopes it accepts.
+    let mut operations = Vec::new();
+    let paths = contract.spec["paths"]
+        .as_object()
+        .ok_or("the contract has no paths")?;
+    for (path, item) in paths {
+        for (method, operation) in item.as_object().into_iter().flatten() {
+            let requirements = operation["security"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default();
+            let scopes: Vec<String> = requirements
+                .iter()
+                .filter_map(|r| r["oauth2"].as_array())
+                .flatten()
+                .filter_map(|s| s.as_str().map(str::to_owned))
+                .collect();
+            if requirements
+                .iter()
+                .any(|r| r.get("clientSecretBasic").is_some())
+            {
+                continue; // The token endpoint: its own test, in contract/oauth.rs.
+            }
+            assert!(!scopes.is_empty(), "{method} {path} names no scope");
+            operations.push((method.to_uppercase(), path.clone(), scopes));
+        }
+    }
+    assert_eq!(operations.len(), 42, "operations with a bearer token");
+
+    let mut cases = 0;
+    for (n, (method, path, scopes)) in operations.iter().enumerate() {
+        let url = concrete(path);
+        let body = (method == "POST").then(|| json!({}));
+        let key = format!("authz-{n}");
+        // No token: always 401.
+        let anonymous = api
+            .call(method, &url, None, Some(&key), body.clone())
+            .await?;
+        assert_eq!(
+            (anonymous.status, anonymous.code()),
+            (401, "unauthenticated"),
+            "{method} {path} without a token: {}",
+            anonymous.body
+        );
+        for (role, token) in ROLE_TOKENS {
+            let grant = &permissions.roles()[role];
+            let template = path.strip_prefix("/v1/operations/");
+            let allowed = scopes.iter().any(|s| grant.scopes.contains(s))
+                && template.is_none_or(|t| grant.templates.contains(t));
+            let reply = api
+                .call(
+                    method,
+                    &url,
+                    Some(token),
+                    Some(&format!("{key}-{role}")),
+                    body.clone(),
+                )
+                .await
+                .map_err(|e| format!("{role} on {method} {url}: {e}"))?;
+            let forbidden = reply.status == 403 && reply.code() == "forbidden";
+            assert_eq!(
+                !forbidden, allowed,
+                "{role} on {method} {path}: {} {}",
+                reply.status, reply.body
+            );
+            cases += 1;
+        }
+    }
+    assert_eq!(cases, 42 * ROLE_TOKENS.len());
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// A revoked credential stops working at once: its existing token is
+/// refused, and it cannot get a new one. Disabling a client does the same
+/// for all of its credentials.
+#[tokio::test]
+async fn revoked_credentials_and_disabled_clients_stop_at_once() -> Result<(), BoxError> {
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+    let mut admin = server.db.admin().await?;
+
+    // A new credential of the wallet client, logged in through OAuth.
+    let credential = mezgeb_engine::add_credential(
+        &mut admin,
+        uuid::Uuid::now_v7(),
+        common::CLIENT_ID.parse()?,
+        &mezgeb_core::ActorId::new("app:rotating")?,
+        &["reader".to_owned()],
+        common::secret_hash()?,
+    )
+    .await?;
+    let id = credential.id.to_string();
+    let login = || {
+        api.token(
+            Some((&id, common::CLIENT_SECRET)),
+            "grant_type=client_credentials",
+        )
+    };
+    let issued = expect!(login().await?, 200);
+    let token = issued.str("/access_token");
+    expect!(api.get("/v1/periods/current", &token).await?, 200);
+
+    // Revoked: the token it already had is refused, replayed or not, and a
+    // new one cannot be had.
+    mezgeb_engine::revoke_credential(&mut admin, credential.id).await?;
+    for _ in 0..2 {
+        expect!(
+            api.get("/v1/periods/current", &token).await?,
+            401,
+            "unauthenticated"
+        );
+    }
+    let again = login().await?;
+    assert_eq!(
+        (again.status, again.body["error"].clone()),
+        (401, json!("invalid_client"))
+    );
+    // The client's other credentials are not affected.
+    expect!(api.get("/v1/periods/current", CLIENT).await?, 200);
+
+    // Disabled: every credential of the client stops.
+    expect!(api.get("/v1/periods/current", OTHER).await?, 200);
+    mezgeb_engine::disable_client(&mut admin, common::OTHER_ID.parse()?).await?;
+    expect!(
+        api.get("/v1/periods/current", OTHER).await?,
+        401,
+        "unauthenticated"
+    );
+    expect!(api.get("/v1/periods/current", CLIENT).await?, 200);
+
+    drop(admin);
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}

@@ -1,0 +1,26 @@
+$kind: http-request
+description: "OAuth 2.0 client credentials (RFC 6749 \u00a74.4). Authenticate with HTTP Basic: the credential's ID as the user name and its secret as the password. Credentials in the body are refused. The token lives 15 minutes by default and carries the scopes the credential's roles grant (the permission matrix, ADR-0017), or the subset asked for with `scope`. Revoking the credential, or disabling its client, ends the token at once."
+url: "{{baseUrl}}/oauth/token"
+method: POST
+headers:
+  - key: Content-Type
+    value: application/x-www-form-urlencoded
+  - key: Accept
+    value: application/json
+body:
+  type: urlencoded
+  content:
+    - key: grant_type
+      value: client_credentials
+    - key: scope
+      value: accounts:read operations:write
+auth:
+  type: basic
+  credentials:
+    - key: username
+      value: "{{clientId}}"
+    - key: password
+      value: "{{clientSecret}}"
+settings: {}
+examples: ./.resources/Get an access token.resources/examples
+order: 1000
