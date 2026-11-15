@@ -222,9 +222,14 @@ merchant uploads receipt twice, payer and payee upload the same receipt.
 ## 7. Audit and tamper evidence
 
 ### 7.1 Journal integrity
-- Hash chain over the journal of entries.
-- Signed checkpoints at each close; verification tool.
+- Hash chain over the journal of entries, and over the audit events.
+- Signed checkpoints at each close, kept by clients and in files outside
+  the database; `mezgeb-cli verify --chain`.
 - Database role permissions: no UPDATE/DELETE on journal tables.
+
+Built in step 2.09 ([ADR-0018](adr/0018-tamper-evidence.md)): it makes
+tampering by someone with full database access detectable, not
+impossible.
 
 ### 7.2 Ledger receipts (signed proof for every entry)
 
