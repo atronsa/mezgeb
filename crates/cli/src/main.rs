@@ -4,6 +4,8 @@
 //! mezgeb-cli verify [--full] [--settle-seconds N] [--no-record] [--database-url URL]
 //! mezgeb-cli close-period --next LABEL [--database-url URL]
 //! mezgeb-cli migrate [--database-url URL]
+//! mezgeb-cli client create|list|disable|seed ... [--database-url URL]
+//! mezgeb-cli credential issue|list|revoke ... [--database-url URL]
 //! ```
 //!
 //! `verify` proves that the stored balances equal the journal
@@ -16,12 +18,18 @@
 //! `migrate` applies the schema migrations that have not run yet. Connect
 //! as `mezgeb_owner`; run it before starting a new version of the service.
 //!
+//! `client` and `credential` manage who may call the ledger: clients, their
+//! credentials and their roles ([`clients`], ADR-0017). Connect as
+//! `mezgeb_admin`.
+//!
 //! The URL comes from `--database-url` or `MEZGEB_DATABASE_URL`.
 //!
 //! Exit status: 0 clean (or closed), 1 problems found (the period stays
 //! closing), 2 could not run.
 //!
 //! Planned: `verify --chain` (step 2.09) and `import` (step 3.14).
+
+mod clients;
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -47,8 +55,17 @@ struct VerifyCommand {
 #[derive(Debug, PartialEq, Eq)]
 enum Command {
     Verify(VerifyCommand),
-    ClosePeriod { next: String, url: Option<String> },
-    Migrate { url: Option<String> },
+    ClosePeriod {
+        next: String,
+        url: Option<String>,
+    },
+    Migrate {
+        url: Option<String>,
+    },
+    Client {
+        command: clients::ClientCommand,
+        url: Option<String>,
+    },
 }
 
 fn database_url(args: &mut std::slice::Iter<'_, String>) -> Result<String, String> {
@@ -87,7 +104,24 @@ fn parse(args: &[String]) -> Result<Command, String> {
             }
             Ok(Command::Migrate { url })
         }
-        _ => Err(USAGE.to_owned()),
+        Some(group @ ("client" | "credential")) => {
+            let mut rest = Vec::new();
+            let mut url = None;
+            while let Some(arg) = args.next() {
+                if arg == "--database-url" {
+                    url = Some(database_url(&mut args)?);
+                } else {
+                    rest.push(arg.clone());
+                }
+            }
+            let command = clients::parse(group, &rest)?;
+            Ok(Command::Client { command, url })
+        }
+        _ => Err(format!(
+            "{USAGE}
+{}",
+            clients::USAGE
+        )),
     }
 }
 
@@ -175,6 +209,11 @@ async fn run(command: Command) -> Result<bool, String> {
                 .map_err(|e| format!("migration failed: {e}"))?;
             let latest = MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0);
             println!("schema at migration {latest}");
+            Ok(true)
+        }
+        Command::Client { command, url } => {
+            let mut conn = connect(url).await?;
+            print!("{}", clients::run(&mut conn, command).await?);
             Ok(true)
         }
     }

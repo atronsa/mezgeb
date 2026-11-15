@@ -6,9 +6,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+mezgeb-core.workspace = true
 mezgeb-engine.workspace = true
+serde.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
+toml.workspace = true
+# v7: new clients and credentials get time-ordered IDs.
+uuid = { workspace = true, features = ["v7"] }
 
 [lints]
 workspace = true
