@@ -204,7 +204,7 @@ fn parse_verify(mut args: std::slice::Iter<'_, String>) -> Result<Command, Strin
 }
 
 /// The current time, from this machine's clock.
-fn now() -> mezgeb_core::Timestamp {
+pub(crate) fn now() -> mezgeb_core::Timestamp {
     let micros = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_micros())
