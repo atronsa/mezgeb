@@ -8,10 +8,10 @@ use mezgeb_core::EntryId;
 
 use super::common::{ApiResult, connection};
 use crate::AppState;
-use crate::http::extract::Caller;
+use crate::http::extract::{Caller, parse_id};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
-use crate::wire::{EntryJson, parse_id};
+use crate::wire::EntryJson;
 
 pub(super) fn router() -> Router<AppState> {
     Router::new()
