@@ -1,0 +1,31 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/oauth/token"
+  method: POST
+  headers:
+    - key: Authorization
+      value: Basic <client_id:client_secret>
+      description: "Added as a part of security scheme: clientSecretBasic"
+    - key: Content-Type
+      value: application/x-www-form-urlencoded
+  body:
+    type: text
+    content: grant_type=client_credentials&scope=accounts%3Aread%20operations%3Awrite
+response:
+  statusCode: 429
+  statusText: Too Many Requests
+  headers:
+    - key: Content-Type
+      value: application/json
+    - key: Cache-Control
+      value: "no-store"
+    - key: Retry-After
+      value: "1"
+  body:
+    type: json
+    content: |-
+      {
+        "error": "slow_down",
+        "error_description": "Too many token requests for this credential; retry after Retry-After seconds."
+      }
+order: 4000
