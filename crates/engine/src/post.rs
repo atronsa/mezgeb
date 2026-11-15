@@ -206,7 +206,8 @@ pub(crate) async fn post_in_transaction(
          VALUES ($1, $2, $3, $4, $5::jsonb,
                  timestamptz 'epoch' + $6::bigint * interval '1 microsecond',
                  $7, $8, $9, $10, $11, $12)
-         RETURNING sequence",
+         RETURNING sequence,
+                   (extract(epoch FROM recorded_time) * 1000000)::bigint AS recorded_micros",
     )
     .bind(entry_id.as_uuid())
     .bind(client_id.as_uuid())
@@ -233,6 +234,7 @@ pub(crate) async fn post_in_transaction(
     .await
     .map_err(|e| entry_insert_error(e, entry_id, reverses))?;
     let sequence: i64 = inserted.try_get("sequence").map_err(db)?;
+    let recorded_micros: i64 = inserted.try_get("recorded_micros").map_err(db)?;
 
     // 4. Apply the entry's net effect to each account: one update per
     //    account, in ascending ID order. Updating line by line would fail
@@ -295,7 +297,7 @@ pub(crate) async fn post_in_transaction(
     options.fault_at(FaultPoint::AfterLines)?;
 
     let sequence = u64::try_from(sequence).map_err(storage)?;
-    Ok(PostedEntry::new(
+    let posted = PostedEntry::new(
         entry_id,
         sequence,
         lines,
@@ -305,7 +307,23 @@ pub(crate) async fn post_in_transaction(
         kind,
         authorization,
     )
-    .refunding(refunds))
+    .refunding(refunds);
+
+    // 6. Chain it and sign its receipt (ADR-0018). Last, so the chain head
+    //    is held only from here to the commit.
+    crate::tamper::append_entry(
+        conn,
+        &posted,
+        &crate::tamper::Assigned {
+            client: client_id,
+            idempotency_key: idempotency_key.as_str(),
+            recorded_at: mezgeb_core::Timestamp::from_micros(recorded_micros),
+            period: Some(period),
+        },
+        options.signer.as_deref(),
+    )
+    .await?;
+    Ok(posted)
 }
 
 /// Locks the refund tallies of `original`, creating them on first use, and

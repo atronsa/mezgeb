@@ -16,6 +16,7 @@ tokio.workspace = true
 argon2 = "0.6"
 getrandom = "0.4"
 sha2.workspace = true
+ed25519-dalek = "3"
 
 [features]
 # Failure-injection hooks for tests only. Never enable in a build that runs
