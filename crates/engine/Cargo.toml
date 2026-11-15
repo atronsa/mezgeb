@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 mezgeb-core.workspace = true
 sqlx.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 # v7: the expiry worker mints the IDs of the entries it posts.
 uuid = { workspace = true, features = ["v7"] }
