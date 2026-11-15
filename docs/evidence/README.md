@@ -34,3 +34,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.05 | [Accounting periods and closing](2.05-accounting-periods-and-closing.md) | Passed |
 | 2.06 | [REST API design](2.06-rest-api-design.md) | Passed; contract review pending |
 | 2.07 | [REST API implementation](2.07-rest-api-implementation.md) | Passed |
+| 2.08 | [Authentication, authorization and privilege separation](2.08-authentication-and-authorization.md) | Passed |
