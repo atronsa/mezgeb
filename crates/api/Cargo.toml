@@ -5,15 +5,35 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "mezgeb-api"
+path = "src/main.rs"
+
 [dependencies]
 mezgeb-core.workspace = true
 mezgeb-engine.workspace = true
 mezgeb-ops.workspace = true
 mezgeb-offline.workspace = true
 tokio.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+toml.workspace = true
+uuid = { workspace = true, features = ["v7"] }
+axum = "0.8"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
 
 [dev-dependencies]
-serde_json.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+jsonschema = { version = "0.61", default-features = false }
+yaml-rust2 = "0.13"
 
 [lints]
 workspace = true
