@@ -6,7 +6,7 @@ use axum::http::StatusCode;
 use axum::routing::get;
 use mezgeb_core::EntryId;
 
-use super::common::{ApiResult, connection};
+use super::common::{ApiResult, connection, entry_visible};
 use crate::AppState;
 use crate::auth::scope::{Auth, EntriesRead};
 use crate::http::extract::parse_id;
@@ -25,7 +25,7 @@ pub(super) fn router() -> Router<AppState> {
 
 async fn get_entry(
     State(state): State<AppState>,
-    Auth(_caller, _): Auth<EntriesRead>,
+    Auth(caller, _): Auth<EntriesRead>,
     Path(entry_id): Path<String>,
 ) -> ApiResult {
     let id: EntryId = parse_id(&entry_id, "entry")?;
@@ -33,6 +33,9 @@ async fn get_entry(
     let record = mezgeb_engine::entry_record(&mut conn, id)
         .await?
         .ok_or_else(|| ApiError::not_found("entry"))?;
+    if !entry_visible(&mut conn, &caller, &record).await? {
+        return Err(ApiError::not_found("entry"));
+    }
     Ok(json_response(StatusCode::OK, EntryJson::from(&record)))
 }
 

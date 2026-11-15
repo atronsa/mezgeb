@@ -9,8 +9,9 @@ use mezgeb_engine::{LedgerCursor, Opened, PgStore};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::common::{ApiResult, connection};
+use super::common::{ApiResult, connection, owns, visible_account};
 use crate::AppState;
+use crate::auth::Principal;
 use crate::auth::scope::{AccountsAdmin, AccountsRead, AccountsWrite, Auth};
 use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::pagination::limit;
@@ -40,6 +41,17 @@ async fn open_account(
     JsonBody(body): JsonBody<OpenAccountBody>,
 ) -> ApiResult {
     let id = AccountId::from_uuid(uuid::Uuid::now_v7()).map_err(ApiError::internal)?;
+    // A system account (no sub-account, such as 1010) can be bound by every
+    // client's postings, so only the operator's admin opens one. A reference
+    // the chart refuses is left to the engine, which answers with its code.
+    let system = mezgeb_core::Account::open(id, &state.chart, &body.reference)
+        .is_ok_and(|a| a.sub_account().is_none());
+    if system && !caller.has("accounts:admin") {
+        return Err(ApiError::new(
+            "forbidden",
+            "Opening a system account needs the admin role (accounts:admin).",
+        ));
+    }
     let chart = state.chart.clone();
     let opened = state
         .write({
@@ -86,9 +98,12 @@ async fn list_accounts(
 ) -> ApiResult {
     let limit = limit(query.limit)?;
     let mut conn = connection(&state).await?;
-    let opened_by = (!caller.has("accounts:read_all")).then_some(caller.client);
+    let opened_by = (!caller.sees_all()).then_some(caller.client);
     if let Some(reference) = query.reference {
-        let found = mezgeb_engine::account_by_reference(&mut conn, &reference).await?;
+        let found = match mezgeb_engine::account_by_reference(&mut conn, &reference).await? {
+            Some(a) if caller.sees_all() || owns(&mut conn, &caller, a.id()).await? => Some(a),
+            _ => None,
+        };
         let items: Vec<AccountJson> = found.iter().map(AccountJson::from).collect();
         return Ok(json_response(
             StatusCode::OK,
@@ -120,20 +135,23 @@ async fn list_accounts(
     ))
 }
 
-async fn load_account(state: &AppState, id: &str) -> Result<mezgeb_core::Account, ApiError> {
+/// An account the caller may see, from its path ID.
+async fn load_account(
+    state: &AppState,
+    caller: &Principal,
+    id: &str,
+) -> Result<mezgeb_core::Account, ApiError> {
     let id: AccountId = parse_id(id, "account")?;
     let mut conn = connection(state).await?;
-    mezgeb_engine::get_account(&mut conn, id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("account"))
+    visible_account(&mut conn, caller, id).await
 }
 
 async fn get_account(
     State(state): State<AppState>,
-    Auth(_caller, _): Auth<AccountsRead>,
+    Auth(caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
 ) -> ApiResult {
-    let account = load_account(&state, &account_id).await?;
+    let account = load_account(&state, &caller, &account_id).await?;
     Ok(json_response(StatusCode::OK, AccountJson::from(&account)))
 }
 
@@ -145,11 +163,11 @@ struct BalanceQuery {
 
 async fn get_balance(
     State(state): State<AppState>,
-    Auth(_caller, _): Auth<AccountsRead>,
+    Auth(caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
     Query(query): Query<BalanceQuery>,
 ) -> ApiResult {
-    let account = load_account(&state, &account_id).await?;
+    let account = load_account(&state, &caller, &account_id).await?;
     let as_of = match &query.as_of {
         Some(text) => parse_time(text, "/query/as_of")?,
         None => now(),
@@ -197,11 +215,11 @@ fn parse_cursor(text: &str) -> Result<LedgerCursor, ApiError> {
 
 async fn get_ledger(
     State(state): State<AppState>,
-    Auth(_caller, _): Auth<AccountsRead>,
+    Auth(caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
     Query(query): Query<LedgerQuery>,
 ) -> ApiResult {
-    let account = load_account(&state, &account_id).await?;
+    let account = load_account(&state, &caller, &account_id).await?;
     let from = parse_time(&query.from, "/query/from")?;
     let to = parse_time(&query.to, "/query/to")?;
     let limit = limit(query.limit)?;
