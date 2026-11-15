@@ -31,4 +31,10 @@ scripts:
         pm.expect(pm.response.headers.get('Location')).to.equal('/v1/entries/' + body.id);
         pm.collectionVariables.set('transferId', body.id);
       });
+      pm.test('with a signed receipt', () => {
+        const receipt = pm.response.json().receipt;
+        pm.expect(receipt.position).to.be.above(0);
+        pm.expect(receipt.hash).to.match(/^[0-9a-f]{64}$/);
+        pm.expect(receipt.signature).to.match(/^[0-9a-f]{128}$/);
+      });
 order: 6000

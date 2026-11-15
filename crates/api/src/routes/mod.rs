@@ -11,6 +11,7 @@ use axum::Router;
 use crate::AppState;
 
 mod accounts;
+mod audit;
 mod common;
 mod corrections;
 mod entries;
@@ -34,4 +35,5 @@ pub fn routes() -> Router<AppState> {
         .merge(reports::router())
         .merge(offline::router())
         .merge(oauth::router())
+        .merge(audit::router())
 }

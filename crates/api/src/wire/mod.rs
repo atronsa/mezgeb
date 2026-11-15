@@ -7,6 +7,7 @@
 
 mod account;
 mod adjustment;
+mod audit;
 mod entry;
 mod hold;
 mod money;
@@ -15,6 +16,7 @@ mod timestamp;
 
 pub use account::*;
 pub use adjustment::*;
+pub use audit::*;
 pub use entry::*;
 pub use hold::*;
 pub use money::*;

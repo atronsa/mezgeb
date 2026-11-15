@@ -10,7 +10,7 @@ use axum::routing::post;
 use axum::{Form, Router};
 
 use crate::AppState;
-use crate::auth::oauth::{OAuthError, TokenRequest, issue};
+use crate::auth::oauth::{OAuthError, TokenRequest, basic_credentials, issue};
 
 pub(super) fn router() -> Router<AppState> {
     Router::new().route("/oauth/token", post(token))
@@ -30,8 +30,16 @@ async fn token(
     let authorization = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok());
-    match issue(&state, authorization, request).await {
+    // The audit log names the credential tried, never its secret.
+    let tried = basic_credentials(authorization).map(|(id, _)| format!("credential:{id}"));
+    let mut response = match issue(&state, authorization, request).await {
         Ok(token) => token.into_response(),
         Err(error) => error.into_response(),
+    };
+    if let Some(tried) = tried {
+        response
+            .extensions_mut()
+            .insert(crate::http::middleware::AuditActor(tried));
     }
+    response
 }

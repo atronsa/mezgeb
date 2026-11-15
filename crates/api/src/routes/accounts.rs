@@ -273,6 +273,7 @@ async fn change_status(
     let to = AccountStatus::from_name(&body.status)
         .ok_or_else(|| ApiError::invalid("/status", "status must be open, frozen or closed"))?;
     ReasonCode::new(&body.reason).map_err(|e| ApiError::invalid("/reason", e.to_string()))?;
+    let body_reason = body.reason.clone();
     let account = state
         .write({
             let state = state.clone();
@@ -283,16 +284,32 @@ async fn change_status(
                     .get_account(id)
                     .await?
                     .ok_or_else(|| ApiError::not_found("account"))?;
+                let before = current.status();
                 // The same status again is a repeat, not an error.
-                if current.status() != to {
+                if before != to {
                     store.set_status(id, to).await?;
                 }
-                store
+                let account = store
                     .get_account(id)
                     .await?
-                    .ok_or_else(|| ApiError::not_found("account"))
+                    .ok_or_else(|| ApiError::not_found("account"))?;
+                Ok((before, account))
             }
         })
         .await?;
-    Ok(json_response(StatusCode::OK, AccountJson::from(&account)))
+    let (before, account) = account;
+    let mut response = json_response(StatusCode::OK, AccountJson::from(&account));
+    // An account's status is configuration, not ledger: the audit event
+    // records it before and after (ADR-0018).
+    let mut details = serde_json::Map::new();
+    details.insert("before".into(), json!({ "status": before.as_str() }));
+    details.insert(
+        "after".into(),
+        json!({ "status": account.status().as_str() }),
+    );
+    details.insert("reason".into(), json!(body_reason));
+    response
+        .extensions_mut()
+        .insert(crate::http::middleware::AuditDetails(details));
+    Ok(response)
 }
