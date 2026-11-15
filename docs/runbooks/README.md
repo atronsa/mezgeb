@@ -10,3 +10,4 @@ and the decision behind it.
 |---|---|
 | [close-period.md](close-period.md) | Daily, to close the accounting period (step 2.05) |
 | [clients-and-credentials.md](clients-and-credentials.md) | Onboarding a client, issuing, rotating and revoking credentials, a leaked secret (step 2.08) |
+| [tamper-evidence.md](tamper-evidence.md) | After every close, to publish the checkpoint; daily, to verify the chains; on a finding (step 2.09) |

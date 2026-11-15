@@ -9,6 +9,23 @@ supported.
 
 ### Added
 
+- **Tamper evidence** (ADR-0018, migration 0010):
+  - Every entry is hash-chained in its own posting transaction and signed:
+    the signature is its ledger receipt, returned by the API and
+    verifiable with the public key from `GET /v1/keys`.
+  - Audit events for every API change and refusal, every read across
+    clients, and every change to clients and credentials, hash-chained;
+    `GET /v1/audit-events` for auditors (`audit:read`).
+  - A signed checkpoint of both chains at each period close, listed by
+    `GET /v1/checkpoints` and exported to files with
+    `mezgeb-cli checkpoint export`.
+  - `mezgeb-cli verify --chain [--checkpoints DIR]` and
+    `mezgeb-cli key generate`.
+  - The service needs `MEZGEB_SIGNING_KEY_FILE`; `close-period` needs a key
+    too (or `--no-checkpoint`).
+  - The chain costs throughput: postings serialise on its head until they
+    commit (recorded for step 3.03).
+
 - **Authentication and authorization** (ADR-0017, migration 0009):
   - OAuth 2.0 client credentials at `POST /oauth/token`, issuing 15-minute
     opaque tokens; secrets are kept as Argon2id hashes, tokens as SHA-256.

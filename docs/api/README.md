@@ -81,8 +81,10 @@ binds only its own accounts. See
 entry atomic and idempotent on its own. A batch endpoint would be a later,
 additive change if clients need one.
 
-**Receipts.** Every entry has a `receipt` field, the signed ledger receipt
-of spec §7.2. It is `null` until step 2.09.
+**Receipts.** Every entry has a `receipt`: its signed link in the ledger's
+hash chain (spec §7.2, ADR-0018). Verify it with the public key from
+`GET /v1/keys` alone; keep it as proof the ledger recorded the entry. See
+[Tamper evidence](#tamper-evidence).
 
 ## Compatibility
 
@@ -117,7 +119,8 @@ Or from a checkout, against the compose PostgreSQL:
 ```sh
 cargo run -p mezgeb-cli -- migrate     --database-url postgres://mezgeb_owner:mezgeb_owner@localhost:55432/mezgeb
 cargo run -p mezgeb-cli -- client seed deploy/clients.dev.toml     --database-url postgres://mezgeb_admin:mezgeb_admin@localhost:55432/mezgeb
-MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb cargo run -p mezgeb-api
+MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb \
+MEZGEB_SIGNING_KEY_FILE=deploy/signing.dev.hex cargo run -p mezgeb-api
 ```
 
 The configuration is read from the environment; every variable is listed in
@@ -196,6 +199,23 @@ exist (`404`, or `422 bound_account_not_found` in a body). Only
 allows 2 attempts per second per credential, in bursts of 10, before any
 hashing (`429 slow_down`). The buckets are per process.
 
+### Tamper evidence
+
+[ADR-0018](../adr/0018-tamper-evidence.md); the operator's procedure is the
+[tamper evidence runbook](../runbooks/tamper-evidence.md).
+
+- **Receipts.** Every posted entry returns its receipt, signed with the key
+  in `MEZGEB_SIGNING_KEY_FILE` (required). `GET /v1/keys` lists the public
+  keys.
+- **Checkpoints.** Each period close signs a checkpoint of the chains;
+  `GET /v1/checkpoints` lists them, each with a one-line text form. A client
+  that keeps those lines can later prove the ledger's history was not
+  rewritten.
+- **Audit events.** Every request that changes something, every `401` and
+  `403`, and every read by a caller with `accounts:read_all` is recorded:
+  actor, client, action, target, request ID, outcome and details, never a
+  body or a secret. `GET /v1/audit-events` needs `audit:read` (auditors).
+
 ### Testing it
 
 ```sh
@@ -206,8 +226,9 @@ cargo test -p mezgeb-api
 
 | Test | What it proves |
 |---|---|
-| `tests/contract/` | One scenario calls all 43 operations of the contract, the token endpoint included, and checks every response (status, headers, body) against the contract's schema for it; it fails if an operation is never called |
+| `tests/contract/` | One scenario calls all 46 operations of the contract, the token endpoint included, and checks every response (status, headers, body) against the contract's schema for it; it fails if an operation is never called |
 | `tests/authz.rs` | Every operation × every role, generated from the contract and the permission matrix: allowed exactly when the matrix says, `403` otherwise, `401` without a token. A client cannot touch another client's accounts, entries or holds; a revoked credential or a disabled client stops at once |
+| `tests/audit.rs` | Every API mutation produces an audit event (generated from the contract), with its outcome and details; receipts verify with the published key; a period closed through the API gets a checkpoint, and the chains verify against a client's copy |
 | `tests/threats.rs` | The threat model's attacks through the API: a compromised client minting money (TM-07), an insider reopening a period (TM-13) |
 | `tests/http.rs` | A client timeout followed by a retry gives one entry; bad, negative, float and oversized amounts and bodies are refused with their codes; a graceful shutdown under load loses no acknowledged request; a missing scope is refused before the request is read; rate limits |
 | `tests/openapi.rs` | The contract itself, against the template registry and the error rules (step 2.06) |

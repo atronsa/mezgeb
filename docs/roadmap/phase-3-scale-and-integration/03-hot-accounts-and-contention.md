@@ -21,8 +21,17 @@ in nearly every payment.
   3. Batching entries in one transaction.
   4. A chain-head alternative: per-partition chains merged at checkpoint.
 
+**Recorded by step 2.09.** The journal's hash chain (ADR-0018) adds one
+lock for the whole ledger: every posting holds the chain head from its last
+step to its commit, so commits no longer share a disk flush. On the
+development machine, 2-line entries fell from 135 to 71 per second between
+uniform accounts, and from 52 to 41 on one hot account
+([evidence](../../evidence/2.09-audit-logging-and-tamper-evidence.md)).
+Options for this step: several chains (by account range, each with its own
+head and checkpoint), or chaining in batches.
+
 **4. Implementation Tasks**
-- Measure contention in the benchmark.
+- Measure contention in the benchmark, including the chain head.
 - Choose and implement the minimal option (ADR with numbers).
 - Update the verifier and reports to understand sharded accounts.
 

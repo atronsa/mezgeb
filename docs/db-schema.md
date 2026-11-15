@@ -27,6 +27,11 @@ own, with constraints, triggers and role privileges.
 | `clients` | Client platform | Name, status (`active`, `disabled`), rate limit (`rate_per_second`, `burst`); a disabled client never becomes active again (migration 0009, step 2.08) |
 | `client_credentials` | Credential of a client | Its ID is the OAuth `client_id`; the actor, the roles, the Argon2id hash of the secret, when it was revoked. Only revoking it ever changes it |
 | `access_tokens` | Access token issued | The SHA-256 of the token, its credential, its scopes and when it expires; deleted once expired |
+| `entry_chain` | Entry, in the hash chain | Its position (commit order), the previous hash, its own hash, and the receipt: the key ID and the Ed25519 signature (migration 0010, step 2.09) |
+| `audit_events` | Audit event | When, the client and actor, the action (`METHOD /route` or a named action), the target, the request ID, the outcome, the details, and the chain's previous hash and own hash |
+| `checkpoints` | Checkpoint at a period's close | Both chains' heads (position and hash), when, and the signature |
+| `signing_keys` | Public signing key | The key ID and the Ed25519 public key; retired keys stay |
+| `chain_heads` | Chain | Its last position and hash; one row each for `entries` and `audit`, the only rows that change |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal`, `adjustment` or, since migration 0006, `refund`), and
@@ -89,9 +94,8 @@ Their tables do not exist yet. Each step adds the constraint and its test.
 | Invariant | What the database will enforce | Step |
 |---|---|---|
 | INV-10 | No entry in a closed accounting period | 2.05 |
-| INV-12 | `recorded_time` strictly increasing under concurrency: measured in step 1.10 (no tie or inversion in 1,000 parallel postings), guaranteed by the hash chain's single commit order | 2.09 |
+| INV-12 | `recorded_time` strictly increasing under concurrency: measured in step 1.10 (no tie or inversion in 1,000 parallel postings). Since step 2.09 the hash chain gives every entry a single commit order (`entry_chain.position`); `recorded_time` itself is still assigned at insert, before the chain's lock, so it is measured, not guaranteed | 3.03 |
 | INV-19, INV-20 | Voucher escrow cap; one settlement per `(device_id, counter)` | 2.12 |
-| INV-26 | One signed ledger receipt per entry | 2.09 |
 
 ## Idempotency and retention
 
@@ -257,6 +261,35 @@ operator's procedure is the
   check a secret or a token, and inserts and deletes tokens: a compromised
   service cannot mint itself a credential.
 
+## Tamper evidence
+
+Silent changes by someone with full database access are made detectable
+(ADR-0018, migration 0010, step 2.09; the operator's procedure is the
+[tamper evidence runbook](runbooks/tamper-evidence.md)).
+
+- **The entry chain (INV-11).** Every posting ends, in its own transaction,
+  by locking the `entries` head, hashing the entry, its lines and the
+  previous hash (`mezgeb-core::chain`), and appending the link to
+  `entry_chain`. Chain order is commit order. Changing any entry, line or
+  link breaks every hash after it.
+- **Receipts (INV-26).** Each link is signed with the ledger's Ed25519 key:
+  that signature is the entry's receipt, verifiable with the public key in
+  `signing_keys` alone. A foreign key ensures every signature names a
+  published key.
+- **The audit chain.** Audit events are chained the same way, on the
+  `audit` head.
+- **Checkpoints.** At each close, both heads are signed into `checkpoints`
+  and exported to files kept outside the database. A deleted or rewritten
+  tail disagrees with a checkpoint someone else holds.
+- **Append-only.** The chains, checkpoints and keys are never changed or
+  deleted (`mezgeb_reject_change`); only `chain_heads` moves.
+- **Before the chain.** Entries posted before migration 0010 have no link;
+  `verify --chain` counts them, and any entry after the chain began that has
+  no link is a finding.
+
+The cost: postings serialise on the `entries` head from their last step to
+their commit (see [What one posting costs](#what-one-posting-costs)).
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
@@ -327,6 +360,14 @@ possible optimisation for step 3.01.
 16 connections posting to one account, the lock `SELECT` took 40–45 ms
 on average while the rest of the posting took under 2 ms.
 
+**Since step 2.09, every posting also takes the chain head** (ADR-0018):
+one row lock for the whole ledger, held from the posting's last step to
+its commit, so commits no longer share a disk flush. Measured on the
+development machine (Docker Desktop on Windows), 2-line entries fell from
+135 to 71 per second between uniform accounts and from 52 to 41 on one hot
+account. The slow disk flush of that machine makes the serial step long; a
+server with fast disks loses less. Step 3.03 takes it up.
+
 ## Error codes
 
 Triggers raise Mezgeb's own SQLSTATE codes so callers and tests can tell
@@ -357,10 +398,10 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens. No DELETE on anything else. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads. No DELETE on anything else. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
-| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens; nothing in the ledger (step 2.08). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
+| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, and records those changes as audit events; nothing in the ledger (step 2.08). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
 
 `mezgeb_app` also has `transaction_timeout = 30s`, which verification
 relies on (see [Verification](#verification)). Both are set in
