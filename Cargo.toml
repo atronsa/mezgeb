@@ -29,3 +29,12 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 unwrap_used = "deny"
+
+# Argon2 is deliberately slow, and unoptimised it is slower still: a debug
+# build's tests hash secrets for seconds and starve the tests running beside
+# them. The password hashing crates are always built optimised.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

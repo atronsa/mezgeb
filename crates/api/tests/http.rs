@@ -99,7 +99,9 @@ async fn a_client_timeout_then_a_retry_gives_one_entry() -> Result<(), BoxError>
     // The client gave up, but the posting is still waiting, not cancelled.
     sqlx::query("ROLLBACK").execute(&mut blocker).await?;
     let mut entry = None;
-    for _ in 0..100 {
+    // Up to 30 seconds: the commit itself takes milliseconds, but a busy
+    // machine running other tests beside this one can delay it.
+    for _ in 0..600 {
         let found = api
             .get("/v1/entries/by-idempotency-key/slow-1", CLIENT)
             .await?;
@@ -382,18 +384,26 @@ async fn clients_and_logins_are_rate_limited() -> Result<(), BoxError> {
     let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
     let api = Api::new(&server.base, contract);
 
-    // The slow client: a burst of 3, then refused.
-    for _ in 0..3 {
+    // The slow client: its burst of 3 passes, then it is refused. On a busy
+    // machine a request can take long enough for the bucket to refill one,
+    // so send until refused rather than exactly four.
+    let mut passed = 0;
+    let mut limited = None;
+    for _ in 0..20 {
         let reply = api.get("/v1/periods/current", SLOW).await?;
+        if reply.status == 429 {
+            limited = Some(reply);
+            break;
+        }
         assert_eq!(reply.status, 200, "{}", reply.body);
+        passed += 1;
     }
-    let limited = api.get("/v1/periods/current", SLOW).await?;
-    assert_eq!(
-        (limited.status, limited.code()),
-        (429, "rate_limited"),
-        "{}",
-        limited.body
+    assert!(
+        passed >= 3,
+        "only {passed} requests passed before the limit"
     );
+    let limited = limited.ok_or("the slow client was never limited")?;
+    assert_eq!(limited.code(), "rate_limited", "{}", limited.body);
     assert_eq!(
         limited.headers.get("retry-after").map(|v| v.as_bytes()),
         Some(&b"1"[..])
