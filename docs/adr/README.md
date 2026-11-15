@@ -28,6 +28,7 @@ back to the reason it exists.
 | [0014](0014-payment-channels-and-fees.md) | Payment channels are metadata; fees are lines in the payment's own entry | E07, E08 open questions | Accepted |
 | [0015](0015-refunds-and-disputes.md) | Refunds name the entry they refund and are capped by it; disputes hold merchant funds in their own sub-account | E11, E12 open questions; refund vs reversal | Accepted |
 | [0016](0016-accounting-periods.md) | Accounting periods follow posting order; a close switches periods under a lock | Spec §6; INV-10 | Accepted |
+| [0017](0017-authentication-and-authorization.md) | OAuth 2.0 client credentials for opaque tokens; roles grant scopes from a permission matrix; a client touches only its own accounts | Spec §13; TM-01, TM-05, TM-07, TM-12, TM-13 | Accepted |
 
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.
