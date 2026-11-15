@@ -92,7 +92,10 @@ impl IntoResponse for OAuthError {
                 HeaderValue::from_static("Basic realm=\"mezgeb\""),
             );
         }
-        if self.status == StatusCode::SERVICE_UNAVAILABLE {
+        if matches!(
+            self.status,
+            StatusCode::SERVICE_UNAVAILABLE | StatusCode::TOO_MANY_REQUESTS
+        ) {
             headers.insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
         }
         response
@@ -190,6 +193,19 @@ pub async fn issue(
         ));
     }
     let (id, secret) = basic_credentials(authorization).ok_or_else(OAuthError::invalid_client)?;
+    // Before any hashing: each attempt costs an Argon2 hash, and a secret
+    // must not be guessable at speed. Unknown IDs are limited too.
+    if !state
+        .limits
+        .logins
+        .take(id, super::rate::TOKEN_RATE, super::rate::TOKEN_BURST)
+    {
+        return Err(OAuthError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "slow_down",
+            "Too many token requests for this credential; retry after Retry-After seconds.",
+        ));
+    }
     match request.grant_type.as_deref() {
         Some("client_credentials") => {}
         Some(_) => {

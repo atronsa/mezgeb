@@ -35,6 +35,9 @@ pub const CHECKER: &str = "checker-token";
 /// credential with `approver`: one person holding both roles on separate
 /// credentials, which maker-checker must still refuse.
 pub const MAKER_AS_APPROVER: &str = "maker-as-approver-token";
+/// A client limited to 1 request per second, in bursts of 3: `reader`.
+pub const SLOW: &str = "slow-client-token";
+pub const SLOW_ID: &str = "0192f3c4-0000-7000-8000-00000000c33e";
 /// Another wallet client, with the same roles as [`CLIENT`].
 pub const OTHER: &str = "other-client-token";
 pub const CLIENT_ID: &str = "0192f3c4-0000-7000-8000-00000000c11e";
@@ -93,6 +96,13 @@ fn credentials() -> Vec<(&'static str, String, String, Vec<String>, &'static str
             roles(&["approver"]),
             MAKER_AS_APPROVER,
         ),
+        (
+            SLOW_ID,
+            "0192f3c4-0000-7000-8000-0000000c0006".to_owned(),
+            "app:slow".to_owned(),
+            roles(&["reader"]),
+            SLOW,
+        ),
     ];
     for (n, (role, token)) in ROLE_TOKENS.iter().enumerate() {
         all.push((
@@ -123,16 +133,17 @@ async fn seed(
     permissions: &Permissions,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut admin = db.admin().await?;
-    for (id, name) in [
-        (CLIENT_ID, "wallet"),
-        (OPERATOR_ID, "operator"),
-        (OTHER_ID, "other-wallet"),
+    for (id, name, rate, burst) in [
+        (CLIENT_ID, "wallet", 100_000, 100_000),
+        (OPERATOR_ID, "operator", 100_000, 100_000),
+        (OTHER_ID, "other-wallet", 100_000, 100_000),
+        (SLOW_ID, "slow-wallet", 1, 3),
     ] {
         if mezgeb_engine::client_by_name(&mut admin, name)
             .await?
             .is_none()
         {
-            mezgeb_engine::create_client(&mut admin, id.parse()?, name, 100_000, 100_000).await?;
+            mezgeb_engine::create_client(&mut admin, id.parse()?, name, rate, burst).await?;
         }
     }
     let mut app = db.app().await?;
@@ -198,6 +209,7 @@ impl TestServer {
             chart: Arc::new(chart),
             permissions: Arc::new(permissions),
             token_ttl: Duration::from_secs(900),
+            limits: Arc::default(),
             registry: Arc::new(TemplateRegistry::standard()),
             options: PostOptions {
                 lock_timeout: Duration::from_secs(20),
