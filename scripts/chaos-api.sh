@@ -19,7 +19,8 @@
 #      through the API, every request whose outcome the client never learned;
 #   5. `mezgeb-cli verify --full` checks the whole ledger.
 #
-# Any violation or dirty verification stops the run with status 1. Results
+# Any violation, dirty verification, or kill that missed the load stops the
+# run with status 1. Results
 # go to target/chaos-api/results.md, the client's log to
 # target/chaos-api/requests.log, the service's log to target/chaos-api/api.log.
 #
@@ -97,8 +98,8 @@ start_api
 $LOAD setup "$OWNER_URL" "$BASE"
 
 {
-    echo "| Cycle | Killed | After | Sent | Acked | Rejected | Unknown: committed / absent | Back in | Check | Verify |"
-    echo "|---:|---|---:|---:|---:|---:|---:|---:|---|---|"
+    echo "| Cycle | Killed | After | During load | Sent | Acked | Rejected | Unknown: committed / absent | Back in | Check | Verify |"
+    echo "|---:|---|---:|---|---:|---:|---:|---:|---:|---|---|"
 } >"$RESULTS"
 
 field() { # field <name> <line>: the value of name=value in line
@@ -112,6 +113,9 @@ for cycle in $(seq 1 "$CYCLES"); do
     $LOAD load "$BASE" "$LOG" "$cycle" "$WORKERS" "$LOAD_SECONDS" >"$OUT/load-$cycle.txt" &
     loader=$!
     sleep "$kill_after"
+    # A busy machine can delay the kill past the end of the load; such a
+    # cycle tests nothing, and the run fails.
+    if kill -0 "$loader" 2>/dev/null; then during=yes; else during=NO; fi
     if [[ $target == postgres ]]; then
         docker compose kill -s SIGKILL postgres >/dev/null 2>&1
     else
@@ -136,12 +140,12 @@ for cycle in $(seq 1 "$CYCLES"); do
     $VERIFY verify --full --settle-seconds 0 --database-url "$VERIFIER_URL" \
         >"$OUT/verify-$cycle.txt" 2>&1 || verify_status=DIRTY
 
-    row="| $cycle | $target | ${kill_after} s | $(field sent "$load_line") | $(field acked "$check_line") \
+    row="| $cycle | $target | ${kill_after} s | $during | $(field sent "$load_line") | $(field acked "$check_line") \
 | $(field rejected "$check_line") | $(field unknown_committed "$check_line") / $(field unknown_absent "$check_line") \
 | ${back} s | $check_status | $verify_status |"
     echo "$row" >>"$RESULTS"
     echo "$row"
-    if [[ $check_status != pass || $verify_status != clean ]]; then
+    if [[ $check_status != pass || $verify_status != clean || $during != yes ]]; then
         cat "$OUT/check-$cycle.txt" "$OUT/verify-$cycle.txt"
         echo "cycle $cycle failed" >&2
         exit 1
