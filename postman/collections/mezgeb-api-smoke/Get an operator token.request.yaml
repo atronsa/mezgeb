@@ -1,0 +1,25 @@
+$kind: http-request
+url: '{{baseUrl}}/oauth/token'
+method: POST
+headers:
+  - key: Content-Type
+    value: application/x-www-form-urlencoded
+body:
+  type: text
+  content: grant_type=client_credentials
+auth:
+  type: basic
+  credentials:
+    - key: username
+      value: '{{operatorId}}'
+    - key: password
+      value: '{{operatorSecret}}'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('an operator token', () => {
+        pm.response.to.have.status(200);
+        pm.collectionVariables.set('operatorToken', pm.response.json().access_token);
+      });
+order: 200

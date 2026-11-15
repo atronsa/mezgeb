@@ -1,0 +1,30 @@
+$kind: http-request
+url: '{{baseUrl}}/oauth/token'
+method: POST
+headers:
+  - key: Content-Type
+    value: application/x-www-form-urlencoded
+body:
+  type: text
+  content: grant_type=client_credentials
+auth:
+  type: basic
+  credentials:
+    - key: username
+      value: '{{clientId}}'
+    - key: password
+      value: '{{clientSecret}}'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('a client token', () => {
+        pm.response.to.have.status(200);
+        const body = pm.response.json();
+        pm.expect(body.token_type).to.equal('Bearer');
+        pm.expect(body.access_token).to.match(/^mzt_[0-9a-f]{64}$/);
+        pm.expect(body.scope.split(' ')).to.include('operations:write');
+        pm.expect(pm.response.headers.get('Cache-Control')).to.equal('no-store');
+        pm.collectionVariables.set('clientToken', body.access_token);
+      });
+order: 100
