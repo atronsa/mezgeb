@@ -157,6 +157,15 @@ struct Config {
     statements: bool,
 }
 
+/// The benchmark's signing key: postings sign their receipts as the
+/// service's do (ADR-0018), so the cost of signing is measured.
+fn signer() -> Arc<mezgeb_engine::Signer> {
+    static SIGNER: std::sync::OnceLock<Arc<mezgeb_engine::Signer>> = std::sync::OnceLock::new();
+    SIGNER
+        .get_or_init(|| Arc::new(mezgeb_engine::Signer::from_seed([0xbe; 32])))
+        .clone()
+}
+
 fn parse(args: &[String]) -> Result<Config> {
     let mut config = Config {
         database_url: String::new(),
@@ -385,6 +394,7 @@ async fn worker(
     let mut rng = Rng(id.wrapping_mul(0x2545_f491_4f6c_dd1d) ^ 0x6d65_7a67_6562);
     let options = PostOptions {
         stats: Some(stats),
+        signer: Some(signer()),
         ..PostOptions::default()
     };
     // Open loop: this worker's postings are due every `interval`, offset so
@@ -511,6 +521,8 @@ async fn run_one(config: &Arc<Config>, scenario: Scenario) -> Result<RunResult> 
             .max_connections(u32::try_from(config.workers.max(SETUP_TASKS))?)
             .connect_with(role(&admin, &database, "mezgeb_app"))
             .await?;
+        // Every measured posting signs its receipt, as the service does.
+        signer().register(&mut *pool.acquire().await?).await?;
         setup(&pool, config.wallets).await?;
 
         let mut statements = None;
