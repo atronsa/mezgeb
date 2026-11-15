@@ -5,7 +5,7 @@
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use mezgeb_api::auth::Tokens;
+use mezgeb_api::auth::Permissions;
 use mezgeb_api::config::Config;
 use mezgeb_api::{AppState, serve};
 use mezgeb_core::Chart;
@@ -41,7 +41,7 @@ async fn run() -> Result<(), String> {
     let chart_text = std::fs::read_to_string(&config.chart)
         .map_err(|e| format!("cannot read {}: {e}", config.chart.display()))?;
     let chart = Chart::from_toml(&chart_text).map_err(|e| format!("chart: {e}"))?;
-    let tokens = Tokens::load(&config.tokens)?;
+    let permissions = Permissions::built_in()?;
     let pool = PgPoolOptions::new()
         .max_connections(config.pool_size)
         .acquire_timeout(config.request_timeout)
@@ -51,7 +51,8 @@ async fn run() -> Result<(), String> {
     let state = AppState {
         pool,
         chart: Arc::new(chart),
-        tokens: Arc::new(tokens),
+        permissions: Arc::new(permissions),
+        token_ttl: config.token_ttl,
         registry: Arc::new(TemplateRegistry::standard()),
         options: PostOptions::default(),
         tasks: TaskTracker::new(),

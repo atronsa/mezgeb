@@ -12,7 +12,9 @@
 //! api_chaos check <app-url> <base-url> <log> <cycle|all>
 //! ```
 //!
-//! The tokens are the development ones in `deploy/tokens.dev.toml`.
+//! It logs in with the development credentials of `deploy/clients.dev.toml`
+//! (`POST /oauth/token`) when each command starts; a command runs for less
+//! than a token lives.
 //!
 //! **The log is the client's memory**, as in the engine's `chaos_load`:
 //! `sent <key> <from> <to> <amount>` before each request, then
@@ -41,9 +43,17 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{Connection, PgConnection, PgPool};
 use uuid::Uuid;
 
-const CLIENT_TOKEN: &str = "dev-client-token";
-const OPERATOR_TOKEN: &str = "dev-operator-token";
-/// The client of `dev-client-token`.
+/// The wallet credential (`poster`, `reader`) and the operator's (`admin`
+/// among others), with their development secrets.
+const CLIENT: (&str, &str) = (
+    "0192f3c4-0000-7000-8000-0000000c0001",
+    "dev-wallet-secret-0001",
+);
+const OPERATOR: (&str, &str) = (
+    "0192f3c4-0000-7000-8000-0000000c0002",
+    "dev-operator-secret-0002",
+);
+/// The client the wallet credential belongs to.
 const CLIENT_ID: &str = "0192f3c4-0000-7000-8000-00000000c11e";
 
 const WALLETS: u64 = 10;
@@ -64,6 +74,23 @@ fn etb(santim: i64) -> Value {
 fn transfer(from: u64, to: u64, amount: i64) -> Value {
     json!({"accounts": {"payer_wallet": wallet(from), "payee_wallet": wallet(to)},
            "amounts": {"amount": etb(amount)}})
+}
+
+/// An access token for a credential.
+async fn token(http: &reqwest::Client, base: &str, (id, secret): (&str, &str)) -> Result<String> {
+    let response = http
+        .post(format!("{base}/oauth/token"))
+        .basic_auth(id, Some(secret))
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body("grant_type=client_credentials")
+        .send()
+        .await?;
+    let status = response.status().as_u16();
+    let body: Value = response.json().await?;
+    body["access_token"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| format!("no token for {id}: {status} {body}").into())
 }
 
 fn http() -> Result<reqwest::Client> {
@@ -133,7 +160,9 @@ async fn setup(owner_url: &str, base: &str) -> Result<()> {
     MIGRATOR.run(&mut owner).await?;
     owner.close().await?;
     let http = http()?;
-    let open = |token: &'static str, reference: String| {
+    let client = token(&http, base, CLIENT).await?;
+    let operator = token(&http, base, OPERATOR).await?;
+    let open = |token: String, reference: String| {
         let http = http.clone();
         async move {
             let response = http
@@ -152,15 +181,15 @@ async fn setup(owner_url: &str, base: &str) -> Result<()> {
             }
         }
     };
-    open(OPERATOR_TOKEN, "1010".into()).await?;
+    open(operator.clone(), "1010".into()).await?;
     for n in 0..WALLETS {
-        open(CLIENT_TOKEN, wallet(n)).await?;
+        open(client.clone(), wallet(n)).await?;
         let deposit = json!({"accounts": {"customer_funds": "1010", "customer_wallet": wallet(n)},
                              "amounts": {"amount": etb(DEPOSIT)}});
         let key = format!("deposit-{n}");
         let path = "/v1/operations/deposit_confirmed.v1";
         if !matches!(
-            post(&http, base, path, CLIENT_TOKEN, &key, &deposit).await,
+            post(&http, base, path, &client, &key, &deposit).await,
             Answer::Posted { .. }
         ) {
             return Err(format!("the deposit to {} failed", wallet(n)).into());
@@ -210,7 +239,14 @@ struct Counts {
     odd: u64,
 }
 
-async fn worker(base: String, log: Log, cycle: u64, id: u64, deadline: Instant) -> Result<Counts> {
+async fn worker(
+    base: String,
+    token: String,
+    log: Log,
+    cycle: u64,
+    id: u64,
+    deadline: Instant,
+) -> Result<Counts> {
     let http = http()?;
     let mut rng = Rng(cycle * 1_000 + id);
     let mut counts = Counts::default();
@@ -233,7 +269,7 @@ async fn worker(base: String, log: Log, cycle: u64, id: u64, deadline: Instant) 
             &http,
             &base,
             path,
-            CLIENT_TOKEN,
+            &token,
             &key,
             &transfer(from, to, amount),
         )
@@ -266,9 +302,20 @@ async fn worker(base: String, log: Log, cycle: u64, id: u64, deadline: Instant) 
 /// happens to the database or the service meanwhile.
 async fn load(base: &str, path: &str, cycle: u64, workers: u64, seconds: u64) -> Result<()> {
     let log = Log::open(path)?;
+    let client = token(&http()?, base, CLIENT).await?;
     let deadline = Instant::now() + Duration::from_secs(seconds);
     let tasks: Vec<_> = (0..workers)
-        .map(|id| tokio::spawn(worker(base.to_owned(), log.clone(), cycle, id, deadline)))
+        .map(|id| {
+            let worker = worker(
+                base.to_owned(),
+                client.clone(),
+                log.clone(),
+                cycle,
+                id,
+                deadline,
+            );
+            tokio::spawn(worker)
+        })
         .collect();
     let mut total = Counts::default();
     for task in tasks {
@@ -427,11 +474,12 @@ async fn check(url: &str, base: &str, path: &str, cycle: &str) -> Result<bool> {
 
     // Resolve each unknown outcome as a client would: retry it, same key.
     let http = http()?;
+    let client = token(&http, base, CLIENT).await?;
     let route = "/v1/operations/p2p_transfer.v1";
     for (key, sent, existing) in &unknown {
         let body = transfer(sent.from, sent.to, sent.amount);
         match (
-            post(&http, base, route, CLIENT_TOKEN, key, &body).await,
+            post(&http, base, route, &client, key, &body).await,
             existing,
         ) {
             (Answer::Posted { entry, replayed }, Some(id)) if entry == id.to_string() => {

@@ -16,6 +16,10 @@ use crate::AppState;
 use crate::http::extract::Caller;
 use crate::problem::ApiError;
 
+/// Scopes that widen what other scopes reach instead of naming an
+/// operation: `accounts:read_all` reads every client's accounts and entries.
+pub const MODIFIERS: &[&str] = &["accounts:read_all"];
+
 /// The scopes an operation accepts: the caller needs at least one.
 pub trait Scope {
     const NAMES: &'static [&'static str];
@@ -33,7 +37,6 @@ macro_rules! scopes {
         )*
 
         /// Every scope an operation can need, as the contract lists them.
-        #[cfg(test)]
         pub const ALL: &[&[&str]] = &[$(&[$($name),+]),*];
     };
 }
@@ -66,6 +69,9 @@ impl<S: Scope> FromRequestParts<AppState> for Auth<S> {
     async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Auth<S>, ApiError> {
         let Caller(principal) = Caller::from_request_parts(parts, state).await?;
         if S::NAMES.iter().any(|scope| principal.has(scope)) {
+            // For the checks that follow, such as the templates the caller
+            // may post.
+            parts.extensions.insert(principal.clone());
             Ok(Auth(principal, PhantomData))
         } else {
             Err(ApiError::forbidden(&S::NAMES.join(" or ")))

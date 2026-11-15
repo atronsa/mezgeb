@@ -22,7 +22,7 @@ impl FromRequestParts<AppState> for Caller {
             .headers
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok());
-        let principal = state.tokens.authenticate(header)?;
+        let principal = crate::auth::authenticate(state, header).await?;
         if let Some(logged) = parts.extensions.get::<LoggedClient>()
             && let Ok(mut slot) = logged.0.lock()
         {
