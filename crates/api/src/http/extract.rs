@@ -26,7 +26,11 @@ impl FromRequestParts<AppState> for Caller {
         if let Some(logged) = parts.extensions.get::<LoggedClient>()
             && let Ok(mut slot) = logged.0.lock()
         {
-            *slot = Some(principal.client);
+            *slot = Some(crate::http::middleware::LoggedCaller {
+                client: principal.client,
+                actor: principal.actor.as_str().to_owned(),
+                sees_all: principal.sees_all(),
+            });
         }
         Ok(Caller(principal))
     }

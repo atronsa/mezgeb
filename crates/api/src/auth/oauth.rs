@@ -84,6 +84,9 @@ impl IntoResponse for OAuthError {
             error_description: &self.description,
         };
         let mut response = (self.status, axum::Json(body)).into_response();
+        response
+            .extensions_mut()
+            .insert(crate::http::middleware::ProblemCode(self.error));
         let headers = response.headers_mut();
         no_store(headers);
         if self.status == StatusCode::UNAUTHORIZED {

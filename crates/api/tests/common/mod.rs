@@ -25,6 +25,9 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub type TestResult = Result<(), Box<dyn std::error::Error>>;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// The test servers' signing key (ADR-0018), as a hex seed.
+pub const SIGNING_SEED: &str = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+
 /// The wallet client's token: `poster` and `reader`.
 pub const CLIENT: &str = "client-token";
 /// The operator's maker: `operator`, `admin` and `auditor`.
@@ -204,6 +207,8 @@ impl TestServer {
         let chart = Chart::from_toml(include_str!("../../../../charts/wallet-provider.toml"))?;
         let permissions = Permissions::built_in()?;
         seed(&db, &permissions).await?;
+        let signer = mezgeb_engine::Signer::from_hex(SIGNING_SEED)?;
+        signer.register(&mut db.app().await?).await?;
         let state = AppState {
             pool: db.app_pool_of(16).await?,
             chart: Arc::new(chart),
@@ -213,6 +218,7 @@ impl TestServer {
             registry: Arc::new(TemplateRegistry::standard()),
             options: PostOptions {
                 lock_timeout: Duration::from_secs(20),
+                signer: Some(Arc::new(signer)),
                 ..PostOptions::default()
             },
             tasks: TaskTracker::new(),

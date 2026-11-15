@@ -6,6 +6,7 @@
 //! | `MEZGEB_LISTEN` | `0.0.0.0:8080` | Address to listen on |
 //! | `MEZGEB_CHART` | `charts/wallet-provider.toml` | The chart of accounts |
 //! | `MEZGEB_TOKEN_TTL_SECONDS` | `900` | How long an access token lives |
+//! | `MEZGEB_SIGNING_KEY_FILE` | required | The Ed25519 key that signs receipts and checkpoints (`mezgeb-cli key generate`) |
 //! | `MEZGEB_REQUEST_TIMEOUT_MS` | `10000` | How long a request may take before the client is told to retry |
 //! | `MEZGEB_BODY_LIMIT_BYTES` | `65536` | The largest request body accepted |
 //! | `MEZGEB_DB_POOL` | `16` | Database connections |
@@ -22,6 +23,7 @@ pub struct Config {
     pub listen: SocketAddr,
     pub chart: PathBuf,
     pub token_ttl: Duration,
+    pub signing_key: PathBuf,
     pub request_timeout: Duration,
     pub body_limit: usize,
     pub pool_size: u32,
@@ -53,6 +55,9 @@ impl Config {
                 .unwrap_or_else(|| "charts/wallet-provider.toml".to_owned())
                 .into(),
             token_ttl: Duration::from_secs(number("MEZGEB_TOKEN_TTL_SECONDS", 900)?),
+            signing_key: var("MEZGEB_SIGNING_KEY_FILE")
+                .ok_or("MEZGEB_SIGNING_KEY_FILE is required: every entry gets a signed receipt")?
+                .into(),
             request_timeout: Duration::from_millis(number("MEZGEB_REQUEST_TIMEOUT_MS", 10_000)?),
             body_limit: number("MEZGEB_BODY_LIMIT_BYTES", 65_536)?,
             pool_size: number("MEZGEB_DB_POOL", 16)?,

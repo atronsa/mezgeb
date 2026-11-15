@@ -18,6 +18,8 @@ pub struct EntryRecord {
     pub period_id: Option<i64>,
     /// The client that posted it.
     pub client: ClientId,
+    /// Its signed receipt (INV-26); `None` before the chain began.
+    pub receipt: Option<crate::tamper::Receipt>,
 }
 
 /// An entry, by ID.
@@ -37,7 +39,9 @@ pub async fn entry_record(
     .fetch_one(&mut *conn)
     .await
     .map_err(db)?;
+    let receipt = crate::tamper::receipt(conn, id).await?;
     Ok(Some(EntryRecord {
+        receipt,
         entry,
         recorded_at: Timestamp::from_micros(row.try_get("recorded_micros").map_err(db)?),
         period_id: row.try_get("period_id").map_err(db)?,
