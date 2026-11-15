@@ -50,6 +50,8 @@ tags:
     description: "Trial balance and ageing."
   - name: "Offline"
     description: "Offline payments. Planned (steps 2.10–2.12)."
+  - name: "OAuth"
+    description: "Access tokens for client credentials (RFC 6749, ADR-0017)."
 paths:
   /v1/accounts:
     post:
@@ -3325,11 +3327,92 @@ paths:
                 not_implemented:
                   $ref: "#/components/examples/error-not_implemented"
       x-mezgeb-status: "planned"
+  /oauth/token:
+    post:
+      operationId: "issueToken"
+      tags:
+        - "OAuth"
+      summary: "Get an access token"
+      description: |-
+        OAuth 2.0 client credentials (RFC 6749 §4.4). Authenticate with HTTP Basic: the credential's ID as the user name and its secret as the password. Credentials in the body are refused. The token lives 15 minutes by default and carries the scopes the credential's roles grant (the permission matrix, ADR-0017), or the subset asked for with `scope`. Revoking the credential, or disabling its client, ends the token at once.
+
+        Errors are RFC 6749 §5.2 objects (`{"error": "invalid_client"}`), not Problem Details. An unknown credential, a revoked one and a wrong secret are all `401 invalid_client`.
+      security:
+        - clientSecretBasic: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: "#/components/schemas/TokenRequest"
+            example:
+              grant_type: "client_credentials"
+              scope: "accounts:read operations:write"
+      responses:
+        "200":
+          description: "Issued"
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/NoStore"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenResponse"
+              example:
+                access_token: "mzt_4f9c2a8e7b1d3f5a6c8e0b2d4f6a8c0e2b4d6f8a0c2e4b6d8f0a2c4e6b8d0f2a"
+                token_type: "Bearer"
+                expires_in: 900
+                scope: "accounts:read operations:write"
+        "400":
+          description: "Bad request"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+              examples:
+                unsupported_grant_type:
+                  value:
+                    error: "unsupported_grant_type"
+                    error_description: "Only grant_type=client_credentials is supported."
+                invalid_scope:
+                  value:
+                    error: "invalid_scope"
+                    error_description: "The credential's roles do not grant \"periods:close\"."
+        "401":
+          description: "Bad client"
+          headers:
+            WWW-Authenticate:
+              description: "`Basic realm=\"mezgeb\"`."
+              schema:
+                type: "string"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+              example:
+                error: "invalid_client"
+                error_description: "Client authentication failed."
+        "503":
+          description: "Unavailable"
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+              example:
+                error: "temporarily_unavailable"
+                error_description: "The token could not be issued; retry."
 components:
   securitySchemes:
+    clientSecretBasic:
+      type: "http"
+      scheme: "basic"
+      description: "The token endpoint only: a credential's ID and secret (RFC 6749 §2.3.1)."
     oauth2:
       type: "oauth2"
-      description: "OAuth 2.0 client credentials. Each client is a platform integrating with the ledger; operator tokens carry operator scopes. Designed in step 2.08."
+      description: "OAuth 2.0 client credentials (ADR-0017). Each client is a platform integrating with the ledger, and each of its credentials holds roles; a token carries the scopes its roles grant. Operator scopes go only to the operator's staff."
       flows:
         clientCredentials:
           tokenUrl: "/oauth/token"
@@ -3378,6 +3461,12 @@ components:
       description: "The URL of the created resource."
       schema:
         type: "string"
+    NoStore:
+      description: "`no-store`: a token response is never cached (RFC 6749 §5.1)."
+      schema:
+        type: "string"
+        enum:
+          - "no-store"
     IdempotentReplayed:
       description: "`true` when the response repeats an earlier request with the same key."
       schema:
@@ -3518,6 +3607,59 @@ components:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
   schemas:
+    TokenRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "grant_type"
+      properties:
+        grant_type:
+          type: "string"
+          enum:
+            - "client_credentials"
+        scope:
+          type: "string"
+          description: "Space-separated scopes, at most those the credential's roles grant. Omitted: all of them."
+          maxLength: 1024
+    TokenResponse:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "access_token"
+        - "token_type"
+        - "expires_in"
+        - "scope"
+      properties:
+        access_token:
+          type: "string"
+          pattern: "^mzt_[0-9a-f]{64}$"
+        token_type:
+          type: "string"
+          enum:
+            - "Bearer"
+        expires_in:
+          type: "integer"
+          minimum: 1
+          description: "Seconds until the token expires."
+        scope:
+          type: "string"
+          description: "The scopes granted, space-separated."
+    OAuthError:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "error"
+      properties:
+        error:
+          type: "string"
+          enum:
+            - "invalid_request"
+            - "invalid_client"
+            - "unsupported_grant_type"
+            - "invalid_scope"
+            - "temporarily_unavailable"
+        error_description:
+          type: "string"
     Uuid7:
       type: "string"
       format: "uuid"
