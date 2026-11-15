@@ -1,7 +1,7 @@
 //! Reports: trial balance and ageing.
 
 use axum::Router;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use mezgeb_core::Money;
@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::common::{ApiResult, connection};
 use crate::AppState;
 use crate::auth::scope::{Auth, ReportsRead};
+use crate::http::extract::QueryParams;
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
 use crate::wire::{MoneyJson, format_time, now, parse_time};
@@ -33,7 +34,7 @@ struct TrialBalanceQuery {
 async fn trial_balance(
     State(state): State<AppState>,
     Auth(_caller, _): Auth<ReportsRead>,
-    Query(query): Query<TrialBalanceQuery>,
+    QueryParams(query): QueryParams<TrialBalanceQuery>,
 ) -> ApiResult {
     let as_of = match (query.period_id, &query.as_of) {
         (Some(_), Some(_)) => {
