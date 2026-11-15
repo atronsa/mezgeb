@@ -118,7 +118,7 @@ fn credentials() -> Vec<(&'static str, String, String, Vec<String>, &'static str
 
 /// The hash of [`CLIENT_SECRET`], computed once: Argon2 is slow in a debug
 /// build. Every test credential has this secret.
-fn secret_hash() -> Result<&'static str, String> {
+pub fn secret_hash() -> Result<&'static str, String> {
     static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     if let Some(hash) = HASH.get() {
         return Ok(hash);
