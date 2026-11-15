@@ -181,7 +181,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 2.05 | [Accounting Periods, Closing and Trial Balance](phase-2-operations-and-security/05-accounting-periods-and-closing.md) | 21 | Done ([evidence](../evidence/2.05-accounting-periods-and-closing.md)) |
 | 2.06 | [REST API Design (Contract First)](phase-2-operations-and-security/06-rest-api-design.md) | 22 | Done ([evidence](../evidence/2.06-rest-api-design.md); contract review pending) |
 | 2.07 | [REST API Implementation (Axum)](phase-2-operations-and-security/07-rest-api-implementation.md) | 23 | Done ([evidence](../evidence/2.07-rest-api-implementation.md)) |
-| 2.08 | [Authentication, Authorization and Privilege Separation](phase-2-operations-and-security/08-authentication-and-authorization.md) | 24 | Not started |
+| 2.08 | [Authentication, Authorization and Privilege Separation](phase-2-operations-and-security/08-authentication-and-authorization.md) | 24 | Done ([evidence](../evidence/2.08-authentication-and-authorization.md)) |
 | 2.09 | [Audit Logging and Tamper Evidence](phase-2-operations-and-security/09-audit-logging.md) | 25 | Not started |
 | 2.10 | [Offline Architecture and Protocol Design (Design Only)](phase-2-operations-and-security/10-offline-protocol-design.md) | 26 | Not started |
 | 2.11 | [Device Registry and Voucher Issuance](phase-2-operations-and-security/11-device-registry-and-vouchers.md) | 27 | Not started |
