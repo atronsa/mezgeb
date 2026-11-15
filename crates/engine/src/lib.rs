@@ -11,6 +11,7 @@
 mod accounts;
 mod adjustments;
 mod ageing;
+mod clients;
 mod close;
 mod concurrency;
 mod entries;
@@ -32,6 +33,12 @@ pub use adjustments::{
     get_adjustment, reject_adjustment, request_adjustment,
 };
 pub use ageing::{OpenItem, ageing};
+pub use clients::{
+    Client, ClientError, Credential, EXCLUSIVE_ROLES, ROLES, TokenOwner, add_credential,
+    check_roles, client_by_name, create_client, credential_for_login, disable_client,
+    generate_secret, generate_token, hash_secret, list_clients, list_credentials,
+    purge_expired_tokens, revoke_credential, store_token, token_digest, token_owner, verify_secret,
+};
 pub use close::{
     CloseReport, PeriodFinding, Snapshot, begin_close, close_period, finish_close, period_snapshots,
 };

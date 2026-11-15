@@ -13,6 +13,9 @@ serde_json.workspace = true
 # v7: the expiry worker mints the IDs of the entries it posts.
 uuid = { workspace = true, features = ["v7"] }
 tokio.workspace = true
+argon2 = "0.6"
+getrandom = "0.4"
+sha2.workspace = true
 
 [features]
 # Failure-injection hooks for tests only. Never enable in a build that runs

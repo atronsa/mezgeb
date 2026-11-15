@@ -129,6 +129,11 @@ impl TestDb {
         PgConnection::connect_with(&self.options("mezgeb_readonly")).await
     }
 
+    /// As `mezgeb_admin`, the role that manages clients and credentials.
+    pub async fn admin(&self) -> Result<PgConnection, sqlx::Error> {
+        PgConnection::connect_with(&self.options("mezgeb_admin")).await
+    }
+
     /// As `mezgeb_verifier`, the role that runs verification.
     pub async fn verifier(&self) -> Result<PgConnection, sqlx::Error> {
         PgConnection::connect_with(&self.options("mezgeb_verifier")).await
