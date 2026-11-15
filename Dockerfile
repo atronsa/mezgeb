@@ -4,8 +4,9 @@
 #   docker run --rm mezgeb-api mezgeb-cli migrate   # as mezgeb_owner
 #   docker run -p 8080:8080 mezgeb-api              # as mezgeb_app
 #
-# Configuration comes from the environment (crates/api/src/config.rs); the
-# token file is mounted, never baked in. compose.yaml runs it locally.
+# Configuration comes from the environment (crates/api/src/config.rs).
+# Clients and credentials live in the database (`mezgeb-cli client`, as
+# mezgeb_admin); no secret is baked in. compose.yaml runs it locally.
 
 FROM rust:1.96-slim-trixie AS build
 WORKDIR /src
