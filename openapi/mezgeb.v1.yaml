@@ -52,6 +52,8 @@ tags:
     description: "Offline payments. Planned (steps 2.10–2.12)."
   - name: "OAuth"
     description: "Access tokens for client credentials (RFC 6749, ADR-0017)."
+  - name: "Audit"
+    description: "Tamper evidence: signing keys, signed checkpoints and audit events (ADR-0018)."
 paths:
   /v1/accounts:
     post:
@@ -3327,6 +3329,102 @@ paths:
                 not_implemented:
                   $ref: "#/components/examples/error-not_implemented"
       x-mezgeb-status: "planned"
+  /v1/keys:
+    get:
+      operationId: "listSigningKeys"
+      tags:
+        - "Audit"
+      summary: "List the signing keys"
+      description: "The public keys that sign receipts and checkpoints, by key ID. Retired keys stay listed, so old signatures remain verifiable."
+      security:
+        - oauth2:
+            - "entries:read"
+      responses:
+        "200":
+          description: "The keys"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigningKeyList"
+              example:
+                items:
+                  - key_id: "ff5ede75cdea72c4"
+                    algorithm: "Ed25519"
+                    public_key: "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29"
+                    added_at: "2026-11-15T09:30:12.418205Z"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/checkpoints:
+    get:
+      operationId: "listCheckpoints"
+      tags:
+        - "Audit"
+      summary: "List the checkpoints"
+      description: "The signed checkpoints, oldest first: the heads of the entry and audit chains at each period's close. Keep copies: a checkpoint held outside the ledger is what proves its history was not rewritten (ADR-0018). `line` is the text form `mezgeb-cli verify --chain --checkpoints` reads."
+      security:
+        - oauth2:
+            - "entries:read"
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "The checkpoints"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckpointList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/audit-events:
+    get:
+      operationId: "listAuditEvents"
+      tags:
+        - "Audit"
+      summary: "List audit events"
+      description: "Who did what and when, oldest first: every API change and refusal, every read across clients, every change to clients and credentials. Hash-chained (ADR-0018). Auditors only."
+      security:
+        - oauth2:
+            - "audit:read"
+      parameters:
+        - name: "client"
+          in: "query"
+          description: "Only this client's events."
+          schema:
+            $ref: "#/components/schemas/ClientId"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "The events"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /oauth/token:
     post:
       operationId: "issueToken"
@@ -3443,6 +3541,7 @@ components:
             "periods:read": "Read accounting periods"
             "periods:close": "Close accounting periods (operator)"
             "reports:read": "Read trial balances and ageing (operator)"
+            "audit:read": "Read the audit events of every client (auditor)"
             "offline:write": "Offline devices, vouchers and receipts"
   parameters:
     IdempotencyKey:
@@ -3619,6 +3718,193 @@ components:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
   schemas:
+    Hash:
+      type: "string"
+      pattern: "^[0-9a-f]{64}$"
+      description: "A SHA-256 hash, in lower-case hex."
+    KeyId:
+      type: "string"
+      pattern: "^[0-9a-f]{16}$"
+    Signature:
+      type: "string"
+      pattern: "^[0-9a-f]{128}$"
+      description: "An Ed25519 signature, in lower-case hex."
+    Receipt:
+      type: "object"
+      additionalProperties: false
+      description: "The entry's link in the hash chain, signed. Verify the signature over `mezgeb.receipt.v1\\0`, the position (8 bytes, big-endian), the entry ID (16 bytes) and the hash, with the key `key_id` from `/v1/keys`."
+      required:
+        - "position"
+        - "entry"
+        - "prev_hash"
+        - "hash"
+        - "key_id"
+        - "signature"
+      properties:
+        position:
+          type: "integer"
+          minimum: 1
+        entry:
+          $ref: "#/components/schemas/EntryId"
+        prev_hash:
+          $ref: "#/components/schemas/Hash"
+        hash:
+          $ref: "#/components/schemas/Hash"
+        key_id:
+          oneOf:
+            - $ref: "#/components/schemas/KeyId"
+            - type: "null"
+        signature:
+          oneOf:
+            - $ref: "#/components/schemas/Signature"
+            - type: "null"
+    SigningKey:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "key_id"
+        - "algorithm"
+        - "public_key"
+      properties:
+        key_id:
+          $ref: "#/components/schemas/KeyId"
+        algorithm:
+          type: "string"
+          enum:
+            - "Ed25519"
+        public_key:
+          type: "string"
+          pattern: "^[0-9a-f]{64}$"
+    SigningKeyList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/SigningKey"
+    Checkpoint:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "period_id"
+        - "position"
+        - "hash"
+        - "audit_position"
+        - "audit_hash"
+        - "at"
+        - "key_id"
+        - "signature"
+        - "line"
+      properties:
+        id:
+          type: "integer"
+          minimum: 1
+        period_id:
+          type: "integer"
+          minimum: 1
+        position:
+          type: "integer"
+          minimum: 0
+          description: "The entry chain's last position at the checkpoint."
+        hash:
+          $ref: "#/components/schemas/Hash"
+        audit_position:
+          type: "integer"
+          minimum: 0
+        audit_hash:
+          $ref: "#/components/schemas/Hash"
+        at:
+          type: "string"
+          format: "date-time"
+        key_id:
+          $ref: "#/components/schemas/KeyId"
+        signature:
+          $ref: "#/components/schemas/Signature"
+        line:
+          type: "string"
+          description: "The checkpoint as one line of text, to store as a file."
+    CheckpointList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Checkpoint"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
+    AuditEvent:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "position"
+        - "at"
+        - "client"
+        - "actor"
+        - "action"
+        - "target"
+        - "request_id"
+        - "outcome"
+        - "details"
+        - "hash"
+      properties:
+        position:
+          type: "integer"
+          minimum: 1
+        at:
+          type: "string"
+          format: "date-time"
+        client:
+          oneOf:
+            - $ref: "#/components/schemas/ClientId"
+            - type: "null"
+        actor:
+          type:
+            - "string"
+            - "null"
+        action:
+          type: "string"
+          description: "`METHOD /route/{pattern}` for an API request, or a named action such as `token.issue` or `credential.revoke`."
+        target:
+          type:
+            - "string"
+            - "null"
+        request_id:
+          type:
+            - "string"
+            - "null"
+        outcome:
+          type: "string"
+          description: "`ok`, or why not: `refused`, `forbidden`, `unauthenticated`, `failed`."
+        details:
+          type: "object"
+          description: "The status and code of a request; before and after for a change of configuration. Never bodies or secrets."
+        hash:
+          $ref: "#/components/schemas/Hash"
+    AuditEventList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_cursor"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        next_cursor:
+          type:
+            - "string"
+            - "null"
     TokenRequest:
       type: "object"
       additionalProperties: false
@@ -3682,6 +3968,10 @@ components:
       allOf:
         - $ref: "#/components/schemas/Uuid7"
       description: "An account ID."
+    ClientId:
+      type: "string"
+      format: "uuid"
+      description: "A client: a platform integrating with the ledger (ADR-0017)."
     EntryId:
       allOf:
         - $ref: "#/components/schemas/Uuid7"
@@ -4093,10 +4383,10 @@ components:
         authorization:
           $ref: "#/components/schemas/Authorization"
         receipt:
-          type:
-            - "object"
-            - "null"
-          description: "The signed ledger receipt (spec §7.2). `null` until step 2.09."
+          description: "The signed ledger receipt (spec §7.2, INV-26): proof, verifiable with the public key alone, that the ledger recorded this entry at this position of its hash chain. `null` only for entries posted before the chain began."
+          oneOf:
+            - $ref: "#/components/schemas/Receipt"
+            - type: "null"
     ReversalRequest:
       type: "object"
       additionalProperties: false

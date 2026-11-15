@@ -63,7 +63,7 @@ wait_ready() {
 API_PID=
 start_api() {
     MEZGEB_DATABASE_URL=$APP_URL MEZGEB_LISTEN=127.0.0.1:$API_PORT \
-        MEZGEB_CHART=charts/wallet-provider.toml \
+        MEZGEB_CHART=charts/wallet-provider.toml MEZGEB_SIGNING_KEY_FILE=deploy/signing.dev.hex \
         MEZGEB_LOG=warn $API >>"$OUT/api.log" 2>&1 &
     API_PID=$!
     # Up once it answers at all: 401 without a token.

@@ -37,7 +37,7 @@ pub struct EntryJson {
     pub reverses: Option<String>,
     pub refunds: Option<String>,
     pub authorization: Option<AuthorizationJson>,
-    pub receipt: Option<serde_json::Value>,
+    pub receipt: Option<ReceiptJson>,
 }
 
 fn kind_name(kind: EntryKind) -> &'static str {
@@ -72,7 +72,7 @@ impl From<&EntryRecord> for EntryJson {
                 requested_by: a.requested_by.as_str().to_owned(),
                 approved_by: a.approved_by.as_ref().map(|p| p.as_str().to_owned()),
             }),
-            receipt: None,
+            receipt: record.receipt.as_ref().map(ReceiptJson::from),
         }
     }
 }
