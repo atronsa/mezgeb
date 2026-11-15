@@ -27,8 +27,14 @@
 //! Exit status: 0 clean (or closed), 1 problems found (the period stays
 //! closing), 2 could not run.
 //!
-//! Planned: `verify --chain` (step 2.09) and `import` (step 3.14).
+//! `verify --chain`, `checkpoint export` and `key generate` are tamper
+//! evidence ([`chain`], ADR-0018). `close-period` signs a checkpoint of the
+//! chains for the period it closed, with the key in `--signing-key` or
+//! `MEZGEB_SIGNING_KEY_FILE` (or `--no-checkpoint`, for tests).
+//!
+//! Planned: `import` (step 3.14).
 
+mod chain;
 mod clients;
 
 use std::process::ExitCode;
@@ -39,8 +45,10 @@ use sqlx::{Connection, PgConnection};
 
 const USAGE: &str = "usage: mezgeb-cli verify [--full] [--settle-seconds N] [--no-record] \
                      [--database-url URL]\n       \
-                     mezgeb-cli close-period --next LABEL [--database-url URL]
-                            mezgeb-cli migrate [--database-url URL]";
+                     mezgeb-cli verify --chain [--checkpoints DIR] [--database-url URL]\n       \
+                     mezgeb-cli close-period --next LABEL [--signing-key FILE | --no-checkpoint] \
+                     [--database-url URL]\n       \
+                     mezgeb-cli migrate [--database-url URL]";
 
 /// The parsed `verify` command.
 #[derive(Debug, PartialEq, Eq)]
@@ -48,6 +56,10 @@ struct VerifyCommand {
     options_scope: Scope,
     settle: Duration,
     record: bool,
+    /// Verify the hash chains instead of the balances.
+    chain: bool,
+    /// Checkpoint copies kept outside the database, for `--chain`.
+    checkpoints: Option<std::path::PathBuf>,
     url: Option<String>,
 }
 
@@ -57,6 +69,12 @@ enum Command {
     Verify(VerifyCommand),
     ClosePeriod {
         next: String,
+        /// The key that signs the checkpoint; `None` with `--no-checkpoint`.
+        signing_key: Option<std::path::PathBuf>,
+        url: Option<String>,
+    },
+    Chain {
+        command: chain::ChainCommand,
         url: Option<String>,
     },
     Migrate {
@@ -79,30 +97,59 @@ fn parse(args: &[String]) -> Result<Command, String> {
         Some("close-period") => {
             let mut next = None;
             let mut url = None;
+            let mut signing_key = std::env::var("MEZGEB_SIGNING_KEY_FILE")
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(std::path::PathBuf::from);
+            let mut no_checkpoint = false;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--next" => next = Some(args.next().ok_or("--next needs a label")?.clone()),
+                    "--signing-key" => {
+                        signing_key = Some(args.next().ok_or("--signing-key needs a file")?.into());
+                    }
+                    "--no-checkpoint" => no_checkpoint = true,
                     "--database-url" => url = Some(database_url(&mut args)?),
                     other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
                 }
             }
             let next = next.ok_or(format!("close-period needs --next LABEL\n{USAGE}"))?;
-            Ok(Command::ClosePeriod { next, url })
+            if no_checkpoint {
+                signing_key = None;
+            } else if signing_key.is_none() {
+                return Err(format!(
+                    "close-period signs a checkpoint: pass --signing-key FILE or set \
+                     MEZGEB_SIGNING_KEY_FILE (or --no-checkpoint)\n{USAGE}"
+                ));
+            }
+            Ok(Command::ClosePeriod {
+                next,
+                signing_key,
+                url,
+            })
         }
         Some("migrate") => {
             let mut url = None;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--database-url" => url = Some(database_url(&mut args)?),
-                    other => {
-                        return Err(format!(
-                            "unknown argument {other:?}
-{USAGE}"
-                        ));
-                    }
+                    other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
                 }
             }
             Ok(Command::Migrate { url })
+        }
+        Some(group @ ("checkpoint" | "key")) => {
+            let mut rest = Vec::new();
+            let mut url = None;
+            while let Some(arg) = args.next() {
+                if arg == "--database-url" {
+                    url = Some(database_url(&mut args)?);
+                } else {
+                    rest.push(arg.clone());
+                }
+            }
+            let command = chain::parse(group, &rest)?;
+            Ok(Command::Chain { command, url })
         }
         Some(group @ ("client" | "credential")) => {
             let mut rest = Vec::new();
@@ -117,11 +164,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
             let command = clients::parse(group, &rest)?;
             Ok(Command::Client { command, url })
         }
-        _ => Err(format!(
-            "{USAGE}
-{}",
-            clients::USAGE
-        )),
+        _ => Err(format!("{USAGE}\n{}\n{}", clients::USAGE, chain::USAGE)),
     }
 }
 
@@ -130,10 +173,17 @@ fn parse_verify(mut args: std::slice::Iter<'_, String>) -> Result<Command, Strin
         options_scope: Scope::Incremental,
         settle: VerifyOptions::default().settle,
         record: true,
+        chain: false,
+        checkpoints: None,
         url: None,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--chain" => command.chain = true,
+            "--checkpoints" => {
+                command.checkpoints =
+                    Some(args.next().ok_or("--checkpoints needs a directory")?.into());
+            }
             "--full" => command.options_scope = Scope::Full,
             "--no-record" => command.record = false,
             "--settle-seconds" => {
@@ -147,7 +197,19 @@ fn parse_verify(mut args: std::slice::Iter<'_, String>) -> Result<Command, Strin
             other => return Err(format!("unknown argument {other:?}\n{USAGE}")),
         }
     }
+    if command.checkpoints.is_some() && !command.chain {
+        return Err(format!("--checkpoints goes with --chain\n{USAGE}"));
+    }
     Ok(Command::Verify(command))
+}
+
+/// The current time, from this machine's clock.
+pub(crate) fn now() -> mezgeb_core::Timestamp {
+    let micros = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or_default();
+    mezgeb_core::Timestamp::from_micros(i64::try_from(micros).unwrap_or(i64::MAX))
 }
 
 async fn connect(url: Option<String>) -> Result<PgConnection, String> {
@@ -161,6 +223,10 @@ async fn connect(url: Option<String>) -> Result<PgConnection, String> {
 
 async fn run(command: Command) -> Result<bool, String> {
     match command {
+        Command::Verify(command) if command.chain => {
+            let mut conn = connect(command.url).await?;
+            chain::verify(&mut conn, command.checkpoints.as_deref()).await
+        }
         Command::Verify(command) => {
             let mut conn = connect(command.url).await?;
             let options = VerifyOptions {
@@ -177,7 +243,16 @@ async fn run(command: Command) -> Result<bool, String> {
             }
             Ok(report.is_clean())
         }
-        Command::ClosePeriod { next, url } => {
+        Command::ClosePeriod {
+            next,
+            signing_key,
+            url,
+        } => {
+            // Read the key before closing, so a bad key stops nothing half-way.
+            let signer = signing_key
+                .as_deref()
+                .map(mezgeb_engine::Signer::from_file)
+                .transpose()?;
             let mut conn = connect(url).await?;
             let report = close_period(&mut conn, &next)
                 .await
@@ -199,6 +274,20 @@ async fn run(command: Command) -> Result<bool, String> {
             for finding in &report.findings {
                 println!("finding: {finding}");
             }
+            if let (true, Some(signer)) = (report.is_closed(), &signer) {
+                let checkpoint =
+                    mezgeb_engine::record_checkpoint(&mut conn, period.id, signer, now())
+                        .await
+                        .map_err(|e| format!("the checkpoint failed: {e}"))?;
+                println!(
+                    "checkpoint {} signed by key {}: entries to position {}, audit events to {}",
+                    checkpoint.id,
+                    checkpoint.key_id,
+                    checkpoint.position,
+                    checkpoint.audit_position
+                );
+                println!("export it with `mezgeb-cli checkpoint export` and keep a copy elsewhere");
+            }
             Ok(report.is_closed())
         }
         Command::Migrate { url } => {
@@ -211,6 +300,18 @@ async fn run(command: Command) -> Result<bool, String> {
             println!("schema at migration {latest}");
             Ok(true)
         }
+        Command::Chain { command, url } => match command {
+            chain::ChainCommand::Generate { out } => {
+                print!("{}", chain::generate(&out)?);
+                Ok(true)
+            }
+            chain::ChainCommand::Export { dir } => {
+                let mut conn = connect(url).await?;
+                let (clean, out) = chain::export(&mut conn, &dir).await?;
+                print!("{out}");
+                Ok(clean)
+            }
+        },
         Command::Client { command, url } => {
             let mut conn = connect(url).await?;
             print!("{}", clients::run(&mut conn, command).await?);
@@ -255,6 +356,8 @@ mod tests {
                 options_scope: Scope::Incremental,
                 settle: Duration::from_secs(60),
                 record: true,
+                chain: false,
+                checkpoints: None,
                 url: None,
             }))
         );
@@ -272,6 +375,8 @@ mod tests {
                 options_scope: Scope::Full,
                 settle: Duration::ZERO,
                 record: false,
+                chain: false,
+                checkpoints: None,
                 url: Some("postgres://x".into()),
             }))
         );
@@ -280,9 +385,16 @@ mod tests {
     #[test]
     fn parses_close_period() {
         assert_eq!(
-            parse(&args(&["close-period", "--next", "2026-11-15"])),
+            parse(&args(&[
+                "close-period",
+                "--next",
+                "2026-11-15",
+                "--signing-key",
+                "k.hex"
+            ])),
             Ok(Command::ClosePeriod {
                 next: "2026-11-15".into(),
+                signing_key: Some("k.hex".into()),
                 url: None,
             })
         );
@@ -292,13 +404,31 @@ mod tests {
                 "--database-url",
                 "postgres://x",
                 "--next",
-                "d2"
+                "d2",
+                "--no-checkpoint"
             ])),
             Ok(Command::ClosePeriod {
                 next: "d2".into(),
+                signing_key: None,
                 url: Some("postgres://x".into()),
             })
         );
+    }
+
+    #[test]
+    fn parses_verify_chain() {
+        let Ok(Command::Verify(command)) =
+            parse(&args(&["verify", "--chain", "--checkpoints", "copies"]))
+        else {
+            panic!("not a verify command");
+        };
+        assert!(command.chain);
+        assert_eq!(command.checkpoints, Some("copies".into()));
+        assert!(parse(&args(&["verify", "--checkpoints", "copies"])).is_err());
+        assert!(matches!(
+            parse(&args(&["checkpoint", "export", "--dir", "out"])),
+            Ok(Command::Chain { .. })
+        ));
     }
 
     #[test]
@@ -325,6 +455,10 @@ mod tests {
         assert!(parse(&args(&["close-period"])).is_err());
         assert!(parse(&args(&["close-period", "--next"])).is_err());
         assert!(parse(&args(&["close-period", "--next", "d2", "--now"])).is_err());
+        // Without a key a close would leave no checkpoint: refused unless asked.
+        if std::env::var("MEZGEB_SIGNING_KEY_FILE").is_err() {
+            assert!(parse(&args(&["close-period", "--next", "d2"])).is_err());
+        }
         assert!(parse(&args(&["migrate", "--down"])).is_err());
     }
 }

@@ -188,6 +188,47 @@ async fn client_named(conn: &mut PgConnection, name: &str) -> Result<ClientId, S
         .ok_or_else(|| format!("no client named {name:?}"))
 }
 
+/// Who runs the command, for the audit log: `cli:<user>`.
+fn operator() -> String {
+    let user: String = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || "._@-".contains(*c))
+        .take(100)
+        .collect();
+    if user.is_empty() {
+        "cli".to_owned()
+    } else {
+        format!("cli:{user}")
+    }
+}
+
+/// Records a change to clients or credentials (ADR-0018): configuration,
+/// so with its before and after. The values are names, IDs and roles that
+/// were checked already; none needs escaping, and no secret is recorded.
+async fn audit(
+    conn: &mut PgConnection,
+    action: &str,
+    client: Option<ClientId>,
+    target: String,
+    details: String,
+) -> Result<(), String> {
+    let event = mezgeb_engine::NewAuditEvent {
+        client,
+        actor: Some(operator()),
+        action: action.to_owned(),
+        target: Some(target),
+        request_id: None,
+        outcome: "ok".to_owned(),
+        details,
+    };
+    mezgeb_engine::append_audit(conn, &event, crate::now())
+        .await
+        .map(|_| ())
+        .map_err(|e| format!("the change was made, but its audit event failed: {e}"))
+}
+
 /// Runs the command; the output is printed by the caller.
 pub async fn run(conn: &mut PgConnection, command: ClientCommand) -> Result<String, String> {
     let mut out = String::new();
@@ -197,6 +238,17 @@ pub async fn run(conn: &mut PgConnection, command: ClientCommand) -> Result<Stri
             let client = create_client(conn, id, &name, rate, burst)
                 .await
                 .map_err(failed)?;
+            audit(
+                conn,
+                "client.create",
+                Some(client.id),
+                format!("client:{}", client.id),
+                format!(
+                    r#"{{"before":null,"after":{{"name":"{}","rate_per_second":{},"burst":{}}}}}"#,
+                    client.name, client.rate_per_second, client.burst
+                ),
+            )
+            .await?;
             let _ = writeln!(
                 out,
                 "client {} ({}) created: {} requests per second, bursts of {}",
@@ -216,6 +268,14 @@ pub async fn run(conn: &mut PgConnection, command: ClientCommand) -> Result<Stri
         ClientCommand::Disable { name } => {
             let id = client_named(conn, &name).await?;
             disable_client(conn, id).await.map_err(failed)?;
+            audit(
+                conn,
+                "client.disable",
+                Some(id),
+                format!("client:{id}"),
+                r#"{"before":{"status":"active"},"after":{"status":"disabled"}}"#.to_owned(),
+            )
+            .await?;
             let _ = writeln!(out, "client {name} disabled: its tokens no longer work");
         }
         ClientCommand::Issue {
@@ -230,6 +290,18 @@ pub async fn run(conn: &mut PgConnection, command: ClientCommand) -> Result<Stri
             let credential = add_credential(conn, Uuid::now_v7(), id, &actor, &roles, &hash)
                 .await
                 .map_err(failed)?;
+            audit(
+                conn,
+                "credential.issue",
+                Some(id),
+                format!("credential:{}", credential.id),
+                format!(
+                    r#"{{"before":null,"after":{{"actor":"{}","roles":["{}"]}}}}"#,
+                    credential.actor,
+                    credential.roles.join("\",\"")
+                ),
+            )
+            .await?;
             let _ = writeln!(out, "client_id:     {}", credential.id);
             let _ = writeln!(out, "client_secret: {secret}");
             let _ = writeln!(
@@ -257,6 +329,14 @@ pub async fn run(conn: &mut PgConnection, command: ClientCommand) -> Result<Stri
         }
         ClientCommand::Revoke { credential } => {
             let revoked = revoke_credential(conn, credential).await.map_err(failed)?;
+            audit(
+                conn,
+                "credential.revoke",
+                Some(revoked.client),
+                format!("credential:{}", revoked.id),
+                r#"{"before":{"revoked":false},"after":{"revoked":true}}"#.to_owned(),
+            )
+            .await?;
             let _ = writeln!(
                 out,
                 "credential {} ({}) revoked: its tokens no longer work",
