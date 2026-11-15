@@ -9,3 +9,4 @@ and the decision behind it.
 | Runbook | When |
 |---|---|
 | [close-period.md](close-period.md) | Daily, to close the accounting period (step 2.05) |
+| [clients-and-credentials.md](clients-and-credentials.md) | Onboarding a client, issuing, rotating and revoking credentials, a leaked secret (step 2.08) |

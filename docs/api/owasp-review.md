@@ -49,8 +49,21 @@ Reviewing the endpoints against the list changed the design in three places:
 3. **Not found means not found or not yours.** Using `404` for another
    client's object, instead of `403`, stops ID probing (API1).
 
+## Built in step 2.08
+
+What step 2.08 did against the "must" column
+([ADR-0017](../adr/0017-authentication-and-authorization.md)):
+
+| Risk | Done | Test |
+|---|---|---|
+| API1 | Ownership on every read and every bound account, in shared helpers (`routes/common.rs`) before any engine call; another client's object is `404` (or `422 bound_account_not_found` in a body), as for none; a client binds system accounts only through template roles, and cannot open one | `a_client_cannot_touch_another_clients_accounts` |
+| API2 | OAuth 2.0 client credentials; 15-minute tokens; secrets only in the `Authorization` header (never in URLs or bodies), kept as Argon2id hashes; the token endpoint rate-limited per credential before any hashing. **Changed from the review:** the tokens are opaque and looked up in the database, not signed, so there is no signature or audience to verify and no clock skew to reject (the ledger's own clock decides expiry); revocation is instant instead | `contract/oauth.rs`, `revoked_credentials_and_disabled_clients_stop_at_once`, `clients_and_logins_are_rate_limited` |
+| API4 | Per-client rate limits (`429 rate_limited`), with the body limit and timeouts of 2.07. Report ranges are still uncapped | `clients_and_logins_are_rate_limited` |
+| API5 | Operator scopes belong only to operator roles in the permission matrix; the scope is checked before the request is read; every operation is tested with every role | `every_role_gets_exactly_what_the_matrix_allows`, `a_missing_scope_is_refused_before_the_request_is_read` |
+
 ## Open for later steps
 
-- **2.08:** the token format, issuer and lifetime; the mapping from token to
-  client; ownership checks; scope enforcement; tests of each.
+- **2.09:** audit events for token issuance, refusals and reads across
+  clients (TM-16).
+- **3.03:** rate limits shared between instances.
 - **2.16:** an external review of this table against the implementation.

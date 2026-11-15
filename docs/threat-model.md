@@ -78,11 +78,11 @@ Someone on the internet with no legitimate access.
 
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
-| TM-01 | Steals or guesses a client's API credentials and posts entries as that client | S | A1, A4 | Strong per-client credentials (mutual TLS or signed requests), rotation, scoped permissions, alerts on unusual volume | Operator | 2.08 |
+| TM-01 | Steals or guesses a client's API credentials and posts entries as that client | S | A1, A4 | Strong per-client credentials (mutual TLS or signed requests), rotation, scoped permissions, alerts on unusual volume. **Built in 2.08:** OAuth client credentials with 15-minute tokens; secrets kept only as Argon2id hashes; revoking a credential or disabling a client ends its tokens at once; roles per credential; rate limits per client and per credential at the token endpoint ([ADR-0017](adr/0017-authentication-and-authorization.md); `revoked_credentials_and_disabled_clients_stop_at_once`, `clients_and_logins_are_rate_limited`) | Operator | 2.08 |
 | TM-02 | Captures a valid request and replays it to post the same payment twice | T | A1 | TLS everywhere; idempotency key (INV-13); signed requests with a timestamp window | Maintainers | 1.11, 2.08 |
 | TM-03 | Floods the API so payments cannot be posted | D | A5 | Rate limits per client, request size limits, timeouts, load shedding before the database | Operator | 2.07, 3.01 |
 | TM-04 | Sends crafted input: SQL injection, huge payloads, amounts that overflow | T, E | A1 | Parameterised SQL only (SQLx); checked arithmetic ([ADR-0005](adr/0005-money-as-i64-minor-units.md)); strict input parsing; fuzzing | Maintainers | 1.04, 2.07, 2.16 |
-| TM-05 | Guesses account or entry IDs to read another client's data | I | A6 | Every read is scoped to the calling client; ID secrecy is never relied on | Maintainers | 2.08 |
+| TM-05 | Guesses account or entry IDs to read another client's data | I | A6 | Every read is scoped to the calling client; ID secrecy is never relied on. **Built in 2.08:** a client sees only its own accounts, entries and holds; anything else is `404`, as for nothing (`a_client_cannot_touch_another_clients_accounts`) | Maintainers | 2.08 |
 | TM-06 | Ships malicious code through a compromised dependency | T, E | A1, A2 | Locked dependencies, `cargo-deny` and `cargo-audit` in CI, few dependencies, review of updates | Maintainers | 3.11 |
 
 ### Compromised client server
@@ -93,10 +93,10 @@ client's server is large and exposed.
 
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
-| TM-07 | Posts entries that create money, such as crediting a wallet from fee revenue | T, E | A1 | Clients post only through templates they are allowed to use, never raw entries; each template fixes which account types it may touch; per-client limits | Maintainers | 2.01, 2.08 |
+| TM-07 | Posts entries that create money, such as crediting a wallet from fee revenue | T, E | A1 | Clients post only through templates they are allowed to use, never raw entries; each template fixes which account types it may touch; per-client limits. **Built in 2.08:** templates granted per role in the permission matrix; a client binds only its own accounts or system accounts its role allows, and cannot open system accounts (`tm07_a_client_cannot_create_money`, `every_role_gets_exactly_what_the_matrix_allows`) | Maintainers | 2.01, 2.08 |
 | TM-08 | Connects to the ledger database directly to change balances | T, E | A1 | Separate database with its own credentials, unreachable from client networks ([ADR-0001](adr/0001-separate-service-own-database.md)) | Operator | 1.08, 3.11 |
 | TM-09 | Reports a deposit that never arrived, to mint money in a wallet | S, T | A1 | Deposits pass through clearing before wallets where needed; daily reconciliation of 1010 against the bank statement; safeguarding check (MON-1) | Operator | 2.02, 2.15 |
-| TM-10 | Moves money between its own users within the allowed templates and limits | T | A1 | Cannot be prevented by the ledger; limited by per-client and per-template limits, detected by reconciliation and volume alerts. Accepted risk, documented for clients. | Client | 2.08, 2.15 |
+| TM-10 | Moves money between its own users within the allowed templates and limits | T | A1 | Cannot be prevented by the ledger; limited by per-client and per-template limits, detected by reconciliation and volume alerts. Accepted risk, documented for clients. **Built in 2.08:** per-client rate limits; a client moves money only among its own accounts (`clients_and_logins_are_rate_limited`, `a_client_cannot_touch_another_clients_accounts`) | Client | 2.08, 2.15 |
 
 ### Malicious insider
 
@@ -106,11 +106,11 @@ production or to the admin tools.
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
 | TM-11 | Edits or deletes journal rows directly in the database to hide a theft | T | A1, A3 | Update and delete blocked by trigger and role privileges (INV-9); hash chain (INV-11); signed receipts held by clients (INV-26); superuser access restricted and logged | Operator | 1.08, 2.09 |
-| TM-12 | Posts an adjustment that credits an account they control | E | A1 | Maker-checker with different people (INV-25), reason codes, limits per person, audit events. **Built in 1.12:** maker ≠ checker and reason codes, in the engine and the database; see the [step 1.12 review](evidence/1.12-reversals-and-adjustments.md#exit-gate). | Maintainers | 1.12, 2.08 |
-| TM-13 | Reopens a closed period to change past figures | T | A1, A3 | Closed periods immutable (INV-10); reopening needs maker-checker and leaves an audit event | Maintainers | 2.05, 2.08 |
+| TM-12 | Posts an adjustment that credits an account they control | E | A1 | Maker-checker with different people (INV-25), reason codes, limits per person, audit events. **Built in 1.12:** maker ≠ checker and reason codes, in the engine and the database; see the [step 1.12 review](evidence/1.12-reversals-and-adjustments.md#exit-gate). **Built in 2.08:** no credential holds both `operator` and `approver` (matrix, engine and database); the same person's second credential is still refused (`maker_is_checker`) | Maintainers | 1.12, 2.08 |
+| TM-13 | Reopens a closed period to change past figures | T | A1, A3 | Closed periods immutable (INV-10). **Decided in 2.08 ([ADR-0017](adr/0017-authentication-and-authorization.md)): a period is never reopened.** There is no reopen operation in the contract, the service or the engine, and the database refuses the change; a correction posts into the open period (`tm13_a_closed_period_cannot_be_reopened`, `posting_into_a_closed_period_is_refused`) | Maintainers | 2.05, 2.08 |
 | TM-14 | Copies the receipt or voucher signing key to forge receipts or offline allowances | S, T | A2 | Keys in a key management service or HSM, never in the database, code or environment files; key IDs and rotation; access logged | Operator | 3.12 |
 | TM-15 | Disables the verification job or its alerts so that a broken ledger goes unnoticed | R, T | A3 | A missing verification run raises its own alert; verification also runs in CI and from an independent schedule; separation of duties. **Built in 1.13:** `mezgeb-cli verify`, its own `mezgeb_verifier` role, every run recorded in an append-only table, verification in CI. Scheduling and the missing-run alert come in 3.09. | Operator | 1.13, 3.09 |
-| TM-16 | Exports account references and amounts in bulk | I | A6 | Least-privilege roles; read access to production data is logged; the ledger holds no names or national IDs | Operator | 2.08, 2.09 |
+| TM-16 | Exports account references and amounts in bulk | I | A6 | Least-privilege roles; read access to production data is logged; the ledger holds no names or national IDs. **Built in 2.08:** only `accounts:read_all` (operator, auditor) reads across clients; every other role reads its own client's data only. Logging reads comes in 2.09 | Operator | 2.08, 2.09 |
 
 ### Malicious device owner
 
