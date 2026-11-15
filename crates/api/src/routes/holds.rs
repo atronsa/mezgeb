@@ -8,8 +8,9 @@ use mezgeb_core::{HoldId, Money, PositiveAmount};
 use mezgeb_engine::{CaptureHold, HoldRequest, PlaceHold};
 use serde::Deserialize;
 
-use super::common::{ApiResult, connection, new_entry_id, resolve_account};
+use super::common::{ApiResult, bindable_account, connection, new_entry_id, owns};
 use crate::AppState;
+use crate::auth::Principal;
 use crate::auth::scope::{Auth, HoldsRead, HoldsWrite};
 use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::reply::{json_response, written};
@@ -51,10 +52,10 @@ async fn place_hold(
         ApiError::new("account_not_found", format!("No account {text:?}."))
             .with_name(field.to_owned())
     };
-    let account = resolve_account(&mut conn, &body.account)
+    let account = bindable_account(&mut conn, &caller, &body.account)
         .await?
         .ok_or_else(|| missing("account", &body.account))?;
-    let held = resolve_account(&mut conn, &body.held_account)
+    let held = bindable_account(&mut conn, &caller, &body.held_account)
         .await?
         .ok_or_else(|| missing("held_account", &body.held_account))?;
     drop(conn);
@@ -110,16 +111,48 @@ async fn place_hold(
     Ok(response)
 }
 
+/// A hold on one of the caller's accounts (or any, with
+/// `accounts:read_all`); otherwise `404`, as for no hold.
+async fn own_hold(
+    conn: &mut sqlx::PgConnection,
+    caller: &Principal,
+    id: HoldId,
+) -> Result<mezgeb_core::Hold, ApiError> {
+    let hold = mezgeb_engine::get_hold(conn, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("hold"))?;
+    if caller.sees_all() || owns(conn, caller, hold.account()).await? {
+        Ok(hold)
+    } else {
+        Err(ApiError::not_found("hold"))
+    }
+}
+
+/// A hold the caller may capture or release: one on its own account.
+/// `accounts:read_all` reads holds but never moves another client's.
+async fn movable_hold(
+    conn: &mut sqlx::PgConnection,
+    caller: &Principal,
+    id: HoldId,
+) -> Result<(), ApiError> {
+    let hold = mezgeb_engine::get_hold(conn, id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("hold"))?;
+    if owns(conn, caller, hold.account()).await? {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("hold"))
+    }
+}
+
 async fn get_hold(
     State(state): State<AppState>,
-    Auth(_caller, _): Auth<HoldsRead>,
+    Auth(caller, _): Auth<HoldsRead>,
     Path(hold_id): Path<String>,
 ) -> ApiResult {
     let id: HoldId = parse_id(&hold_id, "hold")?;
     let mut conn = connection(&state).await?;
-    let hold = mezgeb_engine::get_hold(&mut conn, id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("hold"))?;
+    let hold = own_hold(&mut conn, &caller, id).await?;
     Ok(json_response(StatusCode::OK, HoldJson::from(&hold)))
 }
 
@@ -140,7 +173,8 @@ async fn capture_hold(
     let hold: HoldId = parse_id(&hold_id, "hold")?;
     let amount = positive(body.amount.to_money("/amount")?, "/amount/amount")?;
     let mut conn = connection(&state).await?;
-    let destination = resolve_account(&mut conn, &body.destination)
+    movable_hold(&mut conn, &caller, hold).await?;
+    let destination = bindable_account(&mut conn, &caller, &body.destination)
         .await?
         .ok_or_else(|| {
             ApiError::new(
@@ -183,6 +217,9 @@ async fn release_hold(
     Path(hold_id): Path<String>,
 ) -> ApiResult {
     let hold: HoldId = parse_id(&hold_id, "hold")?;
+    let mut conn = connection(&state).await?;
+    movable_hold(&mut conn, &caller, hold).await?;
+    drop(conn);
     let entry = new_entry_id()?;
     let released = state
         .write({

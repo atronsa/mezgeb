@@ -12,7 +12,7 @@ use mezgeb_ops::OperationRequest;
 use serde::Deserialize;
 
 use super::common::{
-    ApiResult, connection, entry_response, entry_written, new_entry_id, resolve_account,
+    ApiResult, bindable_account, connection, entry_response, entry_written, new_entry_id,
 };
 use crate::AppState;
 use crate::auth::Principal;
@@ -98,7 +98,7 @@ async fn operation(
     let mut accounts = BTreeMap::new();
     let mut view: BTreeMap<AccountId, mezgeb_core::Account> = BTreeMap::new();
     for (role, text) in &body.accounts {
-        let Some(id) = resolve_account(&mut conn, text).await? else {
+        let Some(id) = bindable_account(&mut conn, &caller, text).await? else {
             return Err(ApiError::new(
                 "bound_account_not_found",
                 format!("No account {text:?} for role {role:?}."),
