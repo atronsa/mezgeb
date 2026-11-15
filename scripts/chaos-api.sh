@@ -26,7 +26,8 @@
 #
 # It runs against a separate database, mezgeb_api_chaos, recreated at the
 # start, on the compose service's PostgreSQL (the roles from db/init must
-# exist), and uses the development tokens in deploy/tokens.dev.toml.
+# exist, mezgeb_admin among them), with the development clients and
+# credentials of deploy/clients.dev.toml.
 
 set -euo pipefail
 
@@ -44,6 +45,7 @@ BASE=http://127.0.0.1:$API_PORT
 OWNER_URL=postgres://mezgeb_owner:mezgeb_owner@localhost:$PORT/$DB
 APP_URL=postgres://mezgeb_app:mezgeb_app@localhost:$PORT/$DB
 VERIFIER_URL=postgres://mezgeb_verifier:mezgeb_verifier@localhost:$PORT/$DB
+ADMIN_URL=postgres://mezgeb_admin:mezgeb_admin@localhost:$PORT/$DB
 
 cd "$(dirname "$0")/.."
 
@@ -61,7 +63,7 @@ wait_ready() {
 API_PID=
 start_api() {
     MEZGEB_DATABASE_URL=$APP_URL MEZGEB_LISTEN=127.0.0.1:$API_PORT \
-        MEZGEB_TOKENS=deploy/tokens.dev.toml MEZGEB_CHART=charts/wallet-provider.toml \
+        MEZGEB_CHART=charts/wallet-provider.toml \
         MEZGEB_LOG=warn $API >>"$OUT/api.log" 2>&1 &
     API_PID=$!
     # Up once it answers at all: 401 without a token.
@@ -94,6 +96,7 @@ wait_ready
 superuser -c "DROP DATABASE IF EXISTS $DB WITH (FORCE)"
 superuser -c "CREATE DATABASE $DB OWNER mezgeb_owner"
 $VERIFY migrate --database-url "$OWNER_URL" >/dev/null
+$VERIFY client seed deploy/clients.dev.toml --database-url "$ADMIN_URL" >/dev/null
 start_api
 $LOAD setup "$OWNER_URL" "$BASE"
 
