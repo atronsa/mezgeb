@@ -49,7 +49,11 @@ CREATE TABLE audit_events (
     at         TIMESTAMPTZ NOT NULL,
     client_id  UUID,
     actor      TEXT        CHECK (length(actor) <= 128),
-    action     TEXT        NOT NULL CHECK (action ~ '^[a-z_.]{1,64}$'),
+    -- An API request as `METHOD /route/{pattern}`, or a named action such
+    -- as `token.issue` or `credential.revoke`.
+    action     TEXT        NOT NULL CHECK (
+        action ~ '^[A-Z]{3,7} /[A-Za-z0-9_./{}-]{0,120}$' OR action ~ '^[a-z_.]{1,64}$'
+    ),
     target     TEXT        CHECK (length(target) <= 256),
     request_id TEXT        CHECK (length(request_id) <= 64),
     outcome    TEXT        NOT NULL CHECK (outcome ~ '^[a-z_]{1,32}$'),
@@ -93,3 +97,7 @@ GRANT SELECT ON chain_heads TO mezgeb_app;
 GRANT UPDATE (position, hash) ON chain_heads TO mezgeb_app;
 GRANT SELECT ON signing_keys, chain_heads, entry_chain, audit_events, checkpoints
     TO mezgeb_readonly, mezgeb_verifier;
+-- `mezgeb-cli client` records its changes to clients and credentials.
+GRANT SELECT, INSERT ON audit_events TO mezgeb_admin;
+GRANT SELECT ON chain_heads TO mezgeb_admin;
+GRANT UPDATE (position, hash) ON chain_heads TO mezgeb_admin;
