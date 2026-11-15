@@ -49,10 +49,17 @@ impl Server {
         }))
     }
 
+    /// A name no other test database has: the process, a counter, and the
+    /// time. The time matters because a failed test leaves its database
+    /// behind, and process IDs are reused (on Windows, often).
     fn unique_name(prefix: &str) -> String {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let millis = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() % 10_000_000_000)
+            .unwrap_or_default();
         format!(
-            "{prefix}_{}_{}",
+            "{prefix}_{}_{}_{millis}",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::SeqCst)
         )
