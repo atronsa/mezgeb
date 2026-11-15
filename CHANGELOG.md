@@ -9,6 +9,20 @@ supported.
 
 ### Added
 
+- **The REST service, `mezgeb-api`** (Axum): all 42 operations of the
+  v1-draft contract, calling the posting templates and the engine. Request
+  IDs, a body limit, a timeout that answers `503 busy` without cancelling
+  the write, a JSON access log without sensitive fields, Problem Details for
+  every error, and a graceful shutdown that waits for every write. Interim
+  bearer tokens from a file of hashes, with a scope check on every route,
+  until step 2.08. Migration 0008: accounts record who opened them and with
+  which key, and maker-checker adjustment requests wait in
+  `adjustment_requests` (`MZ009`). Contract tests check every response
+  against the contract; a `Dockerfile`, a compose profile, and a CI job that
+  runs a Postman smoke collection against the container;
+  `scripts/chaos-api.sh` runs the step 1.15 chaos test through the API.
+  `mezgeb-cli migrate` applies the migrations.
+
 - **The API contract, v1-draft** (`openapi/mezgeb.v1.yaml`): 41 paths in
   OpenAPI 3.1, with one operation per posting template, maker-checker
   adjustments, an RFC 9457 error catalogue of 68 codes with an example each

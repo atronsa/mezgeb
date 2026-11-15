@@ -3,8 +3,9 @@
 [Documentation](../README.md) · Contract: [`openapi/mezgeb.v1.yaml`](../../openapi/mezgeb.v1.yaml) · Errors: [errors.md](errors.md) · Security review: [owasp-review.md](owasp-review.md) · Decision: [ADR-0009](../adr/0009-rest-api-with-axum.md)
 
 The public API is designed before it is built (step 2.06). The contract,
-an OpenAPI 3.1 document, is the promise to every client; step 2.07 builds
-the service against it, and a test keeps the two in step.
+an OpenAPI 3.1 document, is the promise to every client; step 2.07 built
+the service, `mezgeb-api`, against it, and the contract tests keep the two
+in step (see [The service](#the-service)).
 
 **Status: v1-draft.** It is frozen for implementation: a change before the
 v1 release is a reviewed change to the contract first, never a quiet change
@@ -17,6 +18,7 @@ in code. After the v1 release, only backward-compatible changes are made to
 | [errors.md](errors.md) | The error catalogue: every `code`, its HTTP status and the rule behind it |
 | [owasp-review.md](owasp-review.md) | Every endpoint group reviewed against the OWASP API Security Top 10 (2023) |
 | [`postman/collections/mezgeb-api-v1`](../../postman/collections/mezgeb-api-v1) | A Postman collection generated from the contract, with every example |
+| [`postman/collections/mezgeb-api-smoke`](../../postman/collections/mezgeb-api-smoke) | A scripted Postman run against a live service, run by CI against the container |
 
 ## Resources
 
@@ -70,7 +72,8 @@ was recorded (`recorded_at`, its posting date, which decides its period and
 every report), and the optional `event_time`, when the event happened.
 
 **Authentication.** OAuth 2.0 client credentials, with a scope per kind of
-action; designed in step 2.08. A client sees only its own accounts and
+action; designed in step 2.08 (until then, see
+[Interim authentication](#interim-authentication)). A client sees only its own accounts and
 entries. Operator scopes (`accounts:admin`, `corrections:write`,
 `adjustments:*`, `periods:close`, `reports:read`) are never given to client
 platforms.
@@ -96,6 +99,77 @@ Within `/v1`, the API only grows:
 
 A breaking change is a new version of the API (`/v2`), with both versions
 served during a published migration window.
+
+## The service
+
+`mezgeb-api` (crate `crates/api`) serves the contract with Axum. Each
+handler checks the caller's scope, parses the body strictly, and calls the
+posting templates and the engine; it never builds lines itself.
+
+```sh
+docker compose --profile api up -d --build   # PostgreSQL, migrations, the service on :8080
+curl -s http://localhost:8080/v1/templates -H 'Authorization: Bearer dev-client-token'
+```
+
+Or from a checkout, against the compose PostgreSQL:
+
+```sh
+cargo run -p mezgeb-cli -- migrate     --database-url postgres://mezgeb_owner:mezgeb_owner@localhost:55432/mezgeb
+MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb MEZGEB_TOKENS=deploy/tokens.dev.toml cargo run -p mezgeb-api
+```
+
+The configuration is read from the environment; every variable is listed in
+[`crates/api/src/config.rs`](../../crates/api/src/config.rs). The service
+connects as `mezgeb_app` and never migrates: `mezgeb-cli migrate` does that,
+as `mezgeb_owner`, before a new version starts.
+
+**What every request goes through.**
+
+| Layer | Behaviour |
+|---|---|
+| Request ID | A UUIDv7 per request, or the caller's `X-Request-Id` if it is a UUID. Returned in `X-Request-Id`, and the `instance` of every problem (`urn:uuid:<id>`) |
+| Body limit | `MEZGEB_BODY_LIMIT_BYTES`, 64 KiB by default. A larger body is `400 invalid_request` |
+| Strict bodies | Unknown fields, JSON numbers for amounts, more decimal places than the currency, and unknown currencies are `400 invalid_request`, with a JSON Pointer to the field in `errors` |
+| Timeout | After `MEZGEB_REQUEST_TIMEOUT_MS` (10 s), the client gets `503 busy` with `Retry-After`. **The write is not cancelled:** it runs in its own task and commits or fails on its own, so a retry with the same key returns its entry |
+| Access log | One JSON line per request: method, route pattern (never the path with its IDs), status, latency, request ID and client. No bodies, tokens, amounts, account references or idempotency keys |
+| Errors | Every error is Problem Details. An unexpected error is logged with its cause and answered with `500 internal_error`, which says nothing about the cause |
+| Shutdown | On SIGTERM or Ctrl-C, the service stops accepting connections, finishes the requests under way, then waits for every write task before exiting |
+
+**Replays.** A repeated write with the same key answers `200` with
+`Idempotent-Replayed: true` and the original result; opening an account
+too. Requesting an adjustment answers `202` both times, with the replay
+header the second time.
+
+### Interim authentication
+
+Step 2.08 builds OAuth 2.0. Until then the service reads static bearer
+tokens from the file named by `MEZGEB_TOKENS`, which holds only their
+SHA-256 hashes, each with its client ID, actor and scopes (format in
+[`crates/api/src/auth.rs`](../../crates/api/src/auth.rs)). Every route
+checks its scope: default deny. [`deploy/tokens.dev.toml`](../../deploy/tokens.dev.toml)
+has three tokens for development and CI, and must never be used anywhere
+else.
+
+What the interim scheme does not do yet, and step 2.08 must: token expiry
+and rotation, a clients table, and limiting each client to its own accounts
+and entries (the API records who opened each account, ready for that).
+Until then, run the service only where every token holder is trusted.
+
+### Testing it
+
+```sh
+docker compose up -d
+export MEZGEB_TEST_DATABASE_URL=postgres://postgres:postgres@localhost:55432/postgres
+cargo test -p mezgeb-api
+```
+
+| Test | What it proves |
+|---|---|
+| `tests/contract.rs` | One scenario calls all 42 operations of the contract and checks every response (status, headers, body) against the contract's schema for it; it fails if an operation is never called |
+| `tests/http.rs` | A client timeout followed by a retry gives one entry; bad, negative, float and oversized amounts and bodies are refused with their codes; a graceful shutdown under load loses no acknowledged request |
+| `tests/openapi.rs` | The contract itself, against the template registry and the error rules (step 2.06) |
+| CI `api-container` | The image, as compose runs it, and the Postman smoke collection against it |
+| [`scripts/chaos-api.sh`](../../scripts/chaos-api.sh) | The step 1.15 chaos run through the API: PostgreSQL or the service killed under load, then every request checked |
 
 ## Working on the contract
 

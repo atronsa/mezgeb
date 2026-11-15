@@ -23,12 +23,17 @@ own, with constraints, triggers and role privileges.
 | `periods` | Accounting period | Label, status (`open`, `closing`, `closed`), the entry range it holds (`after_sequence` < sequence ≤ `last_sequence`), when it opened, stopped taking postings and closed (migration 0007, step 2.05) |
 | `period_snapshots` | Account at the end of a closed period | The account's totals from every line up to the period's `last_sequence`; append-only |
 | `refund_tallies` | Account of a refunded entry | What the entry's refunds have moved back on that account (`refunded`) and the most they may (`limit_amount`); it only grows (migration 0006, step 2.04) |
+| `adjustment_requests` | Adjustment asked for through the API | Client and idempotency key, status (`pending`, `approving`, `approved`, `rejected`), reason code, the requested lines, who asked and when, who decided and when, and the entry an approval posted (migration 0008, step 2.07) |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal`, `adjustment` or, since migration 0006, `refund`), and
 corrections record `reason_code`, `requested_by` and `approved_by`. A
 refund records the entry it refunds in `refunds_entry_id`. Since migration
-0007, every new entry records its accounting period in `period_id`.
+0007, every new entry records its accounting period in `period_id`. Since
+migration 0008, an account opened through the API records the client that
+opened it (`opened_by`) and the idempotency key it used (`open_key`), unique
+together, so a retried open returns the same account; neither ever changes
+(`MZ005`).
 
 Amounts are `BIGINT` minor units ([ADR-0005](adr/0005-money-as-i64-minor-units.md)).
 IDs are `UUID` ([ADR-0006](adr/0006-uuidv7-identifiers.md)). Status, type and
@@ -227,6 +232,28 @@ operator's procedure is the [close runbook](runbooks/close-period.md).
   `REPEATABLE READ` transaction, then writes `period_snapshots` and marks the
   period `closed`. Snapshots are append-only.
 
+## Adjustment requests
+
+An adjustment is requested by one person and approved by another (INV-25,
+step 1.12). Through the API these are two calls, so the request waits in
+`adjustment_requests` (migration 0008, step 2.07).
+
+- **Two people.** A `CHECK` refuses a decision by the person who asked
+  (`23514`).
+- **Along its states only.** A request moves `pending` → `approving` →
+  `approved`, or `pending` → `rejected`, and only its decision columns
+  change (`MZ009`). Requests are never deleted.
+- **Approval survives a crash.** Approving marks the request `approving`
+  under a row lock, posts the adjustment with the idempotency key
+  `adjustment-{id}`, then marks it `approved` with the entry. If the service
+  stops in between, the next approval finishes it, with the checker who
+  started it, and posts nothing new: the key returns the entry already
+  posted.
+- **A refused approval posts nothing.** If the ledger refuses the lines (an
+  account would go negative, or is no longer open), the request goes back
+  from `approving` to `pending`, undecided, to be approved later or
+  rejected.
+
 ## Crash safety
 
 Every write is one transaction (step 1.15). What a crash leaves behind
@@ -290,6 +317,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ006` | Forbidden hold change: an ended hold changed, or a change other than ending it (INV-16) |
 | `MZ007` | Invalid refund, a refund tally changed other than by growing, or a reversal of a refund or of a refunded entry (INV-15) |
 | `MZ008` | Posting into a period that is not open, or a forbidden period change (INV-10) |
+| `MZ009` | Forbidden adjustment request change: a field other than the decision, or a step backwards (INV-25) |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
@@ -303,7 +331,7 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, and on a period's `status` and end, only. No DELETE anywhere. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only. No DELETE anywhere. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
 
