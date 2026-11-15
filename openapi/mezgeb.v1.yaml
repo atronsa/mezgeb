@@ -3392,6 +3392,18 @@ paths:
               example:
                 error: "invalid_client"
                 error_description: "Client authentication failed."
+        "429":
+          description: "Slow down"
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OAuthError"
+              example:
+                error: "slow_down"
+                error_description: "Too many token requests for this credential; retry after Retry-After seconds."
         "503":
           description: "Unavailable"
           headers:
@@ -3658,6 +3670,7 @@ components:
             - "unsupported_grant_type"
             - "invalid_scope"
             - "temporarily_unavailable"
+            - "slow_down"
         error_description:
           type: "string"
     Uuid7:

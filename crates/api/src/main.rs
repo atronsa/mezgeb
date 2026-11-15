@@ -53,6 +53,7 @@ async fn run() -> Result<(), String> {
         chart: Arc::new(chart),
         permissions: Arc::new(permissions),
         token_ttl: config.token_ttl,
+        limits: Arc::default(),
         registry: Arc::new(TemplateRegistry::standard()),
         options: PostOptions::default(),
         tasks: TaskTracker::new(),

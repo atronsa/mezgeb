@@ -8,7 +8,9 @@
 //!
 //! The caller's scopes are the token's; the templates it may post come from
 //! its credential's roles in the permission matrix ([`permissions`]). Each
-//! operation checks its scope before the request is read ([`scope`]).
+//! operation checks its scope before the request is read ([`scope`]). Each
+//! client's requests are rate-limited ([`rate`]): over its limit, a request
+//! is refused with `429 rate_limited` before anything else.
 
 use std::collections::BTreeSet;
 
@@ -20,6 +22,7 @@ use crate::problem::ApiError;
 
 pub mod oauth;
 pub mod permissions;
+pub mod rate;
 pub mod scope;
 
 pub use permissions::Permissions;
@@ -75,6 +78,17 @@ pub async fn authenticate(state: &AppState, header: Option<&str>) -> Result<Prin
     let owner = mezgeb_engine::token_owner(&mut conn, &digest)
         .await?
         .ok_or_else(ApiError::unauthenticated)?;
+    drop(conn);
+    if !state
+        .limits
+        .clients
+        .take(owner.client, owner.rate_per_second, owner.burst)
+    {
+        return Err(ApiError::new(
+            "rate_limited",
+            "This client has sent more requests than its limit; retry after Retry-After seconds.",
+        ));
+    }
     Ok(Principal {
         client: owner.client,
         credential: owner.credential,

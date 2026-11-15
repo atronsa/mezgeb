@@ -7,7 +7,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common::{Api, BoxError, CLIENT, Contract, OPERATOR, TestServer, etb};
+use common::{Api, BoxError, CLIENT, CLIENT_CREDENTIAL, Contract, OPERATOR, SLOW, TestServer, etb};
 use serde_json::{Value, json};
 
 async fn fund(api: &Api, wallets: &[&str]) -> Result<(), BoxError> {
@@ -366,4 +366,83 @@ async fn a_missing_scope_is_refused_before_the_request_is_read() -> Result<(), B
     assert_eq!(allowed.status, 400, "{}", allowed.body);
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
+}
+
+/// Rate limits (TM-03): a client over its limit is refused with `429` and
+/// `Retry-After`, other clients are not slowed, and the token endpoint
+/// limits attempts per credential before hashing anything.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clients_and_logins_are_rate_limited() -> Result<(), BoxError> {
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+
+    // The slow client: a burst of 3, then refused.
+    for _ in 0..3 {
+        let reply = api.get("/v1/periods/current", SLOW).await?;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+    }
+    let limited = api.get("/v1/periods/current", SLOW).await?;
+    assert_eq!(
+        (limited.status, limited.code()),
+        (429, "rate_limited"),
+        "{}",
+        limited.body
+    );
+    assert_eq!(
+        limited.headers.get("retry-after").map(|v| v.as_bytes()),
+        Some(&b"1"[..])
+    );
+    // Another client is not slowed down by it.
+    let other = api.get("/v1/periods/current", CLIENT).await?;
+    assert_eq!(other.status, 200);
+    // After Retry-After, the slow client may go on.
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    let again = api.get("/v1/periods/current", SLOW).await?;
+    assert_eq!(again.status, 200, "{}", again.body);
+
+    // Guessing a secret: many attempts at once, most refused before any
+    // hashing.
+    let attempts = (0..30).map(|_| {
+        let api = api.clone();
+        async move {
+            api.token(
+                Some((CLIENT_CREDENTIAL, "a-guess")),
+                "grant_type=client_credentials",
+            )
+            .await
+        }
+    });
+    let replies = futures_join_all(attempts).await?;
+    let slowed = replies.iter().filter(|r| r.status == 429).count();
+    let refused = replies.iter().filter(|r| r.status == 401).count();
+    assert_eq!(slowed + refused, 30);
+    assert!(refused <= 12, "{refused} attempts were hashed");
+    assert!(
+        replies
+            .iter()
+            .filter(|r| r.status == 429)
+            .all(|r| r.body["error"] == "slow_down" && r.headers.contains_key("retry-after"))
+    );
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Runs the futures concurrently and collects their results in order.
+async fn futures_join_all<F, T>(futures: impl Iterator<Item = F>) -> Result<Vec<T>, BoxError>
+where
+    F: std::future::Future<Output = Result<T, BoxError>> + Send + 'static,
+    T: Send + 'static,
+{
+    let tasks: Vec<_> = futures.map(tokio::spawn).collect();
+    let mut out = Vec::with_capacity(tasks.len());
+    for task in tasks {
+        out.push(task.await??);
+    }
+    Ok(out)
 }

@@ -43,6 +43,7 @@ use sqlx::PgPool;
 use tokio_util::task::TaskTracker;
 
 use crate::auth::Permissions;
+use crate::auth::rate::Limits;
 use crate::http::middleware::request_context;
 use crate::problem::{ApiError, REQUEST_ID};
 
@@ -55,6 +56,8 @@ pub struct AppState {
     pub permissions: Arc<Permissions>,
     /// How long an access token lives.
     pub token_ttl: Duration,
+    /// The rate limits' buckets.
+    pub limits: Arc<Limits>,
     pub registry: Arc<TemplateRegistry>,
     pub options: PostOptions,
     /// The writes under way, which graceful shutdown waits for.
