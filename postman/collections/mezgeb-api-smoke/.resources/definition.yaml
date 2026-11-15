@@ -1,0 +1,44 @@
+$kind: collection
+name: Mezgeb API smoke run
+description: |-
+  A scripted run against a live mezgeb-api, used by CI against the container
+  (the `api-container` job). It opens wallets, funds one, transfers, replays
+  and reuses idempotency keys, and checks the refusals (bad amounts, missing
+  keys and tokens, missing scopes) with their Problem Details codes.
+
+  Set `baseUrl`, `clientToken` and `operatorToken`. Every run uses fresh
+  references and keys, so it can run again against the same database.
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{clientToken}}'
+variables:
+  - key: baseUrl
+    value: http://localhost:8080
+  - key: clientToken
+    value: ''
+    description: A token with the wallet client's scopes.
+  - key: operatorToken
+    value: ''
+    description: A token with every scope, for system accounts.
+scripts:
+  - type: http:beforeRequest
+    language: text/javascript
+    code: |-
+      if (!pm.collectionVariables.get('runId')) {
+        pm.collectionVariables.set('runId', String(Date.now()));
+      }
+  - type: http:afterResponse
+    language: text/javascript
+    code: |-
+      const type = pm.response.headers.get('Content-Type') || '';
+      if (pm.response.code >= 400) {
+        pm.test('an error is Problem Details', () => {
+          pm.expect(type).to.include('application/problem+json');
+          const body = pm.response.json();
+          pm.expect(body.status).to.equal(pm.response.code);
+          pm.expect(body.type).to.equal('urn:mezgeb:problem:' + body.code);
+          pm.expect(body.instance).to.match(/^urn:uuid:/);
+        });
+      }

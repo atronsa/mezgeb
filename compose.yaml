@@ -1,10 +1,11 @@
-# Local PostgreSQL for development and database tests.
+# Local PostgreSQL for development and database tests, and the service.
 #
-#   docker compose up -d        start (first start creates the roles)
-#   docker compose down         stop and delete the data
+#   docker compose up -d                  PostgreSQL (first start creates the roles)
+#   docker compose --profile api up -d    also migrate and start mezgeb-api on :8080
+#   docker compose down                   stop and delete the data
 #
 # Port 55432 avoids clashing with a PostgreSQL already on 5432.
-# The passwords here are for local development only.
+# The passwords and tokens here are for local development only.
 
 services:
   postgres:
@@ -26,3 +27,28 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  # Applies the migrations as mezgeb_owner, then exits.
+  migrate:
+    profiles: [api]
+    build: .
+    command: ["mezgeb-cli", "migrate"]
+    environment:
+      MEZGEB_DATABASE_URL: postgres://mezgeb_owner:mezgeb_owner@postgres:5432/mezgeb
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    profiles: [api]
+    build: .
+    environment:
+      MEZGEB_DATABASE_URL: postgres://mezgeb_app:mezgeb_app@postgres:5432/mezgeb
+      MEZGEB_TOKENS: /etc/mezgeb/tokens.toml
+    volumes:
+      - ./deploy/tokens.dev.toml:/etc/mezgeb/tokens.toml:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

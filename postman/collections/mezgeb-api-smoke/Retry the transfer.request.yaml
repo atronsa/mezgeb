@@ -1,0 +1,33 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/operations/p2p_transfer.v1'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-p2p'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "payer_wallet": "2010:cust-s{{runId}}-a",
+        "payee_wallet": "2010:cust-s{{runId}}-b"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "25.00",
+          "currency": "ETB"
+        }
+      }
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('the retry returns the same entry', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.headers.get('Idempotent-Replayed')).to.equal('true');
+        pm.expect(pm.response.json().id).to.equal(pm.collectionVariables.get('transferId'));
+      });
+order: 7000

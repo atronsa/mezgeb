@@ -1,0 +1,30 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/operations/p2p_transfer.v1'
+method: POST
+headers:
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "payer_wallet": "2010:cust-s{{runId}}-a",
+        "payee_wallet": "2010:cust-s{{runId}}-b"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "25.00",
+          "currency": "ETB"
+        }
+      }
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('400 idempotency_key_required', () => {
+        pm.response.to.have.status(400);
+        pm.expect(pm.response.json().code).to.equal('idempotency_key_required');
+      });
+order: 13000

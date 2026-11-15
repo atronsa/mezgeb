@@ -1,0 +1,34 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/operations/p2p_transfer.v1'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-bad'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "payer_wallet": "2010:cust-s{{runId}}-a",
+        "payee_wallet": "2010:cust-s{{runId}}-b"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "10.255",
+          "currency": "ETB"
+        }
+      }
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('400 invalid_request, pointing at the amount', () => {
+        pm.response.to.have.status(400);
+        const body = pm.response.json();
+        pm.expect(body.code).to.equal('invalid_request');
+        pm.expect(body.errors[0].pointer).to.equal('/amounts/amount/amount');
+      });
+order: 11000

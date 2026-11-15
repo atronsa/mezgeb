@@ -1,0 +1,32 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/operations/p2p_transfer.v1'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-big'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "payer_wallet": "2010:cust-s{{runId}}-a",
+        "payee_wallet": "2010:cust-s{{runId}}-b"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "1000000.00",
+          "currency": "ETB"
+        }
+      }
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('422 insufficient_funds', () => {
+        pm.response.to.have.status(422);
+        pm.expect(pm.response.json().code).to.equal('insufficient_funds');
+      });
+order: 12000
