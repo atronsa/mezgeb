@@ -1,0 +1,75 @@
+# The permission matrix (step 2.08, ADR-0017): what each role may do.
+#
+# A credential holds one or more roles; a token carries the scopes its
+# roles grant (or fewer, if it asked for fewer). Each operation of the
+# contract needs one scope (openapi/mezgeb.v1.yaml). A role that grants
+# operations:write also lists the templates it may post: a template in no
+# list cannot be posted, so a newly released template is denied until it is
+# added here.
+#
+# This file is built into the service: changing a permission is a reviewed
+# code change. The authorization tests are generated from it and from the
+# contract (crates/api/tests/authz.rs).
+
+# A client platform's back end: opens its customers' accounts, posts through
+# the templates, places holds.
+[roles.poster]
+scopes = ["accounts:write", "operations:write", "holds:write", "offline:write"]
+templates = [
+    "p2p_transfer.v1",
+    "merchant_payment.v1",
+    "payment_request_settle.v1",
+    "deposit_confirmed.v1",
+    "deposit_unmatched.v1",
+    "suspense_resolve.v1",
+    "withdrawal_request.v1",
+    "withdrawal_sent.v1",
+    "withdrawal_confirmed.v1",
+    "withdrawal_failed.v1",
+    "merchant_refund.v1",
+    "dispute_open.v1",
+    "dispute_resolve_payer.v1",
+    "dispute_resolve_merchant.v1",
+]
+
+# Reads its own client's accounts, entries, holds and the periods.
+[roles.reader]
+scopes = ["accounts:read", "entries:read", "holds:read", "periods:read"]
+
+# The operator's staff: reversals, adjustment requests, the period close.
+# Reads every client's accounts and entries, to correct them.
+[roles.operator]
+scopes = [
+    "accounts:read",
+    "accounts:read_all",
+    "entries:read",
+    "corrections:write",
+    "adjustments:request",
+    "periods:read",
+    "periods:close",
+]
+
+# A second person who approves or rejects adjustment requests (INV-25).
+[roles.approver]
+scopes = ["adjustments:approve"]
+
+# Reads everything, changes nothing: reports, reconciliation, audits.
+[roles.auditor]
+scopes = [
+    "accounts:read",
+    "accounts:read_all",
+    "entries:read",
+    "holds:read",
+    "periods:read",
+    "reports:read",
+]
+
+# Opens system accounts (1010, 4010, ...) and freezes, unfreezes or closes
+# any account.
+[roles.admin]
+scopes = ["accounts:write", "accounts:admin"]
+
+# Roles one credential may never hold together.
+[[exclusive]]
+roles = ["operator", "approver"]
+reason = "the same person would both request and approve corrections (INV-25)"

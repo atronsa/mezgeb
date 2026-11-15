@@ -11,9 +11,9 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use mezgeb_api::auth::{Tokens, token_hash};
+use mezgeb_api::auth::Permissions;
 use mezgeb_api::{AppState, serve};
-use mezgeb_core::Chart;
+use mezgeb_core::{ActorId, Chart, Timestamp};
 use mezgeb_engine::PostOptions;
 use mezgeb_ops::TemplateRegistry;
 use serde_json::{Map, Value};
@@ -25,43 +25,143 @@ use yaml_rust2::{Yaml, YamlLoader};
 pub type TestResult = Result<(), Box<dyn std::error::Error>>;
 pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
+/// The wallet client's token: `poster` and `reader`.
 pub const CLIENT: &str = "client-token";
+/// The operator's maker: `operator`, `admin` and `auditor`.
 pub const OPERATOR: &str = "operator-token";
+/// A second operator, the checker: `approver`.
 pub const CHECKER: &str = "checker-token";
+/// The maker again, as the same person (`ops:maker`) on a second
+/// credential with `approver`: one person holding both roles on separate
+/// credentials, which maker-checker must still refuse.
+pub const MAKER_AS_APPROVER: &str = "maker-as-approver-token";
+/// Another wallet client, with the same roles as [`CLIENT`].
+pub const OTHER: &str = "other-client-token";
 pub const CLIENT_ID: &str = "0192f3c4-0000-7000-8000-00000000c11e";
 pub const OPERATOR_ID: &str = "0192f3c4-0000-7000-8000-0000000000ff";
+pub const OTHER_ID: &str = "0192f3c4-0000-7000-8000-00000000c22e";
+/// The wallet credential's OAuth `client_id` and secret.
+pub const CLIENT_CREDENTIAL: &str = "0192f3c4-0000-7000-8000-0000000c0001";
+pub const CLIENT_SECRET: &str = "client-secret-0001";
+/// One credential, of the wallet client, per role: `(role, token)`.
+pub const ROLE_TOKENS: [(&str, &str); 6] = [
+    ("poster", "role-poster-token"),
+    ("reader", "role-reader-token"),
+    ("operator", "role-operator-token"),
+    ("approver", "role-approver-token"),
+    ("auditor", "role-auditor-token"),
+    ("admin", "role-admin-token"),
+];
 
-const ALL_SCOPES: &str = r#""accounts:read", "accounts:read_all", "accounts:write", "accounts:admin",
-    "operations:write", "entries:read", "corrections:write", "adjustments:request",
-    "adjustments:approve", "holds:read", "holds:write", "periods:read", "periods:close",
-    "reports:read", "offline:write""#;
+/// `(client, credential, actor, roles, token)`: every credential the tests
+/// use, each with a token stored directly so the tests know its value.
+fn credentials() -> Vec<(&'static str, String, String, Vec<String>, &'static str)> {
+    let roles = |list: &[&str]| list.iter().map(|r| (*r).to_owned()).collect::<Vec<_>>();
+    let mut all = vec![
+        (
+            CLIENT_ID,
+            CLIENT_CREDENTIAL.to_owned(),
+            "app:wallet".to_owned(),
+            roles(&["poster", "reader"]),
+            CLIENT,
+        ),
+        (
+            OPERATOR_ID,
+            "0192f3c4-0000-7000-8000-0000000c0002".to_owned(),
+            "ops:maker".to_owned(),
+            roles(&["operator", "admin", "auditor"]),
+            OPERATOR,
+        ),
+        (
+            OPERATOR_ID,
+            "0192f3c4-0000-7000-8000-0000000c0003".to_owned(),
+            "ops:checker".to_owned(),
+            roles(&["approver"]),
+            CHECKER,
+        ),
+        (
+            OTHER_ID,
+            "0192f3c4-0000-7000-8000-0000000c0004".to_owned(),
+            "app:other".to_owned(),
+            roles(&["poster", "reader"]),
+            OTHER,
+        ),
+        (
+            OPERATOR_ID,
+            "0192f3c4-0000-7000-8000-0000000c0005".to_owned(),
+            "ops:maker".to_owned(),
+            roles(&["approver"]),
+            MAKER_AS_APPROVER,
+        ),
+    ];
+    for (n, (role, token)) in ROLE_TOKENS.iter().enumerate() {
+        all.push((
+            CLIENT_ID,
+            format!("0192f3c4-0000-7000-8000-0000000c01{n:02}"),
+            format!("role:{role}"),
+            roles(&[role]),
+            token,
+        ));
+    }
+    all
+}
 
-fn token_file() -> String {
-    format!(
-        r#"
-[[tokens]]
-sha256 = "{}"
-client_id = "{CLIENT_ID}"
-actor = "app:wallet"
-scopes = ["accounts:read", "accounts:write", "operations:write", "entries:read", "holds:read",
-          "holds:write", "periods:read", "offline:write"]
+/// The hash of [`CLIENT_SECRET`], computed once: Argon2 is slow in a debug
+/// build. Every test credential has this secret.
+fn secret_hash() -> Result<&'static str, String> {
+    static HASH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if let Some(hash) = HASH.get() {
+        return Ok(hash);
+    }
+    let hash = mezgeb_engine::hash_secret(CLIENT_SECRET).map_err(|e| e.to_string())?;
+    Ok(HASH.get_or_init(|| hash))
+}
 
-[[tokens]]
-sha256 = "{}"
-client_id = "{OPERATOR_ID}"
-actor = "ops:maker"
-scopes = [{ALL_SCOPES}]
-
-[[tokens]]
-sha256 = "{}"
-client_id = "{OPERATOR_ID}"
-actor = "ops:checker"
-scopes = ["adjustments:request", "adjustments:approve", "reports:read"]
-"#,
-        token_hash(CLIENT),
-        token_hash(OPERATOR),
-        token_hash(CHECKER)
-    )
+/// Creates the test clients, credentials and tokens that are missing.
+async fn seed(
+    db: &support::TestDb,
+    permissions: &Permissions,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut admin = db.admin().await?;
+    for (id, name) in [
+        (CLIENT_ID, "wallet"),
+        (OPERATOR_ID, "operator"),
+        (OTHER_ID, "other-wallet"),
+    ] {
+        if mezgeb_engine::client_by_name(&mut admin, name)
+            .await?
+            .is_none()
+        {
+            mezgeb_engine::create_client(&mut admin, id.parse()?, name, 100_000, 100_000).await?;
+        }
+    }
+    let mut app = db.app().await?;
+    let day = 86_400_000_000;
+    let expires = Timestamp::from_micros(mezgeb_api::wire::now().as_micros() + day);
+    for (client, credential, actor, roles, token) in credentials() {
+        let credential: uuid::Uuid = credential.parse()?;
+        let existing = mezgeb_engine::list_credentials(&mut admin, client.parse()?).await?;
+        if !existing.iter().any(|c| c.id == credential) {
+            mezgeb_engine::add_credential(
+                &mut admin,
+                credential,
+                client.parse()?,
+                &ActorId::new(&actor)?,
+                &roles,
+                secret_hash()?,
+            )
+            .await?;
+        }
+        let digest = mezgeb_engine::token_digest(token);
+        if mezgeb_engine::token_owner(&mut app, &digest)
+            .await?
+            .is_none()
+        {
+            let scopes: Vec<String> = permissions.scopes(&roles).into_iter().collect();
+            mezgeb_engine::store_token(&mut app, &digest, credential, &scopes, expires).await?;
+        }
+    }
+    Ok(())
 }
 
 /// A running server.
@@ -91,10 +191,13 @@ impl TestServer {
         timeout: Duration,
     ) -> Result<TestServer, Box<dyn std::error::Error>> {
         let chart = Chart::from_toml(include_str!("../../../../charts/wallet-provider.toml"))?;
+        let permissions = Permissions::built_in()?;
+        seed(&db, &permissions).await?;
         let state = AppState {
             pool: db.app_pool_of(16).await?,
             chart: Arc::new(chart),
-            tokens: Arc::new(Tokens::parse(&token_file())?),
+            permissions: Arc::new(permissions),
+            token_ttl: Duration::from_secs(900),
             registry: Arc::new(TemplateRegistry::standard()),
             options: PostOptions {
                 lock_timeout: Duration::from_secs(20),
@@ -355,6 +458,35 @@ pub struct Api {
 }
 
 impl Api {
+    /// `POST /oauth/token` with HTTP Basic credentials and a form body, the
+    /// answer checked against the contract.
+    pub async fn token(&self, basic: Option<(&str, &str)>, form: &str) -> Result<Reply, BoxError> {
+        let mut request = self
+            .http
+            .post(format!("{}/oauth/token", self.base))
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(form.to_owned());
+        if let Some((user, password)) = basic {
+            request = request.basic_auth(user, Some(password));
+        }
+        let response = request.send().await?;
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        let content_type = headers
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("")
+            .to_owned();
+        let body: Value = serde_json::from_str(&response.text().await?)?;
+        self.contract
+            .check("POST", "/oauth/token", status, &content_type, &body)?;
+        Ok(Reply {
+            status,
+            body,
+            headers,
+        })
+    }
+
     pub fn new(base: &str, contract: Arc<Contract>) -> Api {
         Api {
             http: reqwest::Client::new(),

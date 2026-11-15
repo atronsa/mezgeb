@@ -1,38 +1,40 @@
-//! Who is calling, and what they may do.
+//! Who is calling, and what they may do (step 2.08, ADR-0017).
 //!
-//! **Interim, until step 2.08.** The contract describes OAuth 2.0 client
-//! credentials. Until step 2.08 builds that, the service reads bearer tokens
-//! from a file of their SHA-256 hashes (never the tokens themselves):
+//! A caller sends `Authorization: Bearer <token>`, a token it got from
+//! `POST /oauth/token` ([`oauth`]) with its credential's ID and secret. The
+//! token is looked up by its SHA-256 on every request. It is valid only
+//! while it has not expired and its credential and its client are active,
+//! so revoking either ends it at once.
 //!
-//! ```toml
-//! [[tokens]]
-//! sha256 = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-//! client_id = "0192f3c4-0000-7000-8000-00000000c11e"
-//! actor = "app:wallet"
-//! scopes = ["accounts:read", "accounts:write", "operations:write", "entries:read"]
-//! ```
-//!
-//! Every route names the scope it needs, and a token without it is refused:
-//! default deny. What the interim scheme does not do yet, and step 2.08 must:
-//! expiring tokens, a clients table, and limiting a client to its own
-//! accounts and entries.
+//! The caller's scopes are the token's; the templates it may post come from
+//! its credential's roles in the permission matrix ([`permissions`]). Each
+//! operation checks its scope before the request is read ([`scope`]).
+
+use std::collections::BTreeSet;
 
 use mezgeb_core::{ActorId, ClientId};
+use uuid::Uuid;
 
+use crate::AppState;
 use crate::problem::ApiError;
 
+pub mod oauth;
+pub mod permissions;
 pub mod scope;
-mod tokens;
 
-pub use tokens::{Tokens, token_hash};
+pub use permissions::Permissions;
 
 /// An authenticated caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Principal {
     pub client: ClientId,
+    /// The credential the token was issued to.
+    pub credential: Uuid,
     /// The person or system acting, recorded on corrections.
     pub actor: ActorId,
-    pub scopes: Vec<String>,
+    pub scopes: BTreeSet<String>,
+    /// The templates the caller may post.
+    pub templates: BTreeSet<String>,
 }
 
 impl Principal {
@@ -46,6 +48,38 @@ impl Principal {
     }
 
     pub fn has(&self, scope: &str) -> bool {
-        self.scopes.iter().any(|s| s == scope)
+        self.scopes.contains(scope)
     }
+
+    /// Whether the caller reads every client's accounts and entries, not
+    /// only its own.
+    pub fn sees_all(&self) -> bool {
+        self.has("accounts:read_all")
+    }
+}
+
+/// The caller of a request with this `Authorization` header value.
+pub async fn authenticate(state: &AppState, header: Option<&str>) -> Result<Principal, ApiError> {
+    let token = header
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .ok_or_else(ApiError::unauthenticated)?;
+    let digest = mezgeb_engine::token_digest(token);
+    let mut conn = state.pool.acquire().await.map_err(|e| match e {
+        sqlx::Error::PoolTimedOut => {
+            ApiError::new("busy", "No database connection was free in time.")
+        }
+        other => ApiError::internal(other),
+    })?;
+    let owner = mezgeb_engine::token_owner(&mut conn, &digest)
+        .await?
+        .ok_or_else(ApiError::unauthenticated)?;
+    Ok(Principal {
+        client: owner.client,
+        credential: owner.credential,
+        actor: owner.actor,
+        templates: state.permissions.templates(&owner.roles),
+        scopes: owner.scopes.into_iter().collect(),
+    })
 }

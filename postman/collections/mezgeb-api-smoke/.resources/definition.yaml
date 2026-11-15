@@ -6,8 +6,12 @@ description: |-
   and reuses idempotency keys, and checks the refusals (bad amounts, missing
   keys and tokens, missing scopes) with their Problem Details codes.
 
-  Set `baseUrl`, `clientToken` and `operatorToken`. Every run uses fresh
-  references and keys, so it can run again against the same database.
+  It starts by exchanging two credentials for tokens at `/oauth/token`.
+  Set `baseUrl`, `clientId` and `clientSecret` (a poster and reader), and
+  `operatorId` and `operatorSecret` (an admin, for system accounts); the
+  defaults are the development credentials of deploy/clients.dev.toml.
+  Every run uses fresh references and keys, so it can run again against the
+  same database.
 auth:
   type: bearer
   credentials:
@@ -16,12 +20,24 @@ auth:
 variables:
   - key: baseUrl
     value: http://localhost:8080
+  - key: clientId
+    value: 0192f3c4-0000-7000-8000-0000000c0001
+    description: A credential with the poster and reader roles.
+  - key: clientSecret
+    value: dev-wallet-secret-0001
+    description: Its secret (development only).
+  - key: operatorId
+    value: 0192f3c4-0000-7000-8000-0000000c0002
+    description: A credential with the admin role, for system accounts.
+  - key: operatorSecret
+    value: dev-operator-secret-0002
+    description: Its secret (development only).
   - key: clientToken
     value: ''
-    description: A token with the wallet client's scopes.
+    description: Set by "Get a client token".
   - key: operatorToken
     value: ''
-    description: A token with every scope, for system accounts.
+    description: Set by "Get an operator token".
 scripts:
   - type: http:beforeRequest
     language: text/javascript
@@ -33,7 +49,8 @@ scripts:
     language: text/javascript
     code: |-
       const type = pm.response.headers.get('Content-Type') || '';
-      if (pm.response.code >= 400) {
+      const oauth = pm.request.url.getPath() === '/oauth/token';
+      if (pm.response.code >= 400 && !oauth) {
         pm.test('an error is Problem Details', () => {
           pm.expect(type).to.include('application/problem+json');
           const body = pm.response.json();

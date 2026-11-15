@@ -2,7 +2,7 @@
 
 use serde_json::json;
 
-use crate::common::{Api, BoxError, CHECKER, CLIENT, OPERATOR, etb};
+use crate::common::{Api, BoxError, CHECKER, CLIENT, MAKER_AS_APPROVER, OPERATOR, etb};
 
 use crate::operations::Posted;
 
@@ -79,10 +79,29 @@ pub async fn reversals_and_adjustments(api: &Api, posted: &Posted) -> Result<(),
             .await?,
         200
     );
+    // The maker's credential cannot approve at all (no operator is also an
+    // approver), and a second credential of the same person is refused by
+    // the engine: maker and checker must be different people (INV-25).
     expect!(
         api.post(
             &format!("/v1/adjustments/{adjustment}/approval"),
             OPERATOR,
+            "apr-0",
+            json!({})
+        )
+        .await?,
+        403,
+        "forbidden"
+    );
+    expect!(
+        api.get(&format!("/v1/adjustments/{adjustment}"), CHECKER)
+            .await?,
+        200
+    );
+    expect!(
+        api.post(
+            &format!("/v1/adjustments/{adjustment}/approval"),
+            MAKER_AS_APPROVER,
             "apr-1",
             json!({})
         )

@@ -3,7 +3,8 @@
 use std::collections::BTreeMap;
 
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{FromRequestParts, MatchedPath, State};
+use axum::http::request::Parts;
 use axum::routing::post;
 use mezgeb_core::{AccountId, EntryDraft, EntryId};
 use mezgeb_engine::PostRequest;
@@ -40,18 +41,42 @@ struct OperationBody {
     refunds: Option<String>,
 }
 
+/// The route's template, if the caller's roles may post it (the permission
+/// matrix). Checked right after the scope, before the request is read.
+struct Postable(String);
+
+impl FromRequestParts<AppState> for Postable {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &AppState) -> Result<Postable, ApiError> {
+        let template = parts
+            .extensions
+            .get::<MatchedPath>()
+            .and_then(|p| p.as_str().strip_prefix("/v1/operations/"))
+            .unwrap_or_default()
+            .to_owned();
+        let caller = parts
+            .extensions
+            .get::<Principal>()
+            .ok_or_else(ApiError::unauthenticated)?;
+        if caller.templates.contains(&template) {
+            Ok(Postable(template))
+        } else {
+            Err(ApiError::new(
+                "forbidden",
+                format!("This credential's roles may not post {template}."),
+            ))
+        }
+    }
+}
+
 async fn operation(
     State(state): State<AppState>,
     Auth(caller, _): Auth<OperationsWrite>,
+    Postable(template): Postable,
     IdemKey(key): IdemKey,
-    matched: axum::extract::MatchedPath,
     JsonBody(body): JsonBody<OperationBody>,
 ) -> ApiResult {
-    let template = matched
-        .as_str()
-        .strip_prefix("/v1/operations/")
-        .unwrap_or_default()
-        .to_owned();
     let mut amounts = BTreeMap::new();
     for (name, money) in &body.amounts {
         amounts.insert(name.clone(), money.to_money(&format!("/amounts/{name}"))?);

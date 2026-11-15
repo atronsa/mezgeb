@@ -264,12 +264,24 @@ fn only_the_adjustment_request_takes_raw_lines() {
 }
 
 /// Every operation needs a scope, and every write that posts an entry or
-/// places a hold takes an Idempotency-Key.
+/// places a hold takes an Idempotency-Key. The token endpoint is the one
+/// exception: the caller authenticates there with its credential instead
+/// (ADR-0017), and it posts nothing.
 #[test]
 fn every_operation_is_scoped_and_every_posting_is_idempotent() {
     let ops = operations();
     assert!(ops.len() >= 40, "found {} operations", ops.len());
     for (path, method, body) in &ops {
+        if path == "/oauth/token" {
+            assert!(
+                body.contains(
+                    "security:
+        - clientSecretBasic: []"
+                ),
+                "the token endpoint takes HTTP Basic client authentication"
+            );
+            continue;
+        }
         assert!(
             body.contains("security:\n        - oauth2:\n            - \""),
             "{method} {path} has no scope"

@@ -29,6 +29,7 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+base64 = "0.22"
 
 [dev-dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["json"] }

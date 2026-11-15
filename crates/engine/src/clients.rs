@@ -96,6 +96,10 @@ pub struct TokenOwner {
     pub credential: Uuid,
     pub client: ClientId,
     pub actor: ActorId,
+    /// The credential's roles, from which the service works out the
+    /// templates it may post.
+    pub roles: Vec<String>,
+    /// The scopes granted to this token: at most what the roles allow.
     pub scopes: Vec<String>,
     pub rate_per_second: u32,
     pub burst: u32,
@@ -454,7 +458,7 @@ pub async fn token_owner(
     digest: &[u8; 32],
 ) -> Result<Option<TokenOwner>, LedgerError> {
     let row = sqlx::query(
-        "SELECT c.id, c.client_id, c.actor, t.scopes, k.rate_per_second, k.burst
+        "SELECT c.id, c.client_id, c.actor, c.roles, t.scopes, k.rate_per_second, k.burst
            FROM access_tokens t
            JOIN client_credentials c ON c.id = t.credential_id
            JOIN clients k ON k.id = c.client_id
@@ -473,6 +477,7 @@ pub async fn token_owner(
         credential: row.try_get("id").map_err(db)?,
         client: client_id(row.try_get("client_id").map_err(db)?)?,
         actor: ActorId::new(actor).map_err(storage)?,
+        roles: row.try_get("roles").map_err(db)?,
         scopes: row.try_get("scopes").map_err(db)?,
         rate_per_second: limit(&row, "rate_per_second")?,
         burst: limit(&row, "burst")?,

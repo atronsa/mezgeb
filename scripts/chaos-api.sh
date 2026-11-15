@@ -26,7 +26,8 @@
 #
 # It runs against a separate database, mezgeb_api_chaos, recreated at the
 # start, on the compose service's PostgreSQL (the roles from db/init must
-# exist), and uses the development tokens in deploy/tokens.dev.toml.
+# exist, mezgeb_admin among them), with the development clients and
+# credentials of deploy/clients.dev.toml.
 
 set -euo pipefail
 
@@ -44,6 +45,7 @@ BASE=http://127.0.0.1:$API_PORT
 OWNER_URL=postgres://mezgeb_owner:mezgeb_owner@localhost:$PORT/$DB
 APP_URL=postgres://mezgeb_app:mezgeb_app@localhost:$PORT/$DB
 VERIFIER_URL=postgres://mezgeb_verifier:mezgeb_verifier@localhost:$PORT/$DB
+ADMIN_URL=postgres://mezgeb_admin:mezgeb_admin@localhost:$PORT/$DB
 
 cd "$(dirname "$0")/.."
 
@@ -61,7 +63,7 @@ wait_ready() {
 API_PID=
 start_api() {
     MEZGEB_DATABASE_URL=$APP_URL MEZGEB_LISTEN=127.0.0.1:$API_PORT \
-        MEZGEB_TOKENS=deploy/tokens.dev.toml MEZGEB_CHART=charts/wallet-provider.toml \
+        MEZGEB_CHART=charts/wallet-provider.toml \
         MEZGEB_LOG=warn $API >>"$OUT/api.log" 2>&1 &
     API_PID=$!
     # Up once it answers at all: 401 without a token.
@@ -94,6 +96,7 @@ wait_ready
 superuser -c "DROP DATABASE IF EXISTS $DB WITH (FORCE)"
 superuser -c "CREATE DATABASE $DB OWNER mezgeb_owner"
 $VERIFY migrate --database-url "$OWNER_URL" >/dev/null
+$VERIFY client seed deploy/clients.dev.toml --database-url "$ADMIN_URL" >/dev/null
 start_api
 $LOAD setup "$OWNER_URL" "$BASE"
 
@@ -113,14 +116,14 @@ for cycle in $(seq 1 "$CYCLES"); do
     $LOAD load "$BASE" "$LOG" "$cycle" "$WORKERS" "$LOAD_SECONDS" >"$OUT/load-$cycle.txt" &
     loader=$!
     sleep "$kill_after"
-    # A busy machine can delay the kill past the end of the load; such a
-    # cycle tests nothing, and the run fails.
-    if kill -0 "$loader" 2>/dev/null; then during=yes; else during=NO; fi
     if [[ $target == postgres ]]; then
         docker compose kill -s SIGKILL postgres >/dev/null 2>&1
     else
         kill_api
     fi
+    # Checked once the kill has finished: a busy machine can delay it past
+    # the end of the load, and such a cycle tests nothing, so the run fails.
+    if kill -0 "$loader" 2>/dev/null; then during=yes; else during=NO; fi
     wait "$loader"
     load_line=$(grep '^LOAD' "$OUT/load-$cycle.txt")
 

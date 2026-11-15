@@ -15,6 +15,7 @@ mod common;
 mod corrections;
 mod entries;
 mod holds;
+mod oauth;
 mod offline;
 mod operations;
 mod periods;
@@ -32,4 +33,5 @@ pub fn routes() -> Router<AppState> {
         .merge(periods::router())
         .merge(reports::router())
         .merge(offline::router())
+        .merge(oauth::router())
 }

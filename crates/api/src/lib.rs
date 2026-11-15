@@ -42,7 +42,7 @@ use mezgeb_ops::TemplateRegistry;
 use sqlx::PgPool;
 use tokio_util::task::TaskTracker;
 
-use crate::auth::Tokens;
+use crate::auth::Permissions;
 use crate::http::middleware::request_context;
 use crate::problem::{ApiError, REQUEST_ID};
 
@@ -51,7 +51,10 @@ use crate::problem::{ApiError, REQUEST_ID};
 pub struct AppState {
     pub pool: PgPool,
     pub chart: Arc<Chart>,
-    pub tokens: Arc<Tokens>,
+    /// The permission matrix: what each role grants.
+    pub permissions: Arc<Permissions>,
+    /// How long an access token lives.
+    pub token_ttl: Duration,
     pub registry: Arc<TemplateRegistry>,
     pub options: PostOptions,
     /// The writes under way, which graceful shutdown waits for.
