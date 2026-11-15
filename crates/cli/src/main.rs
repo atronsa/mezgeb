@@ -3,6 +3,7 @@
 //! ```text
 //! mezgeb-cli verify [--full] [--settle-seconds N] [--no-record] [--database-url URL]
 //! mezgeb-cli close-period --next LABEL [--database-url URL]
+//! mezgeb-cli migrate [--database-url URL]
 //! ```
 //!
 //! `verify` proves that the stored balances equal the journal
@@ -11,6 +12,9 @@
 //! `close-period` closes the open accounting period and opens the next one,
 //! named `LABEL`; if a close stopped part-way, it finishes that one instead
 //! (docs/runbooks/close-period.md). Connect as `mezgeb_app`.
+//!
+//! `migrate` applies the schema migrations that have not run yet. Connect
+//! as `mezgeb_owner`; run it before starting a new version of the service.
 //!
 //! The URL comes from `--database-url` or `MEZGEB_DATABASE_URL`.
 //!
@@ -22,12 +26,13 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use mezgeb_engine::{Scope, VerifyOptions, close_period, verify};
+use mezgeb_engine::{MIGRATOR, Scope, VerifyOptions, close_period, verify};
 use sqlx::{Connection, PgConnection};
 
 const USAGE: &str = "usage: mezgeb-cli verify [--full] [--settle-seconds N] [--no-record] \
                      [--database-url URL]\n       \
-                     mezgeb-cli close-period --next LABEL [--database-url URL]";
+                     mezgeb-cli close-period --next LABEL [--database-url URL]
+                            mezgeb-cli migrate [--database-url URL]";
 
 /// The parsed `verify` command.
 #[derive(Debug, PartialEq, Eq)]
@@ -43,6 +48,7 @@ struct VerifyCommand {
 enum Command {
     Verify(VerifyCommand),
     ClosePeriod { next: String, url: Option<String> },
+    Migrate { url: Option<String> },
 }
 
 fn database_url(args: &mut std::slice::Iter<'_, String>) -> Result<String, String> {
@@ -65,6 +71,21 @@ fn parse(args: &[String]) -> Result<Command, String> {
             }
             let next = next.ok_or(format!("close-period needs --next LABEL\n{USAGE}"))?;
             Ok(Command::ClosePeriod { next, url })
+        }
+        Some("migrate") => {
+            let mut url = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--database-url" => url = Some(database_url(&mut args)?),
+                    other => {
+                        return Err(format!(
+                            "unknown argument {other:?}
+{USAGE}"
+                        ));
+                    }
+                }
+            }
+            Ok(Command::Migrate { url })
         }
         _ => Err(USAGE.to_owned()),
     }
@@ -145,6 +166,16 @@ async fn run(command: Command) -> Result<bool, String> {
                 println!("finding: {finding}");
             }
             Ok(report.is_closed())
+        }
+        Command::Migrate { url } => {
+            let mut conn = connect(url).await?;
+            MIGRATOR
+                .run(&mut conn)
+                .await
+                .map_err(|e| format!("migration failed: {e}"))?;
+            let latest = MIGRATOR.iter().map(|m| m.version).max().unwrap_or(0);
+            println!("schema at migration {latest}");
+            Ok(true)
         }
     }
 }
@@ -232,6 +263,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_migrate() {
+        assert_eq!(
+            parse(&args(&["migrate"])),
+            Ok(Command::Migrate { url: None })
+        );
+        assert_eq!(
+            parse(&args(&["migrate", "--database-url", "postgres://x"])),
+            Ok(Command::Migrate {
+                url: Some("postgres://x".into())
+            })
+        );
+    }
+
+    #[test]
     fn refuses_bad_arguments() {
         assert!(parse(&args(&[])).is_err());
         assert!(parse(&args(&["import"])).is_err());
@@ -241,5 +286,6 @@ mod tests {
         assert!(parse(&args(&["close-period"])).is_err());
         assert!(parse(&args(&["close-period", "--next"])).is_err());
         assert!(parse(&args(&["close-period", "--next", "d2", "--now"])).is_err());
+        assert!(parse(&args(&["migrate", "--down"])).is_err());
     }
 }
