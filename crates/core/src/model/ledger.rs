@@ -252,6 +252,11 @@ pub enum LedgerError {
     /// A report asked for a period that is not closed, so it has no
     /// snapshot (INV-10). Never produced by `MemLedger`.
     PeriodNotClosed(i64),
+    /// No adjustment request has this ID. Never produced by `MemLedger`.
+    AdjustmentNotFound,
+    /// The adjustment request has already been decided. Never produced by
+    /// `MemLedger`.
+    AdjustmentNotPending,
 }
 
 impl fmt::Display for LedgerError {
@@ -337,6 +342,10 @@ impl fmt::Display for LedgerError {
             LedgerError::RefundAsAdjustment => f.write_str("an adjustment cannot be a refund"),
             LedgerError::NoOpenPeriod => f.write_str("no accounting period is open"),
             LedgerError::PeriodNotClosed(id) => write!(f, "period {id} is not closed"),
+            LedgerError::AdjustmentNotFound => f.write_str("no such adjustment request"),
+            LedgerError::AdjustmentNotPending => {
+                f.write_str("the adjustment request has already been decided")
+            }
             LedgerError::AccountIsHeld(id) => {
                 write!(
                     f,

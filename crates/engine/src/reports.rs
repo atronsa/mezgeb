@@ -290,3 +290,112 @@ pub async fn general_ledger(
         closing_balance: balance,
     })
 }
+
+/// Where a page of an account's history starts: after this line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerCursor {
+    pub sequence: u64,
+    pub line_no: i16,
+}
+
+/// One page of an account's history (step 2.07).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerPage {
+    /// The balance on the normal side before the first line of this page.
+    pub opening_balance: i64,
+    /// Up to `limit` lines, in posting order, each with its line number.
+    pub lines: Vec<(GeneralLedgerLine, i16)>,
+    /// Where the next page starts, if there are more lines.
+    pub next: Option<LedgerCursor>,
+}
+
+/// A page of the general ledger of `account` from `from` (inclusive) to
+/// `to` (exclusive), by recording time, starting after `after`.
+pub async fn general_ledger_page(
+    conn: &mut PgConnection,
+    account: &Account,
+    from: Timestamp,
+    to: Timestamp,
+    after: Option<LedgerCursor>,
+    limit: i64,
+) -> Result<LedgerPage, LedgerError> {
+    let normal = account.normal_side();
+    let (after_sequence, after_line) = after.map_or((-1, -1), |c| {
+        (i64::try_from(c.sequence).unwrap_or(i64::MAX), c.line_no)
+    });
+    // Before the page: everything recorded before `from`, and the lines of
+    // the range up to the cursor.
+    let opening: i64 = sqlx::query_scalar(
+        "SELECT coalesce(sum(CASE l.side WHEN $2 THEN l.amount ELSE -l.amount END), 0)::bigint
+           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+          WHERE l.account_id = $1
+            AND (e.recorded_time < timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
+                 OR (e.recorded_time < timestamptz 'epoch' + $4::bigint * interval '1 microsecond'
+                     AND (e.sequence, l.line_no) <= ($5::bigint, $6::int2)))",
+    )
+    .bind(account.id().as_uuid())
+    .bind(normal.as_str())
+    .bind(from.as_micros())
+    .bind(to.as_micros())
+    .bind(after_sequence)
+    .bind(after_line)
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(db)?;
+
+    let rows = sqlx::query(
+        "SELECT e.id, e.sequence, l.line_no,
+                (extract(epoch FROM e.recorded_time) * 1000000)::bigint AS recorded_micros,
+                l.side, l.amount
+           FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+          WHERE l.account_id = $1
+            AND e.recorded_time >= timestamptz 'epoch' + $2::bigint * interval '1 microsecond'
+            AND e.recorded_time < timestamptz 'epoch' + $3::bigint * interval '1 microsecond'
+            AND (e.sequence, l.line_no) > ($4::bigint, $5::int2)
+          ORDER BY e.sequence, l.line_no
+          LIMIT $6",
+    )
+    .bind(account.id().as_uuid())
+    .bind(from.as_micros())
+    .bind(to.as_micros())
+    .bind(after_sequence)
+    .bind(after_line)
+    .bind(limit + 1)
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    let more = rows.len() > usize::try_from(limit).unwrap_or(0);
+    let mut balance = opening;
+    let mut lines = Vec::with_capacity(rows.len());
+    for row in rows.iter().take(usize::try_from(limit).unwrap_or(0)) {
+        let side: String = row.try_get("side").map_err(db)?;
+        let side = Side::from_name(&side).ok_or_else(|| storage("stored side is invalid"))?;
+        let amount: i64 = row.try_get("amount").map_err(db)?;
+        balance += if side == normal { amount } else { -amount };
+        let sequence: i64 = row.try_get("sequence").map_err(db)?;
+        lines.push((
+            GeneralLedgerLine {
+                entry: entry_id(row.try_get("id").map_err(db)?)?,
+                sequence: u64::try_from(sequence).map_err(storage)?,
+                recorded_at: Timestamp::from_micros(row.try_get("recorded_micros").map_err(db)?),
+                side,
+                amount,
+                balance,
+            },
+            row.try_get("line_no").map_err(db)?,
+        ));
+    }
+    let next = if more {
+        lines.last().map(|(line, line_no)| LedgerCursor {
+            sequence: line.sequence,
+            line_no: *line_no,
+        })
+    } else {
+        None
+    };
+    Ok(LedgerPage {
+        opening_balance: opening,
+        lines,
+        next,
+    })
+}
