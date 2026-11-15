@@ -1,0 +1,30 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/accounts'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-open-1010'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "reference": "1010"
+    }
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{operatorToken}}'
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('opened, or already open', () => {
+        pm.expect(pm.response.code).to.be.oneOf([201, 409]);
+        if (pm.response.code === 409) {
+          pm.expect(pm.response.json().code).to.equal('duplicate_reference');
+        }
+      });
+order: 1000

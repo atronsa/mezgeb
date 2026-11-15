@@ -1,0 +1,12 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/accounts/{{walletA}}/balance'
+method: GET
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('100.00 in, 25.00 out', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().balance).to.eql({amount: '75.00', currency: 'ETB'});
+      });
+order: 10000

@@ -1,0 +1,12 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/entries/by-idempotency-key/smoke-{{runId}}-p2p'
+method: GET
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('the same entry', () => {
+        pm.response.to.have.status(200);
+        pm.expect(pm.response.json().id).to.equal(pm.collectionVariables.get('transferId'));
+      });
+order: 9000

@@ -1,0 +1,31 @@
+# Bearer tokens for local development and CI only (interim auth, until
+# step 2.08; see crates/api/src/auth.rs). The file holds SHA-256 hashes;
+# the tokens themselves are:
+#
+#   dev-client-token     a wallet app: its own accounts and postings
+#   dev-operator-token   the operator, every scope (maker)
+#   dev-checker-token    a second operator, to approve adjustments
+#
+# Never use these anywhere but on your own machine and in CI.
+
+[[tokens]]
+sha256 = "576419346968da5e93698e1bc69b9c18aa0e599ee2f405c83fe9e3b3389be9fb"
+client_id = "0192f3c4-0000-7000-8000-00000000c11e"
+actor = "app:wallet"
+scopes = ["accounts:read", "accounts:write", "operations:write", "entries:read",
+          "holds:read", "holds:write", "periods:read", "offline:write"]
+
+[[tokens]]
+sha256 = "277e6a75a6980887d1bc5c738e59a2504e3e2696d8f9fbf675b7fc49dabd2cf8"
+client_id = "0192f3c4-0000-7000-8000-0000000000ff"
+actor = "ops:maker"
+scopes = ["accounts:read", "accounts:read_all", "accounts:write", "accounts:admin",
+          "operations:write", "entries:read", "corrections:write", "adjustments:request",
+          "adjustments:approve", "holds:read", "holds:write", "periods:read",
+          "periods:close", "reports:read", "offline:write"]
+
+[[tokens]]
+sha256 = "015ebb158193231f667f451f06bc98567d944f2a264a58ede097efec1b9c9fcf"
+client_id = "0192f3c4-0000-7000-8000-0000000000ff"
+actor = "ops:checker"
+scopes = ["adjustments:request", "adjustments:approve", "reports:read"]

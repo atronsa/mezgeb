@@ -1,0 +1,27 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/accounts'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-open-a'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "reference": "2010:cust-s{{runId}}-a"
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('201 with the account', () => {
+        pm.response.to.have.status(201);
+        const body = pm.response.json();
+        pm.expect(body.code).to.equal(2010);
+        pm.expect(body.balance).to.eql({amount: '0.00', currency: 'ETB'});
+        pm.expect(pm.response.headers.get('Location')).to.equal('/v1/accounts/' + body.id);
+        pm.collectionVariables.set('walletA', body.id);
+      });
+order: 2000

@@ -1,0 +1,12 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/reports/trial-balance'
+method: GET
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('403 forbidden', () => {
+        pm.response.to.have.status(403);
+        pm.expect(pm.response.json().code).to.equal('forbidden');
+      });
+order: 15000

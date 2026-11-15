@@ -1,0 +1,23 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/accounts'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-open-b'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "reference": "2010:cust-s{{runId}}-b"
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('201', () => {
+        pm.response.to.have.status(201);
+        pm.collectionVariables.set('walletB', pm.response.json().id);
+      });
+order: 4000

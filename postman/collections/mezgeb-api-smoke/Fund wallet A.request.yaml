@@ -1,0 +1,34 @@
+$kind: http-request
+url: '{{baseUrl}}/v1/operations/deposit_confirmed.v1'
+method: POST
+headers:
+  - key: Idempotency-Key
+    value: 'smoke-{{runId}}-fund-a'
+  - key: Content-Type
+    value: 'application/json'
+body:
+  type: json
+  content: |-
+    {
+      "accounts": {
+        "customer_funds": "1010",
+        "customer_wallet": "2010:cust-s{{runId}}-a"
+      },
+      "amounts": {
+        "amount": {
+          "amount": "100.00",
+          "currency": "ETB"
+        }
+      }
+    }
+scripts:
+  - type: afterResponse
+    language: text/javascript
+    code: |-
+      pm.test('the deposit is posted', () => {
+        pm.response.to.have.status(201);
+        const body = pm.response.json();
+        pm.expect(body.template).to.equal('deposit_confirmed.v1');
+        pm.expect(body.lines).to.have.lengthOf(2);
+      });
+order: 5000

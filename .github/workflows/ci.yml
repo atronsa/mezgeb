@@ -48,3 +48,30 @@ jobs:
           target/debug/examples/crash_writer setup postgres://mezgeb_owner:mezgeb_owner@localhost:5432/mezgeb
           timeout -s KILL 10 target/debug/examples/crash_writer write postgres://mezgeb_app:mezgeb_app@localhost:5432/mezgeb || true
           target/debug/mezgeb-cli verify --full --settle-seconds 0 --database-url postgres://mezgeb_verifier:mezgeb_verifier@localhost:5432/mezgeb
+  # The service in its container, as compose runs it, and the Postman smoke
+  # collection against it (step 2.07).
+  api-container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build and start PostgreSQL, the migrations and the service
+        run: docker compose --profile api up -d --build --wait
+      - name: Wait for the service
+        run: |
+          for _ in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:8080/v1/templates && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Install the Postman CLI
+        run: curl -o- "https://dl-cli.pstmn.io/install/linux64.sh" | sh
+      - name: Run the smoke collection against the container
+        run: |
+          postman collection run postman/collections/mezgeb-api-smoke \
+            --env-var baseUrl=http://localhost:8080 \
+            --env-var clientToken=dev-client-token \
+            --env-var operatorToken=dev-operator-token \
+            --bail failure
+      - name: The service's log
+        if: always()
+        run: docker compose --profile api logs api migrate
