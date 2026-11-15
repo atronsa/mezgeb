@@ -1,0 +1,3 @@
+$kind: collection
+description: "Tamper evidence: signing keys, signed checkpoints and audit events (ADR-0018)."
+order: 13000
