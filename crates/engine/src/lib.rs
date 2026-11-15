@@ -8,9 +8,12 @@
 //!
 //! Migrations live in the top-level `migrations/` directory.
 
+mod accounts;
+mod adjustments;
 mod ageing;
 mod close;
 mod concurrency;
+mod entries;
 mod holds;
 mod periods;
 mod post;
@@ -20,14 +23,23 @@ mod store;
 pub mod verification;
 pub mod verify;
 
+pub use accounts::{
+    Opened, account_by_reference, account_opener, get_account, list_accounts, open_account_keyed,
+    totals_at,
+};
+pub use adjustments::{
+    AdjustmentRequest, AdjustmentStatus, NewAdjustment, Outcome, approve_adjustment,
+    get_adjustment, reject_adjustment, request_adjustment,
+};
 pub use ageing::{OpenItem, ageing};
 pub use close::{
     CloseReport, PeriodFinding, Snapshot, begin_close, close_period, finish_close, period_snapshots,
 };
 pub use concurrency::{FaultPoint, Isolation, PostOptions, RetryStats};
+pub use entries::{EntryRecord, entry_record, entry_record_by_key};
 pub use holds::{
     CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,
-    place_hold, release_hold,
+    get_hold, hold_of, place_hold, release_hold,
 };
 pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{
@@ -35,8 +47,8 @@ pub use post::{
     reverse_entry_with,
 };
 pub use reports::{
-    AsOf, GeneralLedger, GeneralLedgerLine, TrialBalance, TrialBalanceRow, general_ledger,
-    trial_balance,
+    AsOf, GeneralLedger, GeneralLedgerLine, LedgerCursor, LedgerPage, TrialBalance,
+    TrialBalanceRow, general_ledger, general_ledger_page, trial_balance,
 };
 pub use store::PgStore;
 pub use verification::{Finding, Scope, VerificationReport, VerifyOptions, verify};

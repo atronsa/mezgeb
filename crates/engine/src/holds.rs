@@ -109,6 +109,23 @@ async fn hold_of_entry(conn: &mut PgConnection, entry: EntryId) -> Result<Hold, 
     hold_from_row(&row)
 }
 
+/// A hold, by ID (step 2.07).
+pub async fn get_hold(conn: &mut PgConnection, id: HoldId) -> Result<Option<Hold>, LedgerError> {
+    load_hold(conn, id, false).await
+}
+
+/// The hold an entry placed or ended, if any (step 2.07).
+pub async fn hold_of(conn: &mut PgConnection, entry: EntryId) -> Result<Option<Hold>, LedgerError> {
+    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "SELECT {HOLD_COLUMNS} FROM holds WHERE place_entry_id = $1 OR close_entry_id = $1"
+    )))
+    .bind(entry.as_uuid())
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(db)?;
+    row.as_ref().map(hold_from_row).transpose()
+}
+
 /// Every hold, ordered by ID.
 pub async fn all_holds(conn: &mut PgConnection) -> Result<Vec<Hold>, LedgerError> {
     let rows = sqlx::query(sqlx::AssertSqlSafe(format!(
