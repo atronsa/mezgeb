@@ -59,6 +59,10 @@ services:
     build: .
     environment:
       MEZGEB_DATABASE_URL: postgres://mezgeb_app:mezgeb_app@postgres:5432/mezgeb
+      # A development key (ADR-0018); production keeps its own secret.
+      MEZGEB_SIGNING_KEY_FILE: /etc/mezgeb/signing.hex
+    volumes:
+      - ./deploy/signing.dev.hex:/etc/mezgeb/signing.hex:ro
     ports:
       - "8080:8080"
     depends_on:
