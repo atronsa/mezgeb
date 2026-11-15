@@ -1,0 +1,39 @@
+# Clients and credentials for local development and CI only (ADR-0017).
+# `mezgeb-cli client seed deploy/clients.dev.toml`, as mezgeb_admin, creates
+# what is missing; compose runs it after the migrations.
+#
+# The secrets are written here in the clear because they protect nothing:
+# never use this file, or these secrets, anywhere but your own machine and
+# CI. In production, `mezgeb-cli credential issue` makes a random secret and
+# shows it once.
+#
+#   client_id                              secret                       roles
+#   0192f3c4-0000-7000-8000-0000000c0001   dev-wallet-secret-0001       poster, reader
+#   0192f3c4-0000-7000-8000-0000000c0002   dev-operator-secret-0002     operator, admin, auditor
+#   0192f3c4-0000-7000-8000-0000000c0003   dev-checker-secret-0003      approver
+
+[[clients]]
+id = "0192f3c4-0000-7000-8000-00000000c11e"
+name = "dev-wallet"
+
+[[clients.credentials]]
+id = "0192f3c4-0000-7000-8000-0000000c0001"
+actor = "app:wallet"
+roles = ["poster", "reader"]
+secret = "dev-wallet-secret-0001"
+
+[[clients]]
+id = "0192f3c4-0000-7000-8000-0000000000ff"
+name = "dev-operator"
+
+[[clients.credentials]]
+id = "0192f3c4-0000-7000-8000-0000000c0002"
+actor = "ops:maker"
+roles = ["operator", "admin", "auditor"]
+secret = "dev-operator-secret-0002"
+
+[[clients.credentials]]
+id = "0192f3c4-0000-7000-8000-0000000c0003"
+actor = "ops:checker"
+roles = ["approver"]
+secret = "dev-checker-secret-0003"
