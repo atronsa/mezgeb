@@ -145,7 +145,7 @@ header the second time.
 Step 2.08 builds OAuth 2.0. Until then the service reads static bearer
 tokens from the file named by `MEZGEB_TOKENS`, which holds only their
 SHA-256 hashes, each with its client ID, actor and scopes (format in
-[`crates/api/src/auth.rs`](../../crates/api/src/auth.rs)). Every route
+[`crates/api/src/auth/tokens.rs`](../../crates/api/src/auth/tokens.rs)). Every route
 checks its scope: default deny. [`deploy/tokens.dev.toml`](../../deploy/tokens.dev.toml)
 has three tokens for development and CI, and must never be used anywhere
 else.

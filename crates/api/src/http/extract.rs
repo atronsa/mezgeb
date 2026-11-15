@@ -1,11 +1,15 @@
-//! Extractors: who is calling.
+//! Extractors: who is calling, the body, the idempotency key, path IDs.
 
-use axum::extract::FromRequestParts;
+use axum::extract::rejection::JsonRejection;
+use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::request::Parts;
+use mezgeb_core::IdempotencyKey;
+use serde::de::DeserializeOwned;
 
+use crate::AppState;
 use crate::auth::Principal;
+use crate::http::middleware::LoggedClient;
 use crate::problem::ApiError;
-use crate::{AppState, LoggedClient};
 
 /// The authenticated caller.
 pub struct Caller(pub Principal);
@@ -26,4 +30,60 @@ impl FromRequestParts<AppState> for Caller {
         }
         Ok(Caller(principal))
     }
+}
+
+/// A JSON request body. Every way the body can be wrong, including too
+/// large, is `400 invalid_request`.
+pub struct JsonBody<T>(pub T);
+
+impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for JsonBody<T> {
+    type Rejection = ApiError;
+
+    async fn from_request(request: Request, state: &S) -> Result<JsonBody<T>, ApiError> {
+        match axum::Json::<T>::from_request(request, state).await {
+            Ok(axum::Json(value)) => Ok(JsonBody(value)),
+            Err(rejection) => Err(match rejection {
+                JsonRejection::JsonDataError(e) => ApiError::invalid("", e.body_text()),
+                JsonRejection::JsonSyntaxError(e) => ApiError::invalid("", e.body_text()),
+                JsonRejection::MissingJsonContentType(_) => ApiError::invalid(
+                    "",
+                    "The body must be JSON, with Content-Type: application/json.",
+                ),
+                JsonRejection::BytesRejection(_) => {
+                    ApiError::invalid("", "The body is too large or could not be read.")
+                }
+                other => ApiError::invalid("", other.body_text()),
+            }),
+        }
+    }
+}
+
+/// The `Idempotency-Key` header of a write.
+pub struct IdemKey(pub IdempotencyKey);
+
+impl<S: Send + Sync> FromRequestParts<S> for IdemKey {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<IdemKey, ApiError> {
+        let value = parts.headers.get("idempotency-key").ok_or_else(|| {
+            ApiError::new(
+                "idempotency_key_required",
+                "This write needs an Idempotency-Key header.",
+            )
+        })?;
+        let text = value.to_str().map_err(|_| {
+            ApiError::invalid(
+                "/headers/Idempotency-Key",
+                "The Idempotency-Key is not text.",
+            )
+        })?;
+        IdempotencyKey::new(text)
+            .map(IdemKey)
+            .map_err(|e| ApiError::invalid("/headers/Idempotency-Key", e.to_string()))
+    }
+}
+
+/// Parses a path or query ID.
+pub fn parse_id<T: std::str::FromStr>(text: &str, what: &str) -> Result<T, ApiError> {
+    text.parse().map_err(|_| ApiError::not_found(what))
 }
