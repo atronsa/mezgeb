@@ -69,8 +69,6 @@ jobs:
         run: |
           postman collection run postman/collections/mezgeb-api-smoke \
             --env-var baseUrl=http://localhost:8080 \
-            --env-var clientToken=dev-client-token \
-            --env-var operatorToken=dev-operator-token \
             --bail failure
       - name: The service's log
         if: always()
