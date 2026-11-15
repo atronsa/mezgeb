@@ -20,7 +20,9 @@ mod periods;
 mod post;
 mod reports;
 mod rows;
+pub mod signing;
 mod store;
+pub mod tamper;
 pub mod verification;
 pub mod verify;
 
@@ -57,7 +59,12 @@ pub use reports::{
     AsOf, GeneralLedger, GeneralLedgerLine, LedgerCursor, LedgerPage, TrialBalance,
     TrialBalanceRow, general_ledger, general_ledger_page, trial_balance,
 };
+pub use signing::Signer;
 pub use store::PgStore;
+pub use tamper::{
+    AuditEvent, ChainReport, Checkpoint, NewAuditEvent, Receipt, append_audit, audit_events,
+    checkpoints, receipt, record_checkpoint, signing_keys, verify_chains,
+};
 pub use verification::{Finding, Scope, VerificationReport, VerifyOptions, verify};
 pub use verify::{IntegrityReport, integrity_report};
 

@@ -46,6 +46,9 @@ pub struct PostOptions {
     pub max_attempts: u32,
     /// Counts attempts and retries, if set.
     pub stats: Option<Arc<RetryStats>>,
+    /// Signs each entry's receipt (ADR-0018). Without it, entries are still
+    /// chained, but their links carry no receipt: only tests run so.
+    pub signer: Option<Arc<crate::signing::Signer>>,
     /// Test hook (feature `test-hooks`): make every write with these
     /// options fail at this point (step 1.15).
     #[cfg(feature = "test-hooks")]
@@ -92,6 +95,7 @@ impl Default for PostOptions {
             lock_timeout: Duration::from_secs(5),
             max_attempts: 3,
             stats: None,
+            signer: None,
             #[cfg(feature = "test-hooks")]
             fault: None,
         }
