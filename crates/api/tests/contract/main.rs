@@ -37,6 +37,7 @@ macro_rules! expect {
 }
 
 mod accounts;
+mod audit;
 mod corrections;
 mod entries;
 mod holds;
@@ -94,6 +95,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
     reports::trial_balance_and_ageing(&api, period).await?;
     offline::planned(&api).await?;
     oauth::token_and_refusals(&api).await?;
+    audit::keys_checkpoints_and_events(&api).await?;
 
     // ------------------------------------------------------------ coverage
     let uncovered = contract.uncovered();
@@ -101,7 +103,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
         uncovered.is_empty(),
         "operations no test called: {uncovered:?}"
     );
-    assert_eq!(contract.operation_count(), 43, "operations in the contract");
+    assert_eq!(contract.operation_count(), 46, "operations in the contract");
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }

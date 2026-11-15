@@ -62,6 +62,7 @@ scopes = [
     "holds:read",
     "periods:read",
     "reports:read",
+    "audit:read",
 ]
 
 # Opens system accounts (1010, 4010, ...) and freezes, unfreezes or closes
