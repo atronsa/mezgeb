@@ -300,3 +300,70 @@ async fn graceful_shutdown_under_load_loses_no_acknowledged_request() -> Result<
     server.db.drop().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Authorization comes first: a caller without the scope gets `403`
+/// whatever else is wrong with its request, so a refusal never reveals how
+/// far a request would have got.
+#[tokio::test]
+async fn a_missing_scope_is_refused_before_the_request_is_read() -> Result<(), BoxError> {
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+    // The wallet client has none of these scopes. Each request is also
+    // broken in another way, which would be a 400 for a caller allowed to
+    // make it.
+    for (method, path, key, body) in [
+        (
+            "POST",
+            "/v1/periods/close",
+            None,
+            Some(json!({"next_label": 7})),
+        ),
+        ("POST", "/v1/adjustments", None, Some(json!({"lines": "x"}))),
+        ("POST", "/v1/adjustments", Some("k"), None),
+        (
+            "POST",
+            "/v1/entries/not-an-id/reversal",
+            None,
+            Some(json!([])),
+        ),
+        (
+            "GET",
+            "/v1/reports/trial-balance?as_of=yesterday&x=1",
+            None,
+            None,
+        ),
+        (
+            "POST",
+            "/v1/accounts/not-an-id/status",
+            None,
+            Some(json!({})),
+        ),
+    ] {
+        let reply = api.call(method, path, Some(CLIENT), key, body).await?;
+        assert_eq!(
+            (reply.status, reply.code()),
+            (403, "forbidden"),
+            "{method} {path}: {}",
+            reply.body
+        );
+    }
+    // The same broken request from a caller with the scope is a 400.
+    let allowed = api
+        .call(
+            "POST",
+            "/v1/periods/close",
+            Some(OPERATOR),
+            None,
+            Some(json!({"next_label": 7})),
+        )
+        .await?;
+    assert_eq!(allowed.status, 400, "{}", allowed.body);
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}

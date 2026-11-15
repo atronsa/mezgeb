@@ -8,7 +8,8 @@ use mezgeb_core::EntryId;
 
 use super::common::{ApiResult, connection};
 use crate::AppState;
-use crate::http::extract::{Caller, parse_id};
+use crate::auth::scope::{Auth, EntriesRead};
+use crate::http::extract::parse_id;
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
 use crate::wire::EntryJson;
@@ -24,10 +25,9 @@ pub(super) fn router() -> Router<AppState> {
 
 async fn get_entry(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<EntriesRead>,
     Path(entry_id): Path<String>,
 ) -> ApiResult {
-    caller.require("entries:read")?;
     let id: EntryId = parse_id(&entry_id, "entry")?;
     let mut conn = connection(&state).await?;
     let record = mezgeb_engine::entry_record(&mut conn, id)
@@ -38,10 +38,9 @@ async fn get_entry(
 
 async fn get_entry_by_key(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<EntriesRead>,
     Path(key): Path<String>,
 ) -> ApiResult {
-    caller.require("entries:read")?;
     let key = mezgeb_core::IdempotencyKey::new(key).map_err(|_| ApiError::not_found("entry"))?;
     let mut conn = connection(&state).await?;
     let record = mezgeb_engine::entry_record_by_key(&mut conn, caller.client, &key)

@@ -10,7 +10,8 @@ use serde::Deserialize;
 
 use super::common::{ApiResult, connection, new_entry_id, resolve_account};
 use crate::AppState;
-use crate::http::extract::{Caller, IdemKey, JsonBody, parse_id};
+use crate::auth::scope::{Auth, HoldsRead, HoldsWrite};
+use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::reply::{json_response, written};
 use crate::problem::ApiError;
 use crate::wire::{HoldJson, MoneyJson, now, parse_time};
@@ -39,11 +40,10 @@ fn positive(money: Money, pointer: &str) -> Result<PositiveAmount, ApiError> {
 
 async fn place_hold(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<HoldsWrite>,
     IdemKey(key): IdemKey,
     JsonBody(body): JsonBody<PlaceHoldBody>,
 ) -> ApiResult {
-    caller.require("holds:write")?;
     let amount = positive(body.amount.to_money("/amount")?, "/amount/amount")?;
     let expires_at = parse_time(&body.expires_at, "/expires_at")?;
     let mut conn = connection(&state).await?;
@@ -112,10 +112,9 @@ async fn place_hold(
 
 async fn get_hold(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<HoldsRead>,
     Path(hold_id): Path<String>,
 ) -> ApiResult {
-    caller.require("holds:read")?;
     let id: HoldId = parse_id(&hold_id, "hold")?;
     let mut conn = connection(&state).await?;
     let hold = mezgeb_engine::get_hold(&mut conn, id)
@@ -133,12 +132,11 @@ struct CaptureBody {
 
 async fn capture_hold(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<HoldsWrite>,
     IdemKey(key): IdemKey,
     Path(hold_id): Path<String>,
     JsonBody(body): JsonBody<CaptureBody>,
 ) -> ApiResult {
-    caller.require("holds:write")?;
     let hold: HoldId = parse_id(&hold_id, "hold")?;
     let amount = positive(body.amount.to_money("/amount")?, "/amount/amount")?;
     let mut conn = connection(&state).await?;
@@ -180,11 +178,10 @@ async fn capture_hold(
 
 async fn release_hold(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<HoldsWrite>,
     IdemKey(key): IdemKey,
     Path(hold_id): Path<String>,
 ) -> ApiResult {
-    caller.require("holds:write")?;
     let hold: HoldId = parse_id(&hold_id, "hold")?;
     let entry = new_entry_id()?;
     let released = state

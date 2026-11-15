@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::common::ApiResult;
 use crate::AppState;
-use crate::http::extract::Caller;
+use crate::auth::scope::{Auth, OperationsWrite};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
 
@@ -40,8 +40,10 @@ fn template_json(state: &AppState, id: &str) -> Result<Value, ApiError> {
     }))
 }
 
-async fn list_templates(State(state): State<AppState>, Caller(caller): Caller) -> ApiResult {
-    caller.require("operations:write")?;
+async fn list_templates(
+    State(state): State<AppState>,
+    Auth(_caller, _): Auth<OperationsWrite>,
+) -> ApiResult {
     let ids: Vec<String> = state.registry.ids().map(ToString::to_string).collect();
     let templates = ids
         .iter()
@@ -52,10 +54,9 @@ async fn list_templates(State(state): State<AppState>, Caller(caller): Caller) -
 
 async fn get_template(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<OperationsWrite>,
     Path(template_id): Path<String>,
 ) -> ApiResult {
-    caller.require("operations:write")?;
     Ok(json_response(
         StatusCode::OK,
         template_json(&state, &template_id)?,

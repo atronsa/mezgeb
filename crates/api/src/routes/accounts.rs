@@ -11,7 +11,8 @@ use serde_json::{Value, json};
 
 use super::common::{ApiResult, connection};
 use crate::AppState;
-use crate::http::extract::{Caller, IdemKey, JsonBody, parse_id};
+use crate::auth::scope::{AccountsAdmin, AccountsRead, AccountsWrite, Auth};
+use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::pagination::limit;
 use crate::http::reply::{json_response, written};
 use crate::problem::ApiError;
@@ -34,11 +35,10 @@ struct OpenAccountBody {
 
 async fn open_account(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AccountsWrite>,
     IdemKey(key): IdemKey,
     JsonBody(body): JsonBody<OpenAccountBody>,
 ) -> ApiResult {
-    caller.require("accounts:write")?;
     let id = AccountId::from_uuid(uuid::Uuid::now_v7()).map_err(ApiError::internal)?;
     let chart = state.chart.clone();
     let opened = state
@@ -81,10 +81,9 @@ struct ListAccountsQuery {
 
 async fn list_accounts(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AccountsRead>,
     Query(query): Query<ListAccountsQuery>,
 ) -> ApiResult {
-    caller.require("accounts:read")?;
     let limit = limit(query.limit)?;
     let mut conn = connection(&state).await?;
     let opened_by = (!caller.has("accounts:read_all")).then_some(caller.client);
@@ -131,10 +130,9 @@ async fn load_account(state: &AppState, id: &str) -> Result<mezgeb_core::Account
 
 async fn get_account(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
 ) -> ApiResult {
-    caller.require("accounts:read")?;
     let account = load_account(&state, &account_id).await?;
     Ok(json_response(StatusCode::OK, AccountJson::from(&account)))
 }
@@ -147,11 +145,10 @@ struct BalanceQuery {
 
 async fn get_balance(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
     Query(query): Query<BalanceQuery>,
 ) -> ApiResult {
-    caller.require("accounts:read")?;
     let account = load_account(&state, &account_id).await?;
     let as_of = match &query.as_of {
         Some(text) => parse_time(text, "/query/as_of")?,
@@ -200,11 +197,10 @@ fn parse_cursor(text: &str) -> Result<LedgerCursor, ApiError> {
 
 async fn get_ledger(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<AccountsRead>,
     Path(account_id): Path<String>,
     Query(query): Query<LedgerQuery>,
 ) -> ApiResult {
-    caller.require("accounts:read")?;
     let account = load_account(&state, &account_id).await?;
     let from = parse_time(&query.from, "/query/from")?;
     let to = parse_time(&query.to, "/query/to")?;
@@ -250,12 +246,11 @@ struct StatusBody {
 
 async fn change_status(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AccountsAdmin>,
     IdemKey(_key): IdemKey,
     Path(account_id): Path<String>,
     JsonBody(body): JsonBody<StatusBody>,
 ) -> ApiResult {
-    caller.require("accounts:admin")?;
     let id: AccountId = parse_id(&account_id, "account")?;
     let to = AccountStatus::from_name(&body.status)
         .ok_or_else(|| ApiError::invalid("/status", "status must be open, frozen or closed"))?;

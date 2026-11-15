@@ -2511,10 +2511,12 @@ paths:
       tags:
         - "Corrections"
       summary: "Get an adjustment request"
-      description: "An adjustment request: pending, approved (with the posted entry) or rejected."
+      description: "An adjustment request: pending, approved (with the posted entry) or rejected. Readable by the maker (`adjustments:request`) and by the checker who decides it (`adjustments:approve`)."
       security:
         - oauth2:
             - "adjustments:request"
+        - oauth2:
+            - "adjustments:approve"
       responses:
         "200":
           description: "The request."
