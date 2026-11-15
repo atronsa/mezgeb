@@ -24,6 +24,7 @@
 
 pub mod auth;
 pub mod config;
+mod http;
 pub mod problem;
 mod routes;
 pub mod wire;
