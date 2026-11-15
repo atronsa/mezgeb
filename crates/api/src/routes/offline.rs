@@ -6,7 +6,7 @@ use axum::routing::post;
 
 use super::common::ApiResult;
 use crate::AppState;
-use crate::http::extract::Caller;
+use crate::auth::scope::{Auth, OfflineWrite};
 use crate::problem::ApiError;
 
 pub(super) fn router() -> Router<AppState> {
@@ -16,8 +16,7 @@ pub(super) fn router() -> Router<AppState> {
         .route("/v1/offline/receipts", post(offline))
 }
 
-async fn offline(Caller(caller): Caller, _headers: HeaderMap) -> ApiResult {
-    caller.require("offline:write")?;
+async fn offline(Auth(_caller, _): Auth<OfflineWrite>, _headers: HeaderMap) -> ApiResult {
     Err(ApiError::new(
         "not_implemented",
         "Offline payments are planned for steps 2.11 and 2.12.",

@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::common::{ApiResult, connection};
 use crate::AppState;
-use crate::http::extract::Caller;
+use crate::auth::scope::{Auth, ReportsRead};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
 use crate::wire::{MoneyJson, format_time, now, parse_time};
@@ -32,10 +32,9 @@ struct TrialBalanceQuery {
 
 async fn trial_balance(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<ReportsRead>,
     Query(query): Query<TrialBalanceQuery>,
 ) -> ApiResult {
-    caller.require("reports:read")?;
     let as_of = match (query.period_id, &query.as_of) {
         (Some(_), Some(_)) => {
             return Err(ApiError::invalid(
@@ -93,10 +92,9 @@ async fn trial_balance(
 
 async fn ageing(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<ReportsRead>,
     axum::extract::RawQuery(raw): axum::extract::RawQuery,
 ) -> ApiResult {
-    caller.require("reports:read")?;
     let mut codes = Vec::new();
     for pair in raw.unwrap_or_default().split('&').filter(|p| !p.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));

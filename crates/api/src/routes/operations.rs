@@ -15,7 +15,8 @@ use super::common::{
 };
 use crate::AppState;
 use crate::auth::Principal;
-use crate::http::extract::{Caller, IdemKey, JsonBody};
+use crate::auth::scope::{Auth, OperationsWrite};
+use crate::http::extract::{IdemKey, JsonBody};
 use crate::problem::ApiError;
 use crate::wire::{MoneyJson, parse_time};
 
@@ -41,12 +42,11 @@ struct OperationBody {
 
 async fn operation(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<OperationsWrite>,
     IdemKey(key): IdemKey,
     matched: axum::extract::MatchedPath,
     JsonBody(body): JsonBody<OperationBody>,
 ) -> ApiResult {
-    caller.require("operations:write")?;
     let template = matched
         .as_str()
         .strip_prefix("/v1/operations/")

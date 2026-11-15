@@ -9,7 +9,8 @@ use serde_json::json;
 
 use super::common::{ApiResult, connection};
 use crate::AppState;
-use crate::http::extract::{Caller, JsonBody, parse_id};
+use crate::auth::scope::{Auth, PeriodsClose, PeriodsRead};
+use crate::http::extract::{JsonBody, parse_id};
 use crate::http::pagination::{Page, limit};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
@@ -25,10 +26,9 @@ pub(super) fn router() -> Router<AppState> {
 
 async fn list_periods(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<PeriodsRead>,
     Query(page): Query<Page>,
 ) -> ApiResult {
-    caller.require("periods:read")?;
     let limit = usize::try_from(limit(page.limit)?).unwrap_or(50);
     let before = page
         .cursor
@@ -52,8 +52,10 @@ async fn list_periods(
     ))
 }
 
-async fn current_period(State(state): State<AppState>, Caller(caller): Caller) -> ApiResult {
-    caller.require("periods:read")?;
+async fn current_period(
+    State(state): State<AppState>,
+    Auth(_caller, _): Auth<PeriodsRead>,
+) -> ApiResult {
     let mut conn = connection(&state).await?;
     let period = mezgeb_engine::current_period(&mut conn)
         .await?
@@ -63,10 +65,9 @@ async fn current_period(State(state): State<AppState>, Caller(caller): Caller) -
 
 async fn get_period(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<PeriodsRead>,
     Path(period_id): Path<String>,
 ) -> ApiResult {
-    caller.require("periods:read")?;
     let id: i64 = parse_id(&period_id, "period")?;
     let mut conn = connection(&state).await?;
     let period = mezgeb_engine::all_periods(&mut conn)
@@ -85,10 +86,9 @@ struct CloseBody {
 
 async fn close_period(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<PeriodsClose>,
     JsonBody(body): JsonBody<CloseBody>,
 ) -> ApiResult {
-    caller.require("periods:close")?;
     let label_ok = !body.next_label.is_empty()
         && body.next_label.len() <= 64
         && body

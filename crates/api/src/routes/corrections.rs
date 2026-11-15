@@ -14,7 +14,10 @@ use super::common::{
     ApiResult, connection, entry_response, entry_written, new_entry_id, resolve_account,
 };
 use crate::AppState;
-use crate::http::extract::{Caller, IdemKey, JsonBody, parse_id};
+use crate::auth::scope::{
+    AdjustmentsApprove, AdjustmentsRequest, AdjustmentsView, Auth, CorrectionsWrite,
+};
+use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::reply::json_response;
 use crate::problem::ApiError;
 use crate::wire::{AdjustmentJson, MoneyJson, parse_side};
@@ -44,12 +47,11 @@ struct ReversalBody {
 
 async fn reverse_entry(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<CorrectionsWrite>,
     IdemKey(key): IdemKey,
     Path(entry_id): Path<String>,
     JsonBody(body): JsonBody<ReversalBody>,
 ) -> ApiResult {
-    caller.require("corrections:write")?;
     let original: EntryId = parse_id(&entry_id, "entry")?;
     let reason =
         ReasonCode::new(&body.reason).map_err(|e| ApiError::invalid("/reason", e.to_string()))?;
@@ -96,11 +98,10 @@ struct AdjustmentBody {
 
 async fn request_adjustment(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AdjustmentsRequest>,
     IdemKey(key): IdemKey,
     JsonBody(body): JsonBody<AdjustmentBody>,
 ) -> ApiResult {
-    caller.require("adjustments:request")?;
     let reason =
         ReasonCode::new(&body.reason).map_err(|e| ApiError::invalid("/reason", e.to_string()))?;
     if body.lines.len() > 100 {
@@ -157,10 +158,9 @@ async fn request_adjustment(
 
 async fn get_adjustment(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(_caller, _): Auth<AdjustmentsView>,
     Path(adjustment_id): Path<String>,
 ) -> ApiResult {
-    caller.require("adjustments:request")?;
     let id: uuid::Uuid = parse_id(&adjustment_id, "adjustment request")?;
     let mut conn = connection(&state).await?;
     let request = mezgeb_engine::get_adjustment(&mut conn, id)
@@ -174,11 +174,10 @@ async fn get_adjustment(
 
 async fn approve_adjustment(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AdjustmentsApprove>,
     IdemKey(_key): IdemKey,
     Path(adjustment_id): Path<String>,
 ) -> ApiResult {
-    caller.require("adjustments:approve")?;
     let id: uuid::Uuid = parse_id(&adjustment_id, "adjustment request")?;
     let (record, new) = state
         .write({
@@ -205,12 +204,11 @@ struct RejectionBody {
 
 async fn reject_adjustment(
     State(state): State<AppState>,
-    Caller(caller): Caller,
+    Auth(caller, _): Auth<AdjustmentsApprove>,
     IdemKey(_key): IdemKey,
     Path(adjustment_id): Path<String>,
     JsonBody(body): JsonBody<RejectionBody>,
 ) -> ApiResult {
-    caller.require("adjustments:approve")?;
     let id: uuid::Uuid = parse_id(&adjustment_id, "adjustment request")?;
     if body.note.is_empty() || body.note.len() > 500 {
         return Err(ApiError::invalid(

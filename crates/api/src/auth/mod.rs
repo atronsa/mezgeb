@@ -21,6 +21,7 @@ use mezgeb_core::{ActorId, ClientId};
 
 use crate::problem::ApiError;
 
+pub mod scope;
 mod tokens;
 
 pub use tokens::{Tokens, token_hash};
