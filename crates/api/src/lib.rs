@@ -37,7 +37,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::middleware::{self};
 use mezgeb_core::Chart;
-use mezgeb_engine::PostOptions;
+use mezgeb_engine::{IssuerKey, PostOptions};
 use mezgeb_ops::TemplateRegistry;
 use sqlx::PgPool;
 use tokio_util::task::TaskTracker;
@@ -60,6 +60,9 @@ pub struct AppState {
     pub limits: Arc<Limits>,
     pub registry: Arc<TemplateRegistry>,
     pub options: PostOptions,
+    /// The P-256 key that signs device certificates and vouchers; without
+    /// it the offline endpoints answer `503 offline_unavailable`.
+    pub issuer: Option<Arc<IssuerKey>>,
     /// The writes under way, which graceful shutdown waits for.
     pub tasks: TaskTracker,
     pub request_timeout: Duration,
