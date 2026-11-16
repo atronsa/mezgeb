@@ -7,7 +7,10 @@ use mezgeb_core::{AccountsView, EntryDraft};
 
 use crate::deposits::{DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 use crate::error::TemplateError;
-use crate::offline::{IssueVoucherV1, OfflineReceiptSettleV1};
+use crate::offline::{
+    IssueVoucherV1, OfflineReceiptPayV1, OfflineReceiptSettleV1, OfflineShortfallRepayV1,
+    OfflineVoucherReturnV1,
+};
 use crate::p2p_transfer::P2pTransferV1;
 use crate::payments::{MerchantPaymentV1, PaymentRequestSettleV1};
 use crate::refunds::{
@@ -48,6 +51,10 @@ pub const RELEASED: &[&str] = &[
     "issue_voucher.v1",
     // Step 2.12.
     "offline_receipt_settle.v1",
+    // Step 2.13.
+    "offline_voucher_return.v1",
+    "offline_receipt_pay.v1",
+    "offline_shortfall_repay.v1",
 ];
 
 /// Released templates that only the engine books, never a client through
@@ -56,8 +63,16 @@ pub const RELEASED: &[&str] = &[
 /// voucher the engine checks against its tier and signs; booked alone, it
 /// would leave escrow with no voucher. `offline_receipt_settle.v1` pays a
 /// receipt the engine has verified and records; booked alone, it would
-/// spend escrow with no receipt.
-pub const ENGINE_ONLY: &[&str] = &["issue_voucher.v1", "offline_receipt_settle.v1"];
+/// spend escrow with no receipt. The step 2.13 templates return a
+/// voucher's escrow, pay late and disputed receipts, and repay a shortfall,
+/// each tied to a record the engine keeps.
+pub const ENGINE_ONLY: &[&str] = &[
+    "issue_voucher.v1",
+    "offline_receipt_settle.v1",
+    "offline_voucher_return.v1",
+    "offline_receipt_pay.v1",
+    "offline_shortfall_repay.v1",
+];
 
 /// The released templates a client may post: [`RELEASED`] without
 /// [`ENGINE_ONLY`].
@@ -139,6 +154,9 @@ impl TemplateRegistry {
             TemplateRegistry::register::<DisputeResolveMerchantV1>,
             TemplateRegistry::register::<IssueVoucherV1>,
             TemplateRegistry::register::<OfflineReceiptSettleV1>,
+            TemplateRegistry::register::<OfflineVoucherReturnV1>,
+            TemplateRegistry::register::<OfflineReceiptPayV1>,
+            TemplateRegistry::register::<OfflineShortfallRepayV1>,
         ];
         for register in builtin {
             register(&mut registry)
