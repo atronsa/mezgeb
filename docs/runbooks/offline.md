@@ -64,7 +64,23 @@ mezgeb-cli offline tier wallet-app C --disable
   open vouchers.
 - Every change is an audit event (`offline.tier`).
 
-## 3. Devices
+## 3. The merchant fee
+
+A client may take a fee from offline payments, as from online ones (E07):
+the merchant is paid the amount less the fee, and the fee is credited to
+4010.
+
+```sh
+mezgeb-cli offline fee wallet-app --bps 200    # 2%
+mezgeb-cli offline fee wallet-app --bps 0      # none
+```
+
+- In basis points, from 0 to 1,000 (10%). Without a setting, no fee.
+- The fee is rounded down to the santim: a fraction stays with the payee.
+- A new fee applies to receipts settled from then on.
+- Every change is an audit event (`offline.fee`).
+
+## 4. Devices
 
 A client registers and revokes its own devices through the API. The
 operator acts on any client's device:
@@ -89,15 +105,15 @@ mezgeb-cli offline device revoke    <device-id> --reason "replaced"
   usual (steps 2.12–2.13).
 - Every change is an audit event (`offline.device`).
 
-## 4. Checking escrow
+## 5. Checking escrow
 
 ```sh
 mezgeb-cli offline check --database-url "$VERIFIER_URL"
 ```
 
-It checks the acceptance criterion of step 2.11: **each voucher's escrow
-holds exactly its unspent value**, and no `2050` account holds money without
-a voucher.
+It checks that **each voucher's escrow holds exactly its unspent value**
+(its amount less what its settled receipts took), and that no `2050` account
+holds money without a voucher.
 
 - **Exit 0:** `every escrow holds its unspent voucher value`.
 - **Exit 1:** one line per escrow that disagrees, with what it holds and
@@ -109,3 +125,25 @@ to the customer, and a voucher's escrow moves only by its own entries.
 2. Find the entries that touched the escrow, from `GET /v1/accounts/{id}/ledger`.
 3. Treat it as an incident: an escrow that disagrees with its voucher means
    a posting went around the voucher rules.
+
+## 6. A frozen device
+
+The ledger freezes a device and its voucher by itself when an upload shows:
+
+- **`CONFLICT`:** two different receipts with one counter, or a receipt
+  whose link does not match its predecessor. The device was cloned or
+  rolled back (a phone restored from a backup).
+- **`OVER_LIMIT`:** a receipt larger than the escrow left.
+
+Each freeze writes an `offline.freeze` audit event naming the device, the
+voucher and the counter: that is the alert. Read them with
+`GET /v1/audit-events` (auditor).
+
+**What is kept.** Receipts already settled stay settled. The conflicting
+receipt is kept in `offline_receipt_conflicts`, and every later receipt of
+the voucher is kept as `FROZEN`. `GET /v1/offline/vouchers/{id}/receipts`
+lists them all.
+
+**What to do.** Do not unfreeze to let payments through: the dispute path
+(protocol §14, step 2.13) decides who is paid. Until then, keep the device
+frozen, and tell the client which customer's device it is.

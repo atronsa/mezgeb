@@ -6,7 +6,7 @@ verifier reproduce these, they agree with the ledger byte for byte.
 
 | File | Covers |
 |---|---|
-| [v1.json](v1.json) | Test keys, a device certificate and a voucher (fields, body, digest, signature), and three cases a verifier must refuse |
+| [v1.json](v1.json) | Test keys; a device certificate, a voucher and two chained receipts (fields, body, digest, signature); and five cases a verifier must refuse |
 
 ## How to use them
 
@@ -22,12 +22,24 @@ For each of `device_certificate` and `voucher`:
    equal `signature`. A signer without RFC 6979 can skip this check; its
    signatures must still verify and be low-S.
 
+For each of the two `receipts`, signed by `device_key`:
+
+1. **Encode** the `fields` and compare with `body`; **hash** and compare with
+   `digest`.
+2. **Verify** `signature` with `device_key.public_key`.
+3. **Chain:** the first receipt's `prev_digest` is the voucher's `digest`;
+   the second's is the first's `digest`.
+4. **Sign** with `device_key.secret_key` (RFC 6979, low-S): the result must
+   equal `signature`. This is what a card or phone does at each payment.
+
 Then, for each case under `must_refuse`, your verifier must **refuse** the
-signature over the body:
+signature over the body, with the issuer key or the key the case names:
 
 - the voucher's signature in its high-S form (low-S only, protocol §2);
 - the voucher with one bit of its body flipped;
-- the device certificate's signature on the voucher's body.
+- the device certificate's signature on the voucher's body;
+- the first receipt's signature in its high-S form;
+- the first receipt signed by the issuer key instead of the device key.
 
 ## Notes
 
@@ -40,4 +52,7 @@ signature over the body:
 - **The file is checked by the ledger's tests** (`crates/offline/tests/vectors.rs`):
   it changes only with the protocol, and the change shows in review. It was
   also checked with an independent implementation (Python `cryptography`).
-- **Receipts and acknowledgements** get their vectors with step 2.12.
+- **An optional payee device** is `0x00`, or `0x01` and its 16 bytes: the
+  first receipt has one, the second does not.
+- **Acknowledgements** are optional evidence and get their vectors when
+  they are built.

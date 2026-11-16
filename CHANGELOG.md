@@ -21,6 +21,15 @@ supported.
   - Test vectors for firmware in `test-vectors/offline/`.
   - Until attestation is verified, devices register as tier C only, which
     a client must enable.
+- **Offline receipts** (migration 0012, step 2.12):
+  - `POST /v1/offline/receipts` uploads up to 100 signed receipts from the
+    payer or the payee; each settles exactly once (E17,
+    `offline_receipt_settle.v1`), whatever the order or the repeats.
+  - Receipts wait for missing earlier counters, and settle when they come.
+  - Conflicts and over-spends freeze the device and its voucher, keep the
+    evidence, and raise an `offline.freeze` audit event.
+  - `GET /v1/offline/vouchers/{id}/receipts`; `mezgeb-cli offline fee`
+    for a client's merchant fee on offline payments.
 - **Tamper evidence** (ADR-0018, migration 0010):
   - Every entry is hash-chained in its own posting transaction and signed:
     the signature is its ledger receipt, returned by the API and
