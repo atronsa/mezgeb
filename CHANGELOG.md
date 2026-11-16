@@ -30,6 +30,18 @@ supported.
     evidence, and raise an `offline.freeze` audit event.
   - `GET /v1/offline/vouchers/{id}/receipts`; `mezgeb-cli offline fee`
     for a client's merchant fee on offline payments.
+- **The rest of a voucher's life** (migration 0013, step 2.13):
+  - The service ticks every minute: receipts waiting 72 hours settle past
+    their gap; vouchers expire, return their escrow after 7 days of grace
+    (E18), and end after the late deadline.
+  - Late receipts are paid by the payer's wallet, then 5030, with the
+    shortfall recorded against the payer (E28, E29); an unpaid shortfall
+    blocks new vouchers until repaid (E30, `POST
+    /v1/offline/shortfalls/{id}/repay`).
+  - Each freeze opens a dispute; operators resolve it `paid` or `refused`
+    (`offline:resolve`), and the escrow left returns (E27).
+  - `mezgeb-cli offline deadline` sets a client's late deadline.
+  - The ten adversarial scenarios of step 2.10 run as integration tests.
 - **Tamper evidence** (ADR-0018, migration 0010):
   - Every entry is hash-chained in its own posting transaction and signed:
     the signature is its ledger receipt, returned by the API and

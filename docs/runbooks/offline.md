@@ -38,6 +38,30 @@ listed by `GET /v1/offline/issuer-keys`, so the vouchers it signed still
 verify. Keep the old file until every voucher it signed is past its grace
 period, then destroy it.
 
+**The accounts.** Before turning offline payments on, open the platform's
+fee revenue (4010) and offline loss (5030) accounts, as for any system
+account:
+
+```sh
+curl -X POST .../v1/accounts -d '{"reference": "4010"}'    # with an operator token
+curl -X POST .../v1/accounts -d '{"reference": "5030"}'
+```
+
+Without 5030, a late receipt whose payer cannot pay it all fails with a
+500, and stays uploadable.
+
+**The tick.** The service moves vouchers through time by itself, every
+`MEZGEB_OFFLINE_TICK_SECONDS` (60 by default; `0` turns it off):
+
+- receipts waiting 72 hours for a missing one settle past it;
+- vouchers expire into grace, and 7 days later return their escrow (E18);
+- 90 days after the return (the client's late deadline), late receipts
+  stop being paid.
+
+It logs `offline tick` with counts whenever it did something. If several
+service instances run, each ticks; that is safe, because each voucher is
+handled under its locks and nothing is done twice.
+
 ## 2. A client's tiers
 
 | Tier | Device | Default |
@@ -80,7 +104,19 @@ mezgeb-cli offline fee wallet-app --bps 0      # none
 - A new fee applies to receipts settled from then on.
 - Every change is an audit event (`offline.fee`).
 
-## 4. Devices
+## 4. The late deadline
+
+How long after a voucher's return a late receipt is still paid, from the
+payer's wallet and then 5030 (protocol §12):
+
+```sh
+mezgeb-cli offline deadline wallet-app --days 30    # 1 to 365; 90 without it
+```
+
+A shorter deadline bounds the platform's exposure sooner; a longer one is
+kinder to merchants whose terminals sync rarely.
+
+## 5. Devices
 
 A client registers and revokes its own devices through the API. The
 operator acts on any client's device:
@@ -105,7 +141,7 @@ mezgeb-cli offline device revoke    <device-id> --reason "replaced"
   usual (steps 2.12–2.13).
 - Every change is an audit event (`offline.device`).
 
-## 5. Checking escrow
+## 6. Checking escrow
 
 ```sh
 mezgeb-cli offline check --database-url "$VERIFIER_URL"
@@ -126,7 +162,7 @@ to the customer, and a voucher's escrow moves only by its own entries.
 3. Treat it as an incident: an escrow that disagrees with its voucher means
    a posting went around the voucher rules.
 
-## 6. A frozen device
+## 7. A frozen device
 
 The ledger freezes a device and its voucher by itself when an upload shows:
 
@@ -144,6 +180,35 @@ receipt is kept in `offline_receipt_conflicts`, and every later receipt of
 the voucher is kept as `FROZEN`. `GET /v1/offline/vouchers/{id}/receipts`
 lists them all.
 
-**What to do.** Do not unfreeze to let payments through: the dispute path
-(protocol §14, step 2.13) decides who is paid. Until then, keep the device
-frozen, and tell the client which customer's device it is.
+**The case.** Each freeze opens a dispute. An operator (`offline:resolve`)
+lists them with `GET /v1/offline/disputes?status=open`, and reads the
+voucher's receipts with `GET /v1/offline/vouchers/{id}/receipts`.
+
+**Deciding it.** Do not unfreeze the device to let payments through.
+Resolve the case:
+
+```sh
+curl -X POST .../v1/offline/disputes/<id>/resolve -d '{"resolution": "paid"}'
+```
+
+| Resolution | When | What happens |
+|---|---|---|
+| `paid` | The receipts are validly signed: a cloned or rolled-back device, an over-spend. The payer is liable for what their device signed | Every receipt of the voucher is paid in counter order: from the escrow left, then the payer's wallet, then 5030 (recorded as a shortfall). A conflicting copy is paid from the wallet and 5030 only |
+| `refused` | A fault in the ledger or the chip, established by the operator | No receipt is paid; they become `REFUSED`, and their payees bear them |
+
+Either way, the escrow left goes back to the wallet (E27), the device is
+revoked, and an `offline.dispute` audit event names who decided. Resolving
+it again the same way changes nothing; the other way is refused.
+
+## 8. Shortfalls
+
+When a late receipt's payer cannot pay it all, 5030 pays the rest and a
+shortfall is recorded against the payer. **Until it is repaid, none of the
+payer's devices gets a voucher** (`409 shortfall_unpaid`).
+
+- The client lists them: `GET /v1/offline/shortfalls?owner_account=...`.
+- The payer repays from their wallet:
+  `POST /v1/offline/shortfalls/<id>/repay` (E30), once the wallet holds it.
+
+5030's balance is the platform's open offline loss: watch it, and the
+merchants whose late uploads cause it (step 2.15).
