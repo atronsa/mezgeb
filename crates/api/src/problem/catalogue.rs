@@ -215,6 +215,48 @@ pub const CATALOGUE: &[(&str, u16, &str)] = &[
         409,
         "The adjustment request is no longer pending",
     ),
+    (
+        "offline_unavailable",
+        503,
+        "Offline payments are not configured",
+    ),
+    (
+        "attestation_unsupported",
+        422,
+        "This kind of attestation is not verified yet",
+    ),
+    (
+        "public_key_registered",
+        409,
+        "The public key is registered with other details",
+    ),
+    (
+        "owner_not_a_wallet",
+        422,
+        "The owner account is not an open customer wallet",
+    ),
+    ("tier_disabled", 422, "The client has not enabled this tier"),
+    ("device_not_active", 409, "The device is not active"),
+    (
+        "certificate_expired",
+        409,
+        "The device certificate has expired",
+    ),
+    (
+        "voucher_open",
+        409,
+        "The device already has an open voucher",
+    ),
+    (
+        "over_tier_limit",
+        422,
+        "The amount is over the tier's voucher limit",
+    ),
+    (
+        "over_customer_cap",
+        422,
+        "The customer's open vouchers would exceed the cap",
+    ),
 ];
 
 /// The posting rule codes, by rule number (1001–1012).

@@ -58,6 +58,21 @@ async fn run() -> Result<(), String> {
         .register(&mut conn)
         .await
         .map_err(|e| format!("cannot register the signing key: {e}"))?;
+    let issuer = match &config.offline_issuer_key {
+        Some(path) => {
+            let issuer = mezgeb_engine::IssuerKey::from_file(path)?;
+            issuer
+                .register(&mut conn)
+                .await
+                .map_err(|e| format!("cannot register the offline issuer key: {e}"))?;
+            tracing::info!(key_id = issuer.key_id(), "offline issuer key loaded");
+            Some(Arc::new(issuer))
+        }
+        None => {
+            tracing::info!("no offline issuer key: offline payments are off");
+            None
+        }
+    };
     drop(conn);
     tracing::info!(key_id = signer.key_id(), "signing key loaded");
     let state = AppState {
@@ -71,6 +86,7 @@ async fn run() -> Result<(), String> {
             signer: Some(Arc::new(signer)),
             ..PostOptions::default()
         },
+        issuer,
         tasks: TaskTracker::new(),
         request_timeout: config.request_timeout,
         body_limit: config.body_limit,

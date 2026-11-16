@@ -54,8 +54,8 @@ pub use holds::{
 pub use offline::{
     Attestation, AttestationKind, Device, DeviceStatus, EscrowFinding, IssuedVoucher, IssuerKey,
     NewDevice, NewVoucher, OfflineError, Registered, VoucherStatus, escrow_findings, get_device,
-    get_voucher, issue_offline_voucher, register_device, set_device_status, set_tier_limits,
-    tier_limits,
+    get_voucher, issue_offline_voucher, issuer_keys, register_device, set_device_status,
+    set_tier_limits, tier_limits,
 };
 pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{

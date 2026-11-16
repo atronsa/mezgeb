@@ -1320,6 +1320,7 @@ version = "0.0.1"
 dependencies = [
  "mezgeb-core",
  "mezgeb-engine",
+ "mezgeb-offline",
  "serde",
  "sqlx",
  "tokio",
