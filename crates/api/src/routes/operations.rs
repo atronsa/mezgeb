@@ -23,8 +23,8 @@ use crate::wire::{MoneyJson, parse_time};
 
 pub(super) fn router() -> Router<AppState> {
     let mut router = Router::new();
-    // One route per released template version.
-    for id in mezgeb_ops::RELEASED {
+    // One route per released template version a client may post.
+    for id in mezgeb_ops::client_postable() {
         router = router.route(&format!("/v1/operations/{id}"), post(operation));
     }
     router

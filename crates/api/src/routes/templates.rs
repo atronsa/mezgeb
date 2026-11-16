@@ -18,7 +18,12 @@ pub(super) fn router() -> Router<AppState> {
         .route("/v1/templates/{template_id}", get(get_template))
 }
 
+/// A template a client may post. Those only the engine books are not in
+/// the catalogue, as if unknown.
 fn template_json(state: &AppState, id: &str) -> Result<Value, ApiError> {
+    if mezgeb_ops::ENGINE_ONLY.contains(&id) {
+        return Err(mezgeb_ops::TemplateError::UnknownTemplate(id.to_owned()).into());
+    }
     let registry = &state.registry;
     let roles: Vec<Value> = registry
         .roles(id)?
@@ -44,7 +49,12 @@ async fn list_templates(
     State(state): State<AppState>,
     Auth(_caller, _): Auth<OperationsWrite>,
 ) -> ApiResult {
-    let ids: Vec<String> = state.registry.ids().map(ToString::to_string).collect();
+    let ids: Vec<String> = state
+        .registry
+        .ids()
+        .map(ToString::to_string)
+        .filter(|id| !mezgeb_ops::ENGINE_ONLY.contains(&id.as_str()))
+        .collect();
     let templates = ids
         .iter()
         .map(|id| template_json(&state, id))
