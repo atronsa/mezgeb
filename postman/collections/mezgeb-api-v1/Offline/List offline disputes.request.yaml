@@ -1,0 +1,16 @@
+$kind: http-request
+description: "Every client's frozen-voucher cases, newest first. For the operator's staff."
+url: "{{baseUrl}}/v1/offline/disputes"
+method: GET
+headers:
+  - key: Accept
+    value: application/json
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write offline:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List offline disputes.resources/examples
+order: 6000
