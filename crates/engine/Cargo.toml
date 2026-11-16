@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 mezgeb-core.workspace = true
+mezgeb-offline.workspace = true
 sqlx.workspace = true
 serde.workspace = true
 serde_json.workspace = true

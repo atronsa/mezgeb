@@ -16,6 +16,7 @@ mod close;
 mod concurrency;
 mod entries;
 mod holds;
+mod offline;
 mod periods;
 mod post;
 mod reports;
@@ -49,6 +50,11 @@ pub use entries::{EntryRecord, entry_record, entry_record_by_key};
 pub use holds::{
     CaptureHold, HoldRequest, PlaceHold, all_holds, capture_hold, expire_due_holds, expire_hold,
     get_hold, hold_of, place_hold, release_hold,
+};
+pub use offline::{
+    Attestation, AttestationKind, Device, DeviceStatus, EscrowFinding, IssuedVoucher, IssuerKey,
+    NewDevice, NewVoucher, OfflineError, Registered, VoucherStatus, escrow_findings, get_device,
+    get_voucher, issue_voucher, register_device, set_device_status, set_tier_limits, tier_limits,
 };
 pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{
