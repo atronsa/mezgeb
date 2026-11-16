@@ -15,8 +15,8 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::routing::{get, post};
 use mezgeb_core::{AccountId, DeviceId, PositiveAmount, VoucherId};
 use mezgeb_engine::{
-    Attestation, AttestationKind, DeviceStatus, FeePolicy, IssuerKey, NewDevice, NewVoucher,
-    OfflineError, Registered, SettleRequest, Upload,
+    Attestation, AttestationKind, DeviceStatus, IssuerKey, NewDevice, NewVoucher, OfflineError,
+    Registered, Upload,
 };
 use mezgeb_offline::{PublicKey, Tier};
 use mezgeb_ops::OperationRequest;
@@ -69,6 +69,10 @@ impl From<OfflineError> for ApiError {
             OfflineError::WrongCurrency(_) => ApiError::invalid("/amount/currency", detail),
             OfflineError::Invalid(_) => ApiError::new("invalid_request", detail),
             OfflineError::NotYet(_) => ApiError::new("not_implemented", detail),
+            OfflineError::ShortfallNotFound => ApiError::not_found("shortfall"),
+            OfflineError::DisputeNotFound => ApiError::not_found("dispute"),
+            OfflineError::ShortfallUnpaid { .. } => ApiError::new("invalid_request", detail),
+            OfflineError::DisputeResolved(_) => ApiError::internal(detail),
             OfflineError::BadTransition { .. } | OfflineError::Booking(_) => {
                 ApiError::internal(detail)
             }
@@ -373,40 +377,11 @@ async fn receipts(
             let state = state.clone();
             async move {
                 let mut conn = connection(&state).await?;
-                // The merchant fee, if the client charges one, goes to 4010.
-                let fee_account = mezgeb_engine::account_by_reference(&mut conn, "4010")
-                    .await?
-                    .map(|a| a.id());
-                let policy = FeePolicy { fee_account };
-                let registry = state.registry.clone();
-                let book = move |view: &BTreeMap<AccountId, mezgeb_core::Account>,
-                                 r: &SettleRequest| {
-                    let mut accounts = BTreeMap::from([
-                        ("voucher_escrow".to_owned(), r.escrow),
-                        ("payee".to_owned(), r.payee),
-                    ]);
-                    let mut amounts = BTreeMap::from([("amount".to_owned(), r.amount)]);
-                    if let Some(fees) = r.fee_account {
-                        accounts.insert("fee_revenue".into(), fees);
-                        amounts.insert("merchant_fee".into(), r.fee);
-                    }
-                    let mut metadata = BTreeMap::from([
-                        ("voucher".to_owned(), r.voucher.to_string()),
-                        ("device".to_owned(), r.device.to_string()),
-                        ("counter".to_owned(), r.counter.to_string()),
-                    ]);
-                    if let Some(claimed) = r.claimed_time {
-                        metadata.insert("claimed_event_time".into(), format_time(claimed));
-                    }
-                    let request = OperationRequest {
-                        template: "offline_receipt_settle.v1".into(),
-                        accounts,
-                        amounts,
-                        metadata,
-                        event_time: r.event_time,
-                        ..OperationRequest::default()
-                    };
-                    registry.draft(&request, view).map_err(|e| e.to_string())
+                // The fee goes to 4010; what a payer cannot pay of a late
+                // receipt, to 5030.
+                let accounts = crate::offline_books::offline_accounts(&mut conn).await?;
+                let books = crate::offline_books::TemplateBooks {
+                    registry: state.registry.clone(),
                 };
                 let mut results = Vec::with_capacity(items.len());
                 for (index, (body, signature)) in items.iter().enumerate() {
@@ -419,8 +394,8 @@ async fn receipts(
                     let result = mezgeb_engine::ingest_receipt(
                         &mut conn,
                         &upload,
-                        policy,
-                        &book,
+                        accounts,
+                        &books,
                         &state.options,
                     )
                     .await?;

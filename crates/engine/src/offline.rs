@@ -177,8 +177,19 @@ pub enum OfflineError {
     Invalid(String),
     /// The booking function failed, or booked something other than E16.
     Booking(String),
-    /// Built in a later step, such as late receipts (step 2.13).
+    /// Built in a later step.
     NotYet(String),
+    /// The owner has an unpaid shortfall: no new voucher until it is repaid
+    /// (protocol §12).
+    ShortfallUnpaid {
+        amount_minor: i64,
+    },
+    /// No such shortfall for this client.
+    ShortfallNotFound,
+    /// No such dispute.
+    DisputeNotFound,
+    /// The dispute was resolved the other way.
+    DisputeResolved(&'static str),
     Ledger(LedgerError),
 }
 
@@ -221,6 +232,15 @@ impl fmt::Display for OfflineError {
             ),
             OfflineError::Invalid(why) | OfflineError::Booking(why) | OfflineError::NotYet(why) => {
                 f.write_str(why)
+            }
+            OfflineError::ShortfallUnpaid { amount_minor } => write!(
+                f,
+                "the owner has {amount_minor} minor units of unpaid shortfall"
+            ),
+            OfflineError::ShortfallNotFound => f.write_str("no such shortfall"),
+            OfflineError::DisputeNotFound => f.write_str("no such dispute"),
+            OfflineError::DisputeResolved(how) => {
+                write!(f, "the dispute is already resolved as {how}")
             }
             OfflineError::Ledger(e) => write!(f, "{e}"),
         }
@@ -1008,6 +1028,20 @@ where
     .fetch_one(&mut *tx)
     .await
     .map_err(sql)?;
+    // No voucher while a shortfall is unpaid (protocol §12).
+    let unpaid: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(amount_minor), 0)::bigint FROM offline_shortfalls
+          WHERE owner_account_id = $1 AND repaid_entry_id IS NULL",
+    )
+    .bind(wallet.as_uuid())
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(sql)?;
+    if unpaid > 0 {
+        return Err(OfflineError::ShortfallUnpaid {
+            amount_minor: unpaid,
+        });
+    }
     if outstanding.saturating_add(amount.amount()) > CUSTOMER_CAP_MINOR {
         return Err(OfflineError::OverCustomerCap {
             outstanding_minor: outstanding,
