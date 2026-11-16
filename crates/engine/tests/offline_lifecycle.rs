@@ -424,3 +424,35 @@ async fn an_expiry_racing_a_receipt_has_one_outcome() -> TestResult {
     }
     Ok(())
 }
+
+/// A client's own late deadline: 10 days instead of 90.
+#[tokio::test]
+async fn a_client_sets_its_own_late_deadline() -> TestResult {
+    let Some(w) = world(10_000, 0).await? else {
+        return Ok(());
+    };
+    let mut admin = w.db.admin().await?;
+    mezgeb_engine::set_late_deadline(&mut admin, w.client, 10).await?;
+    assert!(
+        mezgeb_engine::set_late_deadline(&mut admin, w.client, 366)
+            .await
+            .is_err()
+    );
+    drop(admin);
+    let mut conn = w.db.app().await?;
+    w.tick(&mut conn, NOW + 7 * DAY).await?;
+    w.tick(&mut conn, RETURN_AT).await?;
+    assert!(
+        w.tick(&mut conn, RETURN_AT + 9 * DAY)
+            .await?
+            .ended
+            .is_empty()
+    );
+    assert_eq!(
+        w.tick(&mut conn, RETURN_AT + 11 * DAY).await?.ended,
+        vec![w.voucher.voucher.voucher_id]
+    );
+    drop(conn);
+    w.db.drop().await?;
+    Ok(())
+}
