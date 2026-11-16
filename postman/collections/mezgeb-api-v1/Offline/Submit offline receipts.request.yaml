@@ -1,19 +1,23 @@
 $kind: http-request
-description: Planned for step 2.12 (spec §5); until then the request body is open and the endpoint answers `501`.
+description: "Uploads up to 100 offline receipts, from the payer's device or the payee's terminal, each as the exact bytes the device signed and its signature, in hex. Each receipt gets its own outcome, whoever uploads it and however often; settling one also settles the receipts that were waiting for it. Repeating an upload is always safe."
 url: "{{baseUrl}}/v1/offline/receipts"
 method: POST
 headers:
-  - key: Idempotency-Key
-    value: pay-2026-11-14-0001
-    disabled: false
-    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
   - key: Content-Type
     value: application/json
   - key: Accept
-    value: application/problem+json
+    value: application/json
 body:
   type: json
-  content: "{}"
+  content: |-
+    {
+      "receipts": [
+        {
+          "body": "6d657a6765622e6f66666c696e652e726563656970742e763100",
+          "signature": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+        }
+      ]
+    }
 auth:
   type: oauth2
   credentials:

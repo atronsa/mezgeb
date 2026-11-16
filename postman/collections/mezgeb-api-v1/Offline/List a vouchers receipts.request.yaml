@@ -1,0 +1,21 @@
+$kind: http-request
+description: "Every receipt recorded for one of the client's vouchers, in counter order, with its outcome and the entry that paid it."
+url: "{{baseUrl}}/v1/offline/vouchers/:voucher_id/receipts"
+method: GET
+headers:
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: voucher_id
+    value: 0192f3c4-0000-7000-8000-000000000e01
+    disabled: false
+    description: (Required) The voucher.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List a vouchers receipts.resources/examples
+order: 2200
