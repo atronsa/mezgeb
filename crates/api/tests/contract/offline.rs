@@ -7,7 +7,7 @@ use mezgeb_offline::{PublicKey, Receipt, SecretKey, Tier};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use crate::common::{Api, BoxError, CLIENT, CLIENT_ID, OTHER, TestServer, etb};
+use crate::common::{Api, BoxError, CLIENT, CLIENT_ID, OPERATOR, OTHER, TestServer, etb};
 use crate::{open, operate};
 
 fn unhex(text: &str) -> Vec<u8> {
@@ -324,6 +324,285 @@ pub async fn devices_and_vouchers(api: &Api, server: &TestServer) -> Result<(), 
             CLIENT,
             "vch-4",
             json!({"device": "0192f3c4-0000-7000-8000-000000000bad", "amount": etb("1.00")})
+        )
+        .await?,
+        404
+    );
+    Ok(())
+}
+
+/// Registers a tier C device for `owner` and issues it a voucher of
+/// `amount`; returns the device ID, the voucher, and the device's key.
+async fn device_with_voucher(
+    api: &Api,
+    label: &str,
+    owner: &str,
+    amount: &str,
+) -> Result<(String, serde_json::Value, SecretKey), BoxError> {
+    let key = secret(label)?;
+    let device = expect!(
+        api.call(
+            "POST",
+            "/v1/offline/devices",
+            Some(CLIENT),
+            None,
+            Some(json!({
+                "owner_account": owner,
+                "public_key": hex(key.public_key().compressed()),
+                "label": label,
+                "attestation": {"type": "none"}
+            }))
+        )
+        .await?,
+        201
+    );
+    let device_id = device.str("/id");
+    let voucher = expect!(
+        api.post(
+            "/v1/offline/vouchers",
+            CLIENT,
+            &format!("vch-{label}"),
+            json!({"device": device_id, "amount": etb(amount)})
+        )
+        .await?,
+        201
+    );
+    Ok((device_id, voucher.body, key))
+}
+
+/// The first receipt of a voucher, signed by `key`.
+fn first_receipt(
+    device: &str,
+    voucher: &serde_json::Value,
+    key: &SecretKey,
+    payee: &str,
+    minor: i64,
+) -> Result<serde_json::Value, BoxError> {
+    let receipt = Receipt {
+        device_id: device.parse()?,
+        voucher_id: voucher["id"].as_str().unwrap_or_default().parse()?,
+        counter: voucher["counter_start"].as_u64().unwrap_or(1),
+        prev_digest: Sha256::digest(unhex(voucher["body"].as_str().unwrap_or_default())).into(),
+        payee_account_id: payee.parse()?,
+        payee_device_id: None,
+        amount: Money::from_minor(minor, Currency::ETB),
+        event_time: Timestamp::from_micros(mezgeb_api::wire::now().as_micros() - 60_000_000),
+        payee_challenge: [minor as u8; 16],
+    };
+    Ok(json!({ "body": hex(&receipt.body()), "signature": hex(&receipt.sign(key)) }))
+}
+
+async fn account_id(api: &Api, reference: &str) -> Result<String, BoxError> {
+    let found = expect!(
+        api.get(&format!("/v1/accounts?reference={reference}"), CLIENT)
+            .await?,
+        200
+    );
+    Ok(found.str("/items/0/id"))
+}
+
+/// Step 2.13: a clone's dispute, resolved by an operator; a late receipt the
+/// payer cannot cover, its shortfall, the block on vouchers, and the
+/// repayment.
+pub async fn disputes_and_shortfalls(api: &Api, server: &TestServer) -> Result<(), BoxError> {
+    let coffee = account_id(api, "2030:merch-coffee").await?;
+    let upload = |item: serde_json::Value| json!({ "receipts": [item] });
+    let receipts = "/v1/offline/receipts";
+
+    // A clone: two receipts with counter 1. The second freezes the device.
+    let (clone_device, clone_voucher, clone_key) =
+        device_with_voucher(api, "cloned-phone", "2010:cust-offline", "50.00").await?;
+    let stall = open(api, CLIENT, "2030:merch-stall-offline").await?;
+    for (payee, minor, outcome) in [(&coffee, 1_000, "SETTLED"), (&stall, 2_000, "CONFLICT")] {
+        let reply = expect!(
+            api.call(
+                "POST",
+                receipts,
+                Some(CLIENT),
+                None,
+                Some(upload(first_receipt(
+                    &clone_device,
+                    &clone_voucher,
+                    &clone_key,
+                    payee,
+                    minor
+                )?))
+            )
+            .await?,
+            200
+        );
+        assert_eq!(reply.str("/results/0/outcome"), outcome);
+    }
+    // Operators see the case; clients may not.
+    expect!(
+        api.get("/v1/offline/disputes", CLIENT).await?,
+        403,
+        "forbidden"
+    );
+    let open_cases = expect!(
+        api.get("/v1/offline/disputes?status=open", OPERATOR)
+            .await?,
+        200
+    );
+    let case = open_cases.body["items"]
+        .as_array()
+        .and_then(|items| items.iter().find(|d| d["device"] == json!(clone_device)))
+        .ok_or("no open case for the cloned phone")?
+        .clone();
+    assert_eq!(case["reason"], "conflict");
+    let case_id = case["id"].as_str().unwrap_or_default().to_owned();
+    expect!(
+        api.get(&format!("/v1/offline/disputes/{case_id}"), OPERATOR)
+            .await?,
+        200
+    );
+    let resolve = |resolution: &str| json!({ "resolution": resolution });
+    let resolved = expect!(
+        api.post(
+            &format!("/v1/offline/disputes/{case_id}/resolve"),
+            OPERATOR,
+            "resolve-1",
+            resolve("paid")
+        )
+        .await?,
+        200
+    );
+    assert_eq!(resolved.str("/resolution"), "paid");
+    expect!(
+        api.post(
+            &format!("/v1/offline/disputes/{case_id}/resolve"),
+            OPERATOR,
+            "resolve-2",
+            resolve("refused")
+        )
+        .await?,
+        409,
+        "dispute_resolved"
+    );
+    expect!(
+        api.get(
+            "/v1/offline/disputes/0192f3c4-0000-7000-8000-00000000dead",
+            OPERATOR
+        )
+        .await?,
+        404
+    );
+
+    // A late receipt the payer cannot cover. Lulit's wallet funds a 20 ETB
+    // voucher; the voucher expires and returns; Lulit spends it all online;
+    // then the receipt arrives.
+    // The loss account the platform pays shortfalls from.
+    open(api, OPERATOR, "5030").await?;
+    let lulit = open(api, CLIENT, "2010:cust-lulit").await?;
+    expect!(
+        operate(
+            api,
+            "deposit_confirmed.v1",
+            "dep-lulit",
+            json!({
+                "accounts": {"customer_funds": "1010", "customer_wallet": "2010:cust-lulit"},
+                "amounts": {"amount": etb("20.00")}})
+        )
+        .await?,
+        201
+    );
+    let (late_device, late_voucher, late_key) =
+        device_with_voucher(api, "lulit-phone", "2010:cust-lulit", "20.00").await?;
+    let later = mezgeb_api::wire::now().as_micros() + 15 * 86_400_000_000;
+    {
+        let mut conn = server.db.app().await?;
+        let accounts = mezgeb_api::offline_books::offline_accounts(&mut conn).await?;
+        let books = mezgeb_api::offline_books::TemplateBooks {
+            registry: std::sync::Arc::new(mezgeb_ops::TemplateRegistry::standard()),
+        };
+        let report = mezgeb_engine::offline_tick(
+            &mut conn,
+            Timestamp::from_micros(later),
+            accounts,
+            &books,
+            &mezgeb_engine::PostOptions::default(),
+        )
+        .await?;
+        assert!(!report.returned.is_empty());
+    }
+    expect!(
+        operate(
+            api,
+            "p2p_transfer.v1",
+            "lulit-spends",
+            json!({
+                "accounts": {"payer_wallet": "2010:cust-lulit", "payee_wallet": "2010:cust-offline"},
+                "amounts": {"amount": etb("20.00")}})
+        )
+        .await?,
+        201
+    );
+    let late = expect!(
+        api.call(
+            "POST",
+            receipts,
+            Some(CLIENT),
+            None,
+            Some(upload(first_receipt(
+                &late_device,
+                &late_voucher,
+                &late_key,
+                &coffee,
+                1_500
+            )?))
+        )
+        .await?,
+        200
+    );
+    assert_eq!(late.str("/results/0/outcome"), "SETTLED_LATE");
+    let owed = expect!(
+        api.get(
+            &format!("/v1/offline/shortfalls?owner_account={lulit}"),
+            CLIENT
+        )
+        .await?,
+        200
+    );
+    assert_eq!(owed.str("/items/0/amount/amount"), "15.00");
+    let shortfall = owed.str("/items/0/id");
+    // No voucher until it is repaid; repaying needs the money.
+    expect!(
+        api.post(
+            "/v1/offline/vouchers",
+            CLIENT,
+            "vch-lulit-2",
+            json!({"device": late_device, "amount": etb("5.00")})
+        )
+        .await?,
+        409,
+        "shortfall_unpaid"
+    );
+    let repay = format!("/v1/offline/shortfalls/{shortfall}/repay");
+    expect!(
+        api.post(&repay, CLIENT, "repay-1", json!({})).await?,
+        422,
+        "insufficient_funds"
+    );
+    expect!(
+        operate(
+            api,
+            "deposit_confirmed.v1",
+            "dep-lulit-2",
+            json!({
+                "accounts": {"customer_funds": "1010", "customer_wallet": "2010:cust-lulit"},
+                "amounts": {"amount": etb("15.00")}})
+        )
+        .await?,
+        201
+    );
+    let repaid = expect!(api.post(&repay, CLIENT, "repay-2", json!({})).await?, 200);
+    assert!(repaid.body["repaid_entry"].is_string());
+    expect!(
+        api.post(
+            "/v1/offline/shortfalls/0192f3c4-0000-7000-8000-00000000dead/repay",
+            CLIENT,
+            "repay-3",
+            json!({})
         )
         .await?,
         404

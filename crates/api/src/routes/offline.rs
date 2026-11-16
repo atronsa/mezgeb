@@ -25,13 +25,13 @@ use serde_json::json;
 
 use super::common::{ApiResult, bindable_account, connection, new_entry_id};
 use crate::AppState;
-use crate::auth::scope::{Auth, OfflineWrite};
+use crate::auth::scope::{Auth, OfflineResolve, OfflineWrite};
 use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::reply::{json_response, written};
 use crate::problem::ApiError;
 use crate::wire::{
-    DeviceJson, IssuerKeyJson, MoneyJson, OfflineReceiptJson, ReceiptResultJson, VoucherJson,
-    format_time, now, parse_hex,
+    DeviceJson, DisputeJson, IssuerKeyJson, MoneyJson, OfflineReceiptJson, ReceiptResultJson,
+    ShortfallJson, VoucherJson, format_time, now, parse_hex,
 };
 
 pub(super) fn router() -> Router<AppState> {
@@ -50,6 +50,11 @@ pub(super) fn router() -> Router<AppState> {
             get(voucher_receipts),
         )
         .route("/v1/offline/receipts", post(receipts))
+        .route("/v1/offline/shortfalls", get(list_shortfalls))
+        .route("/v1/offline/shortfalls/{shortfall_id}/repay", post(repay))
+        .route("/v1/offline/disputes", get(list_disputes))
+        .route("/v1/offline/disputes/{dispute_id}", get(get_dispute))
+        .route("/v1/offline/disputes/{dispute_id}/resolve", post(resolve))
 }
 
 impl From<OfflineError> for ApiError {
@@ -71,8 +76,8 @@ impl From<OfflineError> for ApiError {
             OfflineError::NotYet(_) => ApiError::new("not_implemented", detail),
             OfflineError::ShortfallNotFound => ApiError::not_found("shortfall"),
             OfflineError::DisputeNotFound => ApiError::not_found("dispute"),
-            OfflineError::ShortfallUnpaid { .. } => ApiError::new("invalid_request", detail),
-            OfflineError::DisputeResolved(_) => ApiError::internal(detail),
+            OfflineError::ShortfallUnpaid { .. } => ApiError::new("shortfall_unpaid", detail),
+            OfflineError::DisputeResolved(_) => ApiError::new("dispute_resolved", detail),
             OfflineError::BadTransition { .. } | OfflineError::Booking(_) => {
                 ApiError::internal(detail)
             }
@@ -424,4 +429,150 @@ async fn voucher_receipts(
             .map(OfflineReceiptJson::from)
             .collect();
     Ok(json_response(StatusCode::OK, json!({ "items": items })))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct ShortfallQuery {
+    owner_account: Option<String>,
+}
+
+/// The client's customers' shortfalls: what late receipts' payers could not
+/// pay, paid by the loss account until repaid.
+async fn list_shortfalls(
+    State(state): State<AppState>,
+    Auth(caller, _): Auth<OfflineWrite>,
+    crate::http::extract::QueryParams(query): crate::http::extract::QueryParams<ShortfallQuery>,
+) -> ApiResult {
+    let mut conn = connection(&state).await?;
+    let owner = match &query.owner_account {
+        Some(text) => Some(
+            bindable_account(&mut conn, &caller, text)
+                .await?
+                .ok_or_else(|| ApiError::not_found("account"))?,
+        ),
+        None => None,
+    };
+    let items: Vec<ShortfallJson> = mezgeb_engine::shortfalls(&mut conn, caller.client, owner)
+        .await?
+        .iter()
+        .map(ShortfallJson::from)
+        .collect();
+    Ok(json_response(StatusCode::OK, json!({ "items": items })))
+}
+
+/// The payer repays a shortfall from their wallet (E30); their devices can
+/// then get vouchers again.
+async fn repay(
+    State(state): State<AppState>,
+    Auth(caller, _): Auth<OfflineWrite>,
+    Path(shortfall_id): Path<String>,
+) -> ApiResult {
+    let id: uuid::Uuid = parse_id(&shortfall_id, "shortfall_id")?;
+    let shortfall = state
+        .write({
+            let state = state.clone();
+            async move {
+                let mut conn = connection(&state).await?;
+                let accounts = crate::offline_books::offline_accounts(&mut conn).await?;
+                let books = crate::offline_books::TemplateBooks {
+                    registry: state.registry.clone(),
+                };
+                Ok(mezgeb_engine::repay_shortfall(
+                    &mut conn,
+                    caller.client,
+                    id,
+                    accounts,
+                    &books,
+                    &state.options,
+                )
+                .await?)
+            }
+        })
+        .await?;
+    Ok(json_response(
+        StatusCode::OK,
+        ShortfallJson::from(&shortfall),
+    ))
+}
+
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct DisputeQuery {
+    status: Option<String>,
+}
+
+/// Every client's offline disputes, newest first (operators).
+async fn list_disputes(
+    State(state): State<AppState>,
+    Auth(_caller, _): Auth<OfflineResolve>,
+    crate::http::extract::QueryParams(query): crate::http::extract::QueryParams<DisputeQuery>,
+) -> ApiResult {
+    let open_only = match query.status.as_deref() {
+        None | Some("all") => false,
+        Some("open") => true,
+        Some(_) => return Err(ApiError::invalid("/status", "the status is open or all")),
+    };
+    let mut conn = connection(&state).await?;
+    let items: Vec<DisputeJson> = mezgeb_engine::disputes(&mut conn, None, open_only)
+        .await?
+        .iter()
+        .map(DisputeJson::from)
+        .collect();
+    Ok(json_response(StatusCode::OK, json!({ "items": items })))
+}
+
+async fn get_dispute(
+    State(state): State<AppState>,
+    Auth(_caller, _): Auth<OfflineResolve>,
+    Path(dispute_id): Path<String>,
+) -> ApiResult {
+    let id: uuid::Uuid = parse_id(&dispute_id, "dispute_id")?;
+    let mut conn = connection(&state).await?;
+    let dispute = mezgeb_engine::get_dispute(&mut conn, None, id).await?;
+    Ok(json_response(StatusCode::OK, DisputeJson::from(&dispute)))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveBody {
+    resolution: String,
+}
+
+/// Ends a dispute: `paid` pays every valid receipt by the loss policy,
+/// `refused` none; the escrow left returns and the device is revoked.
+async fn resolve(
+    State(state): State<AppState>,
+    Auth(caller, _): Auth<OfflineResolve>,
+    Path(dispute_id): Path<String>,
+    JsonBody(body): JsonBody<ResolveBody>,
+) -> ApiResult {
+    let id: uuid::Uuid = parse_id(&dispute_id, "dispute_id")?;
+    let resolution = mezgeb_engine::DisputeResolution::parse(&body.resolution)
+        .ok_or_else(|| ApiError::invalid("/resolution", "the resolution is paid or refused"))?;
+    let actor = caller.actor.as_str().to_owned();
+    let dispute = state
+        .write({
+            let state = state.clone();
+            async move {
+                let mut conn = connection(&state).await?;
+                let accounts = crate::offline_books::offline_accounts(&mut conn).await?;
+                let books = crate::offline_books::TemplateBooks {
+                    registry: state.registry.clone(),
+                };
+                Ok(mezgeb_engine::resolve_dispute(
+                    &mut conn,
+                    id,
+                    resolution,
+                    &actor,
+                    now(),
+                    accounts,
+                    &books,
+                    &state.options,
+                )
+                .await?)
+            }
+        })
+        .await?;
+    Ok(json_response(StatusCode::OK, DisputeJson::from(&dispute)))
 }

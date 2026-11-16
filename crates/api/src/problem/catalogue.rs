@@ -257,6 +257,16 @@ pub const CATALOGUE: &[(&str, u16, &str)] = &[
         422,
         "The customer's open vouchers would exceed the cap",
     ),
+    (
+        "shortfall_unpaid",
+        409,
+        "The owner has an unpaid offline shortfall",
+    ),
+    (
+        "dispute_resolved",
+        409,
+        "The dispute is already resolved the other way",
+    ),
 ];
 
 /// The posting rule codes, by rule number (1001–1012).

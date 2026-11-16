@@ -58,6 +58,8 @@ scopes! {
     PeriodsClose => ["periods:close"],
     ReportsRead => ["reports:read"],
     OfflineWrite => ["offline:write"],
+    /// Ending a frozen offline voucher's dispute (protocol §14).
+    OfflineResolve => ["offline:resolve"],
     AuditRead => ["audit:read"],
 }
 
@@ -89,7 +91,7 @@ mod tests {
         let mut names: Vec<&str> = ALL.iter().flat_map(|s| s.iter().copied()).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 15, "{names:?}");
+        assert_eq!(names.len(), 16, "{names:?}");
         assert_eq!(
             AdjustmentsView::NAMES,
             ["adjustments:request", "adjustments:approve"]

@@ -8,6 +8,7 @@
 //! | `MEZGEB_TOKEN_TTL_SECONDS` | `900` | How long an access token lives |
 //! | `MEZGEB_SIGNING_KEY_FILE` | required | The Ed25519 key that signs receipts and checkpoints (`mezgeb-cli key generate`) |
 //! | `MEZGEB_OFFLINE_ISSUER_KEY_FILE` | none | The P-256 key that signs offline device certificates and vouchers (`mezgeb-cli key generate --offline-issuer`); without it, offline payments are off |
+//! | `MEZGEB_OFFLINE_TICK_SECONDS` | `60` | How often voucher expiry, returns and gap timeouts run; `0` turns it off |
 //! | `MEZGEB_REQUEST_TIMEOUT_MS` | `10000` | How long a request may take before the client is told to retry |
 //! | `MEZGEB_BODY_LIMIT_BYTES` | `65536` | The largest request body accepted |
 //! | `MEZGEB_DB_POOL` | `16` | Database connections |
@@ -26,6 +27,7 @@ pub struct Config {
     pub token_ttl: Duration,
     pub signing_key: PathBuf,
     pub offline_issuer_key: Option<PathBuf>,
+    pub offline_tick: Duration,
     pub request_timeout: Duration,
     pub body_limit: usize,
     pub pool_size: u32,
@@ -61,6 +63,7 @@ impl Config {
                 .ok_or("MEZGEB_SIGNING_KEY_FILE is required: every entry gets a signed receipt")?
                 .into(),
             offline_issuer_key: var("MEZGEB_OFFLINE_ISSUER_KEY_FILE").map(PathBuf::from),
+            offline_tick: Duration::from_secs(number("MEZGEB_OFFLINE_TICK_SECONDS", 60)?),
             request_timeout: Duration::from_millis(number("MEZGEB_REQUEST_TIMEOUT_MS", 10_000)?),
             body_limit: number("MEZGEB_BODY_LIMIT_BYTES", 65_536)?,
             pool_size: number("MEZGEB_DB_POOL", 16)?,
