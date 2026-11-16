@@ -114,6 +114,30 @@ impl IssuerKey {
     }
 }
 
+/// Every issuer key ever used, oldest first: its ID, compressed public
+/// key, and when it was added, in µs. Devices and payees verify vouchers
+/// and certificates with them.
+pub async fn issuer_keys(
+    conn: &mut PgConnection,
+) -> Result<Vec<(String, Vec<u8>, Timestamp)>, LedgerError> {
+    let rows = sqlx::query(
+        "SELECT key_id, public_key, (extract(epoch FROM added_at) * 1000000)::bigint AS added
+           FROM offline_issuer_keys ORDER BY added_at, key_id",
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(db)?;
+    rows.iter()
+        .map(|r| {
+            Ok((
+                r.try_get("key_id").map_err(db)?,
+                r.try_get("public_key").map_err(db)?,
+                Timestamp::from_micros(r.try_get("added").map_err(db)?),
+            ))
+        })
+        .collect()
+}
+
 /// Why an offline request was refused.
 #[derive(Debug)]
 pub enum OfflineError {
