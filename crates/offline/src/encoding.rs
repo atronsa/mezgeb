@@ -75,6 +75,25 @@ impl Body {
         self.bytes(value.as_bytes())
     }
 
+    /// Exactly these bytes, unprefixed: digests and challenges, whose
+    /// length the protocol fixes.
+    pub fn fixed(&mut self, value: &[u8]) -> &mut Body {
+        self.0.extend_from_slice(value);
+        self
+    }
+
+    /// `0x00`, or `0x01` then the value.
+    pub fn option<T>(&mut self, value: Option<T>, write: impl FnOnce(&mut Body, T)) -> &mut Body {
+        match value {
+            Some(v) => {
+                self.0.push(1);
+                write(self, v);
+            }
+            None => self.0.push(0),
+        }
+        self
+    }
+
     pub fn amount(&mut self, value: Money) -> &mut Body {
         self.text(value.currency().code());
         self.i64(value.amount())
@@ -82,6 +101,113 @@ impl Body {
 
     pub fn into_bytes(self) -> Vec<u8> {
         self.0
+    }
+}
+
+/// Why a body could not be decoded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodeError(pub String);
+
+impl std::fmt::Display for DecodeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for DecodeError {}
+
+/// Reads a body written by [`Body`], strictly: the exact tag, every field,
+/// and nothing after the last one, so each message has one encoding.
+#[derive(Debug)]
+pub struct Reader<'a> {
+    rest: &'a [u8],
+}
+
+impl<'a> Reader<'a> {
+    /// A reader past `tag`, or an error if the body does not start with it.
+    pub fn new(body: &'a [u8], tag: &[u8]) -> Result<Reader<'a>, DecodeError> {
+        body.strip_prefix(tag)
+            .map(|rest| Reader { rest })
+            .ok_or_else(|| DecodeError("not this kind of message, or another version".into()))
+    }
+
+    fn take(&mut self, n: usize, what: &str) -> Result<&'a [u8], DecodeError> {
+        if self.rest.len() < n {
+            return Err(DecodeError(format!("the body ends inside {what}")));
+        }
+        let (head, rest) = self.rest.split_at(n);
+        self.rest = rest;
+        Ok(head)
+    }
+
+    fn array<const N: usize>(&mut self, what: &str) -> Result<[u8; N], DecodeError> {
+        let mut out = [0; N];
+        out.copy_from_slice(self.take(N, what)?);
+        Ok(out)
+    }
+
+    pub fn u8(&mut self, what: &str) -> Result<u8, DecodeError> {
+        Ok(self.array::<1>(what)?[0])
+    }
+
+    pub fn u64(&mut self, what: &str) -> Result<u64, DecodeError> {
+        Ok(u64::from_be_bytes(self.array(what)?))
+    }
+
+    pub fn i64(&mut self, what: &str) -> Result<i64, DecodeError> {
+        Ok(i64::from_be_bytes(self.array(what)?))
+    }
+
+    pub fn id(&mut self, what: &str) -> Result<Uuid, DecodeError> {
+        Ok(Uuid::from_bytes(self.array(what)?))
+    }
+
+    /// Exactly `N` bytes, unprefixed: digests and challenges.
+    pub fn fixed<const N: usize>(&mut self, what: &str) -> Result<[u8; N], DecodeError> {
+        self.array(what)
+    }
+
+    pub fn bytes(&mut self, what: &str) -> Result<&'a [u8], DecodeError> {
+        let len = u32::from_be_bytes(self.array(what)?);
+        let len = usize::try_from(len).map_err(|_| DecodeError(format!("{what} is too long")))?;
+        self.take(len, what)
+    }
+
+    pub fn text(&mut self, what: &str) -> Result<&'a str, DecodeError> {
+        std::str::from_utf8(self.bytes(what)?)
+            .map_err(|_| DecodeError(format!("{what} is not UTF-8")))
+    }
+
+    /// `0x00`, or `0x01` then the value.
+    pub fn option<T>(
+        &mut self,
+        what: &str,
+        read: impl FnOnce(&mut Reader<'a>) -> Result<T, DecodeError>,
+    ) -> Result<Option<T>, DecodeError> {
+        match self.u8(what)? {
+            0 => Ok(None),
+            1 => read(self).map(Some),
+            _ => Err(DecodeError(format!("{what} is neither absent nor present"))),
+        }
+    }
+
+    pub fn amount(&mut self, what: &str) -> Result<Money, DecodeError> {
+        let code = self.text(what)?;
+        let currency = mezgeb_core::Currency::from_code(code)
+            .map_err(|_| DecodeError(format!("{what}: unknown currency {code:?}")))?;
+        Ok(Money::from_minor(self.i64(what)?, currency))
+    }
+
+    /// Fails if anything is left.
+    pub fn finish(self) -> Result<(), DecodeError> {
+        if self.rest.is_empty() {
+            Ok(())
+        } else {
+            Err(DecodeError(format!(
+                "{} bytes after the last field",
+                self.rest.len()
+            )))
+        }
     }
 }
 

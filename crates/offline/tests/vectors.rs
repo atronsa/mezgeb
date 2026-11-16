@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use mezgeb_core::chain::hex;
 use mezgeb_core::{AccountId, ClientId, Currency, DeviceId, Money, Timestamp, VoucherId};
 use mezgeb_offline::crypto::high_s;
-use mezgeb_offline::{DeviceCertificate, PublicKey, SecretKey, Tier, Voucher};
+use mezgeb_offline::{DeviceCertificate, PublicKey, Receipt, SecretKey, Tier, Voucher};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -88,12 +88,58 @@ fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
     let voucher_sig = voucher.sign(&issuer);
     let voucher_high_s = high_s(&voucher_sig).ok_or("no high-S form")?;
 
+    // Two receipts of the voucher: the first chains to the voucher's
+    // digest, the second to the first's.
+    let merchant: AccountId = "019a8f00-0000-7000-8000-000000000006".parse()?;
+    let terminal: DeviceId = "019a8f00-0000-7000-8000-000000000007".parse()?;
+    let first = Receipt {
+        device_id,
+        voucher_id,
+        counter: 1,
+        prev_digest: voucher.digest(),
+        payee_account_id: merchant,
+        payee_device_id: Some(terminal),
+        amount: Money::from_minor(6_000, Currency::ETB),
+        event_time: Timestamp::from_micros(issued_at.as_micros() + 3_600_000_000),
+        payee_challenge: [0x11; 16],
+    };
+    let second = Receipt {
+        counter: 2,
+        prev_digest: first.digest(),
+        payee_device_id: None,
+        amount: Money::from_minor(2_550, Currency::ETB),
+        event_time: Timestamp::from_micros(issued_at.as_micros() + 7_200_000_000),
+        payee_challenge: [0x22; 16],
+        ..first.clone()
+    };
+    let receipt_json = |r: &Receipt| {
+        let sig = r.sign(&device);
+        json!({
+            "fields": {
+                "device_id": r.device_id.to_string(),
+                "voucher_id": r.voucher_id.to_string(),
+                "counter": r.counter,
+                "prev_digest": hex(&r.prev_digest),
+                "payee_account_id": r.payee_account_id.to_string(),
+                "payee_device_id": r.payee_device_id.map(|d| d.to_string()),
+                "amount": { "currency": "ETB", "minor": r.amount.amount() },
+                "event_time": r.event_time.as_micros(),
+                "payee_challenge": hex(&r.payee_challenge),
+            },
+            "body": hex(&r.body()),
+            "digest": hex(&r.digest()),
+            "signature": hex(&sig),
+        })
+    };
+    let first_sig = first.sign(&device);
+
     Ok(json!({
         "protocol": "mezgeb offline protocol v1 (docs/offline/protocol.md)",
         "notes": [
             "Test keys only: never use them for real devices or issuers.",
             "Signatures are ECDSA P-256 with SHA-256 over the body, r || s, low-S, with RFC 6979 nonces, so they are reproducible.",
             "A verifier must accept every 'signature' and refuse every vector under 'must_refuse'.",
+            "Certificates and vouchers are signed by the issuer key, receipts by the device key; a refusal names its key when it is not the issuer's.",
         ],
         "issuer_key": key_json("mezgeb offline test issuer v1", &issuer),
         "device_key": key_json("mezgeb offline test device v1", &device),
@@ -129,6 +175,7 @@ fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
             "digest": hex(&voucher.digest()),
             "signature": hex(&voucher_sig),
         },
+        "receipts": [receipt_json(&first), receipt_json(&second)],
         "must_refuse": [
             {
                 "what": "the voucher's signature in its high-S form",
@@ -144,6 +191,18 @@ fn vectors() -> Result<Value, Box<dyn std::error::Error>> {
                 "what": "the device certificate's signature on the voucher's body",
                 "body": hex(&voucher.body()),
                 "signature": hex(&cert_sig),
+            },
+            {
+                "what": "the first receipt's device signature in its high-S form",
+                "key": "device_key",
+                "body": hex(&first.body()),
+                "signature": hex(&high_s(&first_sig).ok_or("no high-S form")?),
+            },
+            {
+                "what": "the first receipt signed by the issuer key instead of the device key",
+                "key": "device_key",
+                "body": hex(&first.body()),
+                "signature": hex(&first.sign(&issuer)),
             },
         ],
     }))
@@ -171,22 +230,38 @@ fn unhex(text: &str) -> Vec<u8> {
 #[test]
 fn the_vectors_verify_and_the_refusals_are_refused() -> TestResult {
     let v = vectors()?;
-    let issuer = PublicKey::from_compressed(&unhex(
-        v["issuer_key"]["public_key"].as_str().ok_or("no key")?,
-    ))?;
+    let key = |name: &str| -> Result<PublicKey, Box<dyn std::error::Error>> {
+        Ok(PublicKey::from_compressed(&unhex(
+            v[name]["public_key"].as_str().ok_or("no key")?,
+        ))?)
+    };
+    let issuer = key("issuer_key")?;
+    let device = key("device_key")?;
     for name in ["device_certificate", "voucher"] {
         let body = unhex(v[name]["body"].as_str().ok_or("no body")?);
         let signature = unhex(v[name]["signature"].as_str().ok_or("no signature")?);
         assert_eq!(issuer.verify(&body, &signature), Ok(()), "{name}");
     }
+    // Each receipt verifies with the device key, decodes to its own bytes,
+    // and chains: the first to the voucher, the second to the first.
+    let mut previous = v["voucher"]["digest"].as_str().ok_or("no digest")?;
+    for r in v["receipts"].as_array().ok_or("no receipts")? {
+        let body = unhex(r["body"].as_str().ok_or("no body")?);
+        let signature = unhex(r["signature"].as_str().ok_or("no signature")?);
+        assert_eq!(device.verify(&body, &signature), Ok(()));
+        let receipt = Receipt::decode(&body)?;
+        assert_eq!(receipt.body(), body);
+        assert_eq!(hex(&receipt.prev_digest), previous);
+        previous = r["digest"].as_str().ok_or("no digest")?;
+    }
     for case in v["must_refuse"].as_array().ok_or("no refusals")? {
         let body = unhex(case["body"].as_str().ok_or("no body")?);
         let signature = unhex(case["signature"].as_str().ok_or("no signature")?);
-        assert!(
-            issuer.verify(&body, &signature).is_err(),
-            "{}",
-            case["what"]
-        );
+        let by = match case["key"].as_str() {
+            Some("device_key") => &device,
+            _ => &issuer,
+        };
+        assert!(by.verify(&body, &signature).is_err(), "{}", case["what"]);
     }
     Ok(())
 }
