@@ -11,6 +11,7 @@ mod audit;
 mod entry;
 mod hold;
 mod money;
+mod offline;
 mod period;
 mod timestamp;
 
@@ -20,5 +21,6 @@ pub use audit::*;
 pub use entry::*;
 pub use hold::*;
 pub use money::*;
+pub use offline::*;
 pub use period::*;
 pub use timestamp::*;

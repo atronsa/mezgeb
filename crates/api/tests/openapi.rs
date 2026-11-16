@@ -324,7 +324,11 @@ fn every_engine_operation_is_reachable() {
         "getAgeing",
         "listTemplates",
         "registerDevice",
+        "getDevice",
+        "revokeDevice",
         "issueVoucher",
+        "getVoucher",
+        "listIssuerKeys",
         "submitReceipts",
     ] {
         assert!(
