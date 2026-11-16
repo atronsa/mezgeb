@@ -1,0 +1,32 @@
+$kind: http-example
+name: "The keys"
+request:
+  url: "{{baseUrl}}/v1/offline/issuer-keys"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "items": [
+          {
+            "key_id": "8356ab979cb1fbd8",
+            "public_key": "02b7c6a1f0e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccdd",
+            "added_at": "2026-11-16T00:00:00Z"
+          }
+        ]
+      }
+order: 1000

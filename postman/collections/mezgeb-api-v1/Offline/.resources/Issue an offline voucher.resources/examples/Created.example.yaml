@@ -1,0 +1,52 @@
+$kind: http-example
+name: "The signed voucher."
+request:
+  url: "{{baseUrl}}/v1/offline/vouchers"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: offline-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "device": "0192f3c4-0000-7000-8000-000000000d01",
+        "amount": {
+          "amount": "100.00",
+          "currency": "ETB"
+        }
+      }
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "0192f3c4-0000-7000-8000-000000000e01",
+        "device": "0192f3c4-0000-7000-8000-000000000d01",
+        "owner_account": "0192f3c4-0000-7000-8000-000000000002",
+        "escrow_account": "0192f3c4-0000-7000-8000-000000000e02",
+        "amount": {
+          "amount": "100.00",
+          "currency": "ETB"
+        },
+        "counter_start": 1,
+        "issued_at": "2026-11-16T00:00:00Z",
+        "expires_at": "2026-11-17T00:00:00Z",
+        "status": "active",
+        "entry": "0192f3c4-0000-7000-8000-000000000e03",
+        "issuer_key_id": "8356ab979cb1fbd8",
+        "body": "6d657a6765622e6f66666c696e652e766f75636865722e763100",
+        "signature": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      }
+order: 500

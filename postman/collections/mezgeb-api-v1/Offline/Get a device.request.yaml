@@ -1,0 +1,21 @@
+$kind: http-request
+description: "One of the client's devices, with its status and certificate."
+url: "{{baseUrl}}/v1/offline/devices/:device_id"
+method: GET
+headers:
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: device_id
+    value: 0192f3c4-0000-7000-8000-000000000d01
+    disabled: false
+    description: (Required) The device.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a device.resources/examples
+order: 1100

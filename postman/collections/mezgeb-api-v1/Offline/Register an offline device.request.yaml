@@ -1,19 +1,23 @@
 $kind: http-request
-description: Planned for step 2.11 (spec §5). Designed in step 2.10; until then the request body is open and the endpoint answers `501`.
+description: "Registers a payer device's P-256 public key for a customer wallet and returns its device certificate, signed by the issuer key (protocol §5). Only `none` attestation is accepted for now, earning tier C if the client has enabled it. The public key identifies the request: registering it again with the same details returns the device."
 url: "{{baseUrl}}/v1/offline/devices"
 method: POST
 headers:
-  - key: Idempotency-Key
-    value: pay-2026-11-14-0001
-    disabled: false
-    description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
   - key: Content-Type
     value: application/json
   - key: Accept
-    value: application/problem+json
+    value: application/json
 body:
   type: json
-  content: "{}"
+  content: |-
+    {
+      "owner_account": "2010:cust-hana",
+      "public_key": "03ca16e9076330c0c89ff8738477b10113a8d324b21e95863ef1f442035b1203c1",
+      "label": "Hana's phone",
+      "attestation": {
+        "type": "none"
+      }
+    }
 auth:
   type: oauth2
   credentials:

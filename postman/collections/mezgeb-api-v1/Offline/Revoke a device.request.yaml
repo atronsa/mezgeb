@@ -1,0 +1,29 @@
+$kind: http-request
+description: "Retires a device for good: it gets no new voucher. Revoking a revoked device returns it unchanged. An open voucher is not closed early: receipts may still be on their way."
+url: "{{baseUrl}}/v1/offline/devices/:device_id/revoke"
+method: POST
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: device_id
+    value: 0192f3c4-0000-7000-8000-000000000d01
+    disabled: false
+    description: (Required) The device.
+body:
+  type: json
+  content: |-
+    {
+      "reason": "replaced"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Revoke a device.resources/examples
+order: 1200
