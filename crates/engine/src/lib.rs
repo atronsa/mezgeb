@@ -66,7 +66,7 @@ pub use offline_lifecycle::{
 pub use offline_receipts::{
     IngestResult, OfflineAccounts, OfflineBooks, Parts, PayRequest, ReceiptRecord, RepayRequest,
     ReturnRequest, SettleRequest, Settled, Upload, digest_hex, ingest_receipt, offline_fee_bps,
-    set_offline_fee, voucher_receipts,
+    set_late_deadline, set_offline_fee, voucher_receipts,
 };
 pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{

@@ -260,6 +260,33 @@ pub async fn set_offline_fee(
     Ok(())
 }
 
+/// Sets how many days after a voucher's return a late receipt is still
+/// paid (protocol §12): 1 to 365, 90 without a setting. For `mezgeb-cli
+/// offline deadline`, as `mezgeb_admin`. A new deadline applies to every
+/// returned voucher from the next tick.
+pub async fn set_late_deadline(
+    conn: &mut PgConnection,
+    client: ClientId,
+    days: u32,
+) -> Result<(), OfflineError> {
+    let days = i32::try_from(days)
+        .ok()
+        .filter(|d| (1..=365).contains(d))
+        .ok_or_else(|| OfflineError::Invalid("the late deadline is 1 to 365 days".into()))?;
+    sqlx::query(
+        "INSERT INTO offline_settings (client_id, late_deadline_days) VALUES ($1, $2)
+         ON CONFLICT (client_id) DO UPDATE
+            SET late_deadline_days = EXCLUDED.late_deadline_days,
+                updated_at = clock_timestamp()",
+    )
+    .bind(client.as_uuid())
+    .bind(days)
+    .execute(&mut *conn)
+    .await
+    .map_err(sql)?;
+    Ok(())
+}
+
 /// The fee on `amount` at `bps`, rounded down: a fraction of a santim is
 /// the payee's.
 pub(crate) fn fee_on(amount: Money, bps: u32) -> Money {
