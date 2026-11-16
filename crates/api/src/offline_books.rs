@@ -188,3 +188,53 @@ pub async fn offline_accounts(
             .map(|a| a.id()),
     })
 }
+
+/// Runs the offline tick (voucher expiry, returns, gap timeouts, the late
+/// deadline) every `every`, until the service stops. Each run is one call
+/// to the engine's `offline_tick` at the current time; a failed run is
+/// logged and the next one tries again.
+pub async fn run_ticks(state: crate::AppState, every: std::time::Duration) {
+    let mut interval = tokio::time::interval(every);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        let state = state.clone();
+        let run = state.tasks.clone().spawn(async move {
+            let mut conn = state.pool.acquire().await.map_err(|e| e.to_string())?;
+            let accounts = offline_accounts(&mut conn)
+                .await
+                .map_err(|e| e.to_string())?;
+            let books = TemplateBooks {
+                registry: state.registry.clone(),
+            };
+            mezgeb_engine::offline_tick(
+                &mut conn,
+                crate::wire::now(),
+                accounts,
+                &books,
+                &state.options,
+            )
+            .await
+            .map_err(|e| e.to_string())
+        });
+        match run.await {
+            Ok(Ok(report)) => {
+                if !(report.graced.is_empty()
+                    && report.returned.is_empty()
+                    && report.ended.is_empty()
+                    && report.settled_past_gaps.is_empty())
+                {
+                    tracing::info!(
+                        graced = report.graced.len(),
+                        returned = report.returned.len(),
+                        ended = report.ended.len(),
+                        past_gaps = report.settled_past_gaps.len(),
+                        "offline tick"
+                    );
+                }
+            }
+            Ok(Err(error)) => tracing::error!(%error, "offline tick failed"),
+            Err(error) => tracing::error!(%error, "offline tick stopped"),
+        }
+    }
+}

@@ -133,7 +133,7 @@ async fn every_api_mutation_produces_an_audit_event() -> Result<(), BoxError> {
             writes += 1;
         }
     }
-    assert_eq!(writes, 28, "write operations in the contract");
+    assert_eq!(writes, 30, "write operations in the contract");
 
     // Real changes: one that succeeds, one refused by a rule, one without a
     // scope, one without a token, a change of configuration, and tokens.

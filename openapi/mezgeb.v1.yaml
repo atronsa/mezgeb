@@ -3463,6 +3463,8 @@ paths:
                   $ref: "#/components/examples/error-certificate_expired"
                 voucher_open:
                   $ref: "#/components/examples/error-voucher_open"
+                shortfall_unpaid:
+                  $ref: "#/components/examples/error-shortfall_unpaid"
                 idempotency_key_reused:
                   $ref: "#/components/examples/error-idempotency_key_reused"
         "422":
@@ -3589,6 +3591,268 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
+  /v1/offline/shortfalls:
+    get:
+      operationId: "listShortfalls"
+      tags:
+        - "Offline"
+      summary: "List offline shortfalls"
+      description: "What late receipts' payers could not pay, paid by the loss account 5030 (E29), oldest first. Until a payer repays theirs, no device of theirs gets a voucher (`shortfall_unpaid`)."
+      security:
+        - oauth2:
+            - "offline:write"
+      parameters:
+        - name: "owner_account"
+          in: "query"
+          required: false
+          description: "Only this wallet's shortfalls, by ID or chart reference."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The shortfalls"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShortfallList"
+              example:
+                items:
+                  - id: "0192f3c4-0000-7000-8000-000000000f01"
+                    owner_account: "0192f3c4-0000-7000-8000-000000000002"
+                    device: "0192f3c4-0000-7000-8000-000000000d01"
+                    counter: 1
+                    amount:
+                      amount: "65.00"
+                      currency: "ETB"
+                    entry: "0192f3c4-0000-7000-8000-000000000f02"
+                    repaid_entry: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/offline/shortfalls/{shortfall_id}/repay:
+    post:
+      operationId: "repayShortfall"
+      tags:
+        - "Offline"
+      summary: "Repay a shortfall"
+      description: "The payer repays a shortfall from their wallet to the loss account (E30, `offline_shortfall_repay.v1`). The wallet must hold the amount. Repaying a repaid shortfall returns it unchanged."
+      security:
+        - oauth2:
+            - "offline:write"
+      parameters:
+        - name: "shortfall_id"
+          in: "path"
+          required: true
+          description: "The shortfall."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      responses:
+        "200":
+          description: "The repaid shortfall."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shortfall"
+              example:
+                id: "0192f3c4-0000-7000-8000-000000000f01"
+                owner_account: "0192f3c4-0000-7000-8000-000000000002"
+                device: "0192f3c4-0000-7000-8000-000000000d01"
+                counter: 1
+                amount:
+                  amount: "65.00"
+                  currency: "ETB"
+                entry: "0192f3c4-0000-7000-8000-000000000f02"
+                repaid_entry: "0192f3c4-0000-7000-8000-000000000f03"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: "The wallet does not hold the amount"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                insufficient_funds:
+                  $ref: "#/components/examples/error-insufficient_funds"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/offline/disputes:
+    get:
+      operationId: "listDisputes"
+      tags:
+        - "Offline"
+      summary: "List offline disputes"
+      description: "Every client's frozen-voucher cases, newest first (protocol §14). A conflict or an over-spend freezes a device and its voucher and opens one. For the operator's staff."
+      security:
+        - oauth2:
+            - "offline:resolve"
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          description: "`open` for the open ones only; `all` (the default) for every one."
+          schema:
+            type: "string"
+            enum:
+              - "open"
+              - "all"
+      responses:
+        "200":
+          description: "The disputes"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeList"
+              example:
+                items:
+                  - id: "0192f3c4-0000-7000-8000-000000000f11"
+                    client: "0192f3c4-0000-7000-8000-00000000c11e"
+                    device: "0192f3c4-0000-7000-8000-000000000d01"
+                    voucher: "0192f3c4-0000-7000-8000-000000000e01"
+                    reason: "conflict"
+                    counter: 4
+                    status: "open"
+                    resolution: null
+                    resolved_by: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/offline/disputes/{dispute_id}:
+    get:
+      operationId: "getDispute"
+      tags:
+        - "Offline"
+      summary: "Get an offline dispute"
+      description: "One frozen voucher's case. Its receipts are listed by `GET /v1/offline/vouchers/{voucher_id}/receipts` as the client sees them."
+      security:
+        - oauth2:
+            - "offline:resolve"
+      parameters:
+        - name: "dispute_id"
+          in: "path"
+          required: true
+          description: "The dispute."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      responses:
+        "200":
+          description: "The dispute."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/offline/disputes/{dispute_id}/resolve:
+    post:
+      operationId: "resolveDispute"
+      tags:
+        - "Offline"
+      summary: "Resolve an offline dispute"
+      description: "Ends a frozen voucher's case (protocol §14). `paid` pays every valid receipt of the voucher in counter order: from the escrow left (E26), then the payer's wallet, then 5030, recording any shortfall; a conflicting copy of a counter is paid from the wallet and 5030 only (E31). `refused` pays none: their payees bear them (`REFUSED`). Either way the escrow left goes back to the wallet (E27) and the device is revoked. Resolving it again the same way returns it unchanged."
+      security:
+        - oauth2:
+            - "offline:resolve"
+      parameters:
+        - name: "dispute_id"
+          in: "path"
+          required: true
+          description: "The dispute."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveDisputeRequest"
+            example:
+              resolution: "paid"
+      responses:
+        "200":
+          description: "The resolved dispute."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+              example:
+                id: "0192f3c4-0000-7000-8000-000000000f11"
+                client: "0192f3c4-0000-7000-8000-00000000c11e"
+                device: "0192f3c4-0000-7000-8000-000000000d01"
+                voucher: "0192f3c4-0000-7000-8000-000000000e01"
+                reason: "conflict"
+                counter: 4
+                status: "resolved"
+                resolution: "paid"
+                resolved_by: "ops:abebe"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "Resolved the other way"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                dispute_resolved:
+                  $ref: "#/components/examples/error-dispute_resolved"
+        "422":
+          description: "A payment was refused"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                account_not_open:
+                  $ref: "#/components/examples/error-account_not_open"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
   /v1/offline/issuer-keys:
     get:
       operationId: "listIssuerKeys"
@@ -3907,6 +4171,7 @@ components:
             "reports:read": "Read trial balances and ageing (operator)"
             "audit:read": "Read the audit events of every client (auditor)"
             "offline:write": "Offline devices, vouchers and receipts"
+            "offline:resolve": "Resolve offline disputes (operators)"
   parameters:
     IdempotencyKey:
       name: "Idempotency-Key"
@@ -5371,7 +5636,8 @@ components:
         - "BAD_SIGNATURE"
         - "UNKNOWN_DEVICE"
         - "UNKNOWN_VOUCHER"
-      description: "What happened to an uploaded receipt (protocol §9, spec §5.5)."
+        - "REFUSED"
+      description: "What happened to an uploaded receipt (protocol §9, spec §5.5); `REFUSED` is a receipt an operator refused in a dispute (§14)."
     ReceiptUploadResults:
       type: "object"
       additionalProperties: false
@@ -5482,6 +5748,112 @@ components:
           type: "array"
           items:
             $ref: "#/components/schemas/OfflineReceipt"
+    Shortfall:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "owner_account"
+        - "device"
+        - "counter"
+        - "amount"
+        - "entry"
+        - "repaid_entry"
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid7"
+        owner_account:
+          $ref: "#/components/schemas/AccountId"
+        device:
+          $ref: "#/components/schemas/DeviceId"
+        counter:
+          type: "integer"
+          minimum: 1
+        amount:
+          $ref: "#/components/schemas/Money"
+        entry:
+          $ref: "#/components/schemas/EntryId"
+        repaid_entry:
+          oneOf:
+            - $ref: "#/components/schemas/EntryId"
+            - type: "null"
+    ShortfallList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Shortfall"
+    Dispute:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "client"
+        - "device"
+        - "voucher"
+        - "reason"
+        - "counter"
+        - "status"
+        - "resolution"
+        - "resolved_by"
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid7"
+        client:
+          $ref: "#/components/schemas/Uuid7"
+        device:
+          $ref: "#/components/schemas/DeviceId"
+        voucher:
+          $ref: "#/components/schemas/VoucherId"
+        reason:
+          type: "string"
+          enum:
+            - "conflict"
+            - "over_limit"
+        counter:
+          type: "integer"
+          minimum: 1
+        status:
+          type: "string"
+          enum:
+            - "open"
+            - "resolved"
+        resolution:
+          oneOf:
+            - type: "string"
+              enum:
+                - "paid"
+                - "refused"
+            - type: "null"
+        resolved_by:
+          oneOf:
+            - type: "string"
+            - type: "null"
+    DisputeList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/Dispute"
+    ResolveDisputeRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "resolution"
+      properties:
+        resolution:
+          type: "string"
+          enum:
+            - "paid"
+            - "refused"
     ErrorCode:
       type: "string"
       enum:
@@ -5563,6 +5935,8 @@ components:
         - "voucher_open"
         - "over_tier_limit"
         - "over_customer_cap"
+        - "shortfall_unpaid"
+        - "dispute_resolved"
       description: "A stable error code. Never renumbered or reused; see docs/api/errors.md."
     Problem:
       type: "object"
@@ -6927,4 +7301,22 @@ components:
         status: 422
         code: "over_customer_cap"
         detail: "the customer has 400000 minor units in open vouchers; the cap is 500000"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-shortfall_unpaid:
+      summary: "shortfall_unpaid"
+      value:
+        type: "urn:mezgeb:problem:shortfall_unpaid"
+        title: "The owner has an unpaid offline shortfall"
+        status: 409
+        code: "shortfall_unpaid"
+        detail: "the owner has 6500 minor units of unpaid shortfall"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-dispute_resolved:
+      summary: "dispute_resolved"
+      value:
+        type: "urn:mezgeb:problem:dispute_resolved"
+        title: "The dispute is already resolved the other way"
+        status: 409
+        code: "dispute_resolved"
+        detail: "the dispute is already resolved as paid"
         instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"

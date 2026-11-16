@@ -130,6 +130,8 @@ Devices and vouchers (step 2.11, ADR-0019, [protocol](../offline/protocol.md)).
 | `voucher_open` | 409 |  | The device already has an open voucher | OfflineError::VoucherOpen (one per device) |
 | `over_tier_limit` | 422 |  | The amount is over the tier's voucher limit | OfflineError::OverTierLimit |
 | `over_customer_cap` | 422 |  | The customer's open vouchers would exceed the cap | OfflineError::OverCustomerCap (5,000 ETB) |
+| `shortfall_unpaid` | 409 |  | The owner has an unpaid offline shortfall | OfflineError::ShortfallUnpaid: no voucher until it is repaid (step 2.13) |
+| `dispute_resolved` | 409 |  | The dispute is already resolved the other way | OfflineError::DisputeResolved |
 
 ## Retrying
 
