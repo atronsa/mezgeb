@@ -341,6 +341,29 @@ Each uploaded receipt and what became of it (migration 0012, step 2.12;
 - **The fee.** `offline_settings.fee_bps` is a client's merchant fee on
   offline payments; without a row, none.
 
+## Offline expiry, late receipts and disputes
+
+The rest of a voucher's life (migration 0013, step 2.13;
+[protocol §7, §11, §12, §14](offline/protocol.md#12-loss-policy-late-receipts)).
+
+- **The return is recorded.** A voucher's `returned_at`, `return_entry_id`
+  (E18, E25 or E27) and `ended_at`; `CHECK`s tie them to its status.
+- **Shortfalls.** `offline_shortfalls` keeps what a late receipt's payer
+  could not pay, paid by 5030 (E29), until it is repaid (E30). An index finds
+  a wallet's unpaid ones: any unpaid shortfall blocks the owner's next
+  voucher.
+- **Disputes.** A freeze opens one row in `offline_disputes`; a partial
+  unique index allows one open case per voucher. Resolving it sets the
+  resolution, who decided and when.
+- **Conflicting copies paid by a dispute** are recorded in
+  `offline_dispute_payments`, append-only, since they have no row of their
+  own in `offline_receipts`.
+- **The late deadline.** `offline_settings.late_deadline_days`, 1 to 365, 90
+  by default.
+- **One device at a time, again.** The tick and a dispute's resolution
+  take the device's and the voucher's row locks in the same order as
+  receipt ingestion, so a receipt racing the expiry has one outcome.
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
