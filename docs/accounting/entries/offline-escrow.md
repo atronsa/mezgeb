@@ -143,3 +143,193 @@ bank. The full trial balance is in [trial-balance.md](../trial-balance.md).
   be revoked early. If the same voucher shows two different receipts with the
   same counter, the device is frozen (spec §5.5, `CONFLICT`). How are those
   cases booked?
+
+## Every offline state (step 2.10)
+
+E16–E18 are the normal life of a voucher. The entries below book every
+other state the [offline protocol](../../offline/protocol.md) defines
+(ADR-0019). Each is its own small example, on its own voucher, with the 2%
+merchant fee of E07. They are not part of the running balances above.
+
+| State | Entry |
+|---|---|
+| Voucher issued | E16 |
+| Receipt settled from escrow, in order or after a skipped gap | E17 (a skipped gap changes only the receipt's metadata) |
+| Voucher returned after expiry and grace | E18 |
+| Voucher closed early, online | E25 |
+| A receipt over the escrow left | E26 |
+| A frozen voucher's escrow returned after its dispute | E27 |
+| A late receipt, the payer's wallet pays | E28 |
+| A late receipt, the wallet pays part and the loss account the rest | E29 |
+| The payer repays a shortfall | E30 |
+| A cloned device's second receipt, paid after the dispute | E31 |
+
+**States that post nothing,** leaving every balance as it was:
+
+- **The receipt waits or is kept:** `DUPLICATE`, `WAITING_FOR_GAP`,
+  `FROZEN`.
+- **It freezes the device:** `CONFLICT`.
+- **It is refused:** `BAD_FORMAT`, `UNKNOWN_DEVICE`, `BAD_SIGNATURE`,
+  `UNKNOWN_VOUCHER`.
+- **It is refused after the late deadline,** so the payee bears it:
+  `EXPIRED`.
+
+## E25. Voucher closed early
+
+**Scenario:** Abebe's card has voucher `vch-0002` for 500 ETB.
+1. Back in town, Abebe taps the card on the phone app.
+2. The app uploads the card's two receipts, 120 and 80 ETB, which settle as
+   E17.
+3. It uploads a signed close with the last counter.
+4. The ledger returns what is left.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2050:vch-0002 Offline escrow | Liability | 300.00 | |
+| 2 | 2010:cust-abebe Customer wallet | Liability | | 300.00 |
+| | **Total** | | **300.00** | **300.00** |
+
+**Why:**
+
+- **The same booking as E18, earlier.**
+- **The close carries the card's last counter and last receipt,** so the
+  ledger knows nothing else can be spent from this voucher. That makes it
+  safe to release the escrow before expiry.
+- **Escrow ends at zero:** 500 − 120 − 80 − 300.
+
+## E26. A receipt over the escrow left
+
+**Scenario:** Hana's phone (tier B) had `vch-0003` for 100 ETB.
+1. Its first receipt, 70 ETB to Merkato Coffee, settled (E17), leaving
+   30 ETB.
+2. A second receipt arrives, for 50 ETB to the same merchant. A correct
+   device would have refused to sign it, so the device froze
+   (`OVER_LIMIT`).
+3. The dispute finds the phone was restored from an old backup.
+4. It is resolved under the loss policy: the escrow pays the 30 ETB left,
+   and Hana's wallet (580 ETB) pays the other 20.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2050:vch-0003 Offline escrow | Liability | 30.00 | |
+| 2 | 2010:cust-hana Customer wallet | Liability | 20.00 | |
+| 3 | 2030:merch-coffee Merchant balance | Liability | | 49.00 |
+| 4 | 4010 Payment fee revenue | Revenue | | 1.00 |
+| | **Total** | | **50.00** | **50.00** |
+
+**Why:**
+
+- **The merchant accepted a validly signed receipt,** so it is paid in full,
+  minus the usual fee.
+- **The escrow pays what it can.** The payer, whose device signed more than
+  its voucher, pays the rest (ADR-0019).
+- **The escrow is now zero,** so the voucher has nothing left to return.
+
+## E27. A frozen voucher's escrow returned after its dispute
+
+**Scenario:** Sara's phone voucher `vch-0004` (200 ETB) froze on a conflict,
+after one receipt of 50 ETB had settled. The dispute (E31) is resolved, and
+the 150 ETB left in escrow goes back to Sara's wallet.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2050:vch-0004 Offline escrow | Liability | 150.00 | |
+| 2 | 2010:cust-sara Customer wallet | Liability | | 150.00 |
+| | **Total** | | **150.00** | **150.00** |
+
+**Why:**
+
+- **A frozen voucher holds its escrow until the dispute ends,** so the money
+  cannot be released while the facts are unknown.
+- **Once the dispute is resolved,** the escrow returns as in E18, and ends at
+  zero.
+
+## E28. A late receipt paid from the payer's wallet
+
+**Scenario:** Hana's `vch-0005` expired, its grace period passed, and its
+100 ETB went back to her wallet (E18). Six days later, a market stall's
+terminal finally uploads a receipt dated before expiry, for 40 ETB. The
+receipt is valid, and Hana's wallet holds 600 ETB.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2010:cust-hana Customer wallet | Liability | 40.00 | |
+| 2 | 2030:merch-stall Merchant balance | Liability | | 39.20 |
+| 3 | 4010 Payment fee revenue | Revenue | | 0.80 |
+| | **Total** | | **40.00** | **40.00** |
+
+**Why:**
+
+- **The escrow was returned to the wallet,** so the money the receipt spent
+  is back in the wallet.
+- **Paying from it puts Hana exactly where she would have been** had the
+  receipt arrived in time.
+- **The merchant is paid in full.**
+
+## E29. A late receipt, partly from the loss account
+
+**Scenario:** As in E28, but the late receipt is for 90 ETB and Hana's
+wallet holds only 25 ETB.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2010:cust-hana Customer wallet | Liability | 25.00 | |
+| 2 | 5030 Offline settlement losses | Expense | 65.00 | |
+| 3 | 2030:merch-stall Merchant balance | Liability | | 88.20 |
+| 4 | 4010 Payment fee revenue | Revenue | | 1.80 |
+| | **Total** | | **90.00** | **90.00** |
+
+**Why:**
+
+- **The wallet pays what it can,** and cannot go negative (INV-8). The
+  platform's loss account pays the rest, so the merchant is still paid.
+- **5030 is an expense:** the platform has lost 65 ETB, unless Hana repays
+  it.
+- **The shortfall is recorded against Hana.** No device of hers gets a new
+  voucher until it is repaid (E30).
+
+## E30. The payer repays a shortfall
+
+**Scenario:** Hana tops up her wallet and repays the 65 ETB shortfall of
+E29.
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2010:cust-hana Customer wallet | Liability | 65.00 | |
+| 2 | 5030 Offline settlement losses | Expense | | 65.00 |
+| | **Total** | | **65.00** | **65.00** |
+
+**Why:**
+
+- **Crediting the loss account reverses the loss:** the platform is made
+  whole.
+- **Hana's offline payments are allowed again.**
+
+## E31. A cloned device's second receipt
+
+**Scenario:** Sara's phone was cloned.
+1. Both copies signed counter 7 against `vch-0004`: one for 50 ETB to
+   Merkato Coffee, the other for 60 ETB to a stall.
+2. The coffee receipt arrived first and settled (E17).
+3. The stall's arrived second: `CONFLICT`, and the device froze.
+4. The dispute finds both validly signed by Sara's device key.
+5. Under the loss policy, the stall is paid too, from Sara's wallet
+   (300 ETB).
+
+| # | Account | Type | Dr | Cr |
+|---|---|---|---:|---:|
+| 1 | 2010:cust-sara Customer wallet | Liability | 60.00 | |
+| 2 | 2030:merch-stall Merchant balance | Liability | | 58.80 |
+| 3 | 4010 Payment fee revenue | Revenue | | 1.20 |
+| | **Total** | | **60.00** | **60.00** |
+
+**Why:**
+
+- **Escrow never settles one counter twice** (INV-21): it paid only the
+  first receipt.
+- **The second is paid as a late receipt would be:** from the payer's wallet
+  first, then from 5030 if the wallet were short (as in E29).
+- **The payer is liable for what her device signed,** as for a card used by
+  someone who copied it. The device is revoked, and the client follows up
+  with Sara.
+- **Then the voucher's escrow returns** (E27).

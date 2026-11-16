@@ -2,7 +2,7 @@
 
 [Accounting model](../README.md) · [Chart of accounts](../chart-of-accounts.md)
 
-Each entry is booked from the **platform's** point of view. IDs (E01–E24) are
+Each entry is booked from the **platform's** point of view. IDs (E01–E31) are
 stable and are referenced from code and tests in later steps.
 
 The entries form one continuous story. Read them in order: each one starts
@@ -62,6 +62,13 @@ apart means customer money can never pay the platform's bills.
 | E22 | [Dispute resolved for the payer](disputes.md#e22-dispute-resolved-for-the-payer) |
 | E23 | [Dispute opened](disputes.md#e23-dispute-opened) |
 | E24 | [Dispute resolved for the merchant](disputes.md#e24-dispute-resolved-for-the-merchant) |
+| E25 | [Voucher closed early](offline-escrow.md#e25-voucher-closed-early) |
+| E26 | [A receipt over the escrow left](offline-escrow.md#e26-a-receipt-over-the-escrow-left) |
+| E27 | [A frozen voucher's escrow returned](offline-escrow.md#e27-a-frozen-vouchers-escrow-returned-after-its-dispute) |
+| E28 | [A late receipt paid from the payer's wallet](offline-escrow.md#e28-a-late-receipt-paid-from-the-payers-wallet) |
+| E29 | [A late receipt, partly from the loss account](offline-escrow.md#e29-a-late-receipt-partly-from-the-loss-account) |
+| E30 | [The payer repays a shortfall](offline-escrow.md#e30-the-payer-repays-a-shortfall) |
+| E31 | [A cloned device's second receipt](offline-escrow.md#e31-a-cloned-devices-second-receipt) |
 
 ## Entry template
 
