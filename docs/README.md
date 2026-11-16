@@ -5,6 +5,7 @@ reading order.
 
 | Path | What it is | Read it when |
 |---|---|---|
+| [offline/protocol.md](offline/protocol.md) | The offline payment protocol v1, its threat addendum and its scenario walkthroughs | You build or review offline payments |
 | [spec.md](spec.md) | The specification: invariants, data model, transfer semantics, offline sync, audit | You want to know what Mezgeb guarantees |
 | [invariants.md](invariants.md) | Every rule the ledger must never break, where it is enforced and how it is tested | You want to know what "correct" means |
 | [threat-model.md](threat-model.md) | Who might attack the ledger, what they want, and the control and owner for each threat | You want to know how the ledger is protected |

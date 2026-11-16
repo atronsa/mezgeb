@@ -167,6 +167,12 @@ The pure types live in `crates/core`. Storage (step 1.08) follows them.
 
 ## 5. Offline sync
 
+**The full protocol is [offline protocol v1](offline/protocol.md)**
+(step 2.10, [ADR-0019](adr/0019-offline-protocol-v1.md)). It covers the
+message formats and their encoding, the keys, device registration, the trust
+tiers, the state machines, gaps, conflicts, disputes and the loss policy.
+This section is the summary.
+
 ### 5.1 Threat model
 Cloned device, replayed receipt, forged receipt, device that never syncs,
 wrong/hostile clock, payer–merchant collusion, lost device, partial sync,
@@ -188,15 +194,20 @@ merchant uploads receipt twice, payer and payee upload the same receipt.
 - Hash chain per device: each receipt commits to the previous one.
 
 ### 5.5 Ingestion and settlement rules
-- Outcomes: SETTLED, DUPLICATE, WAITING_FOR_GAP, CONFLICT, EXPIRED,
-  OVER_LIMIT, BAD_SIGNATURE, UNKNOWN_DEVICE.
+- Outcomes: SETTLED, SETTLED_LATE, DUPLICATE, WAITING_FOR_GAP, CONFLICT,
+  FROZEN, OVER_LIMIT, EXPIRED, BAD_FORMAT, BAD_SIGNATURE, UNKNOWN_DEVICE,
+  UNKNOWN_VOUCHER (protocol §9).
 - Either party may upload; the result is identical regardless of who or when.
-- Gap handling: how long to wait, what is settled meanwhile.
-- Conflict handling: freeze device, settle nothing further, raise alert.
+- Gap handling: receipts settle in counter order; a gap is skipped after
+  72 hours or at the voucher's return (protocol §11).
+- Conflict handling: freeze device, settle nothing further, raise alert;
+  the dispute path decides (protocol §10, §14).
 
 ### 5.6 Voucher end-of-life
-- Expiry, top-up, revocation, return of unspent escrow, late receipts after
-  return (who absorbs the loss — policy hook for the client).
+- Expiry, then 7 days' grace, then return of unspent escrow; early close
+  online; no top-up (one voucher per device). A late receipt after the
+  return is paid from the payer's wallet first, then the loss account 5030,
+  until a 90-day deadline (protocol §7, §12).
 
 ### 5.7 v1 rule
 - Funds received offline are not spendable offline until synced
