@@ -183,7 +183,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 2.07 | [REST API Implementation (Axum)](phase-2-operations-and-security/07-rest-api-implementation.md) | 23 | Done ([evidence](../evidence/2.07-rest-api-implementation.md)) |
 | 2.08 | [Authentication, Authorization and Privilege Separation](phase-2-operations-and-security/08-authentication-and-authorization.md) | 24 | Done ([evidence](../evidence/2.08-authentication-and-authorization.md)) |
 | 2.09 | [Audit Logging and Tamper Evidence](phase-2-operations-and-security/09-audit-logging.md) | 25 | Done ([evidence](../evidence/2.09-audit-logging-and-tamper-evidence.md)) |
-| 2.10 | [Offline Architecture and Protocol Design (Design Only)](phase-2-operations-and-security/10-offline-protocol-design.md) | 26 | Not started |
+| 2.10 | [Offline Architecture and Protocol Design (Design Only)](phase-2-operations-and-security/10-offline-protocol-design.md) | 26 | Done ([evidence](../evidence/2.10-offline-protocol-design.md); security review requested) |
 | 2.11 | [Device Registry and Voucher Issuance](phase-2-operations-and-security/11-device-registry-and-vouchers.md) | 27 | Not started |
 | 2.12 | [Receipt Ingestion and Settlement](phase-2-operations-and-security/12-receipt-ingestion-and-settlement.md) | 28 | Not started |
 | 2.13 | [Gaps, Conflicts, Expiry, Rejections and Disputes](phase-2-operations-and-security/13-offline-conflicts-and-expiry.md) | 29 | Not started |
