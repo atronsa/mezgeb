@@ -318,6 +318,29 @@ Payer devices and the vouchers that reserve their offline spending
 The invariant, *each escrow holds exactly its voucher's unspent value*, is
 checked by `mezgeb-cli offline check`.
 
+## Offline receipts
+
+Each uploaded receipt and what became of it (migration 0012, step 2.12;
+[protocol §9](offline/protocol.md#9-upload-and-settlement-online-either-party)).
+
+- **One record per `(device_id, counter)`,** written the first time the
+  receipt arrives, whatever its outcome. A later upload with the same digest
+  is a `DUPLICATE`; with another digest, a `CONFLICT` (INV-20, INV-21).
+  Refusals (`BAD_*`, `UNKNOWN_*`) are never stored.
+- **The evidence.** A second, different receipt for a recorded counter goes
+  to `offline_receipt_conflicts`, append-only.
+- **Paid exactly when settled.** A `CHECK` ties a settled outcome to its entry
+  and settlement time, and the escrow, wallet and loss-account parts to the
+  amount.
+- **Only the outcome moves.** A trigger (`MZ011`) refuses any change to a
+  settled receipt or to a signed field, and every delete.
+- **One device at a time.** Ingestion locks the device row first, so the
+  uploads of one device queue, and the same receipt uploaded many times at
+  once settles once. The settlement entry's idempotency key is
+  `offline:<device_id>:<counter>`.
+- **The fee.** `offline_settings.fee_bps` is a client's merchant fee on
+  offline payments; without a row, none.
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
@@ -413,6 +436,7 @@ exactly which rule fired. Standard codes are used for standard constraints.
 | `MZ008` | Posting into a period that is not open, or a forbidden period change (INV-10) |
 | `MZ009` | Forbidden adjustment request change: a field other than the decision, or a step backwards (INV-25) |
 | `MZ010` | Forbidden client or credential change: anything but revoking a credential, or enabling a disabled client |
+| `MZ011` | Forbidden offline receipt change: a settled receipt, a signed field, or a delete (INV-20) |
 | `23514` | A `CHECK` constraint failed |
 | `23505` | A `UNIQUE` constraint failed |
 | `23503` | A foreign key failed |
@@ -426,10 +450,10 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads; SELECT and INSERT on devices, vouchers and issuer keys, UPDATE on their status columns and a device's next counter, and SELECT on tier limits. No DELETE on anything else. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads; SELECT and INSERT on devices, vouchers, issuer keys, offline receipts and their conflicts, UPDATE on their status columns, a device's next counter and a receipt's outcome and payment, and SELECT on tier limits and offline settings. No DELETE on anything else. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
-| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, sets clients' offline tier limits and devices' status, and records those changes as audit events; nothing in the ledger (steps 2.08, 2.11). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
+| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, sets clients' offline tier limits, fee and devices' status, and records those changes as audit events; nothing in the ledger (steps 2.08, 2.11). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
 
 `mezgeb_app` also has `transaction_timeout = 30s`, which verification
 relies on (see [Verification](#verification)). Both are set in
