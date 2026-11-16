@@ -96,7 +96,7 @@ are fixed now, and the step named decides how they are posted.
 |---|---|---|---|---|---|---|
 | 5010 | Customer compensation expense | System | Dr | Active | E14 | Goodwill credits and compensation paid from the platform's own money. |
 | 5020 | Bank charges | System | Dr | Reserved (no bank charges yet, ADR-0014) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
-| 5030 | Offline settlement losses | System | Dr | Reserved (step 2.13) | E18 open questions | Receipts the platform pays out after the escrow behind them was already returned, under the written loss policy. |
+| 5030 | Offline settlement losses | System | Dr | Active | E29, E30 | Late offline receipts the payer's wallet could not cover, paid to the payee under the loss policy (ADR-0019); credited back when the payer repays. |
 
 ### Suspense and clearing
 

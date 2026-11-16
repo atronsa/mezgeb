@@ -140,8 +140,8 @@ code = 5030
 name = "Offline settlement losses"
 type = "expense"
 kind = "system"
-status = "reserved"
-description = "Receipts paid out after their escrow was returned, under the loss policy. Decided in step 2.13."
+status = "active"
+description = "Late offline receipts the payer's wallet could not cover, paid to the payee under the loss policy (ADR-0019, E29); credited back when the payer repays (E30)."
 
 # Suspense and clearing
 

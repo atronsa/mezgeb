@@ -13,10 +13,10 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{CHART, Fixture, fixtures, trial_balance};
+use common::{CHART, Fixture, fixtures, offline_state_fixtures, trial_balance};
 use mezgeb_core::{
     AccountId, AccountStatus, Chart, Currency, EntryDraft, EntryId, LineDraft, MemLedger, Money,
-    PostingError, check_invariants, validate,
+    PostingError, Side, check_invariants, validate,
 };
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -206,5 +206,35 @@ fn spending_more_than_a_wallet_holds_is_refused() -> TestResult {
         validate(draft(e02, &ids)?, &ledger),
         Err(PostingError::InsufficientFunds { line: 0 })
     );
+    Ok(())
+}
+
+#[test]
+fn every_offline_state_example_balances() -> TestResult {
+    // E25–E31: standalone examples, outside the running story.
+    let fixtures = offline_state_fixtures()?;
+    assert_eq!(fixtures.len(), 7, "offline state tables found in the docs");
+    for fixture in &fixtures {
+        let sum = |side: Side| -> i64 {
+            fixture
+                .lines
+                .iter()
+                .filter(|l| l.side == side)
+                .map(|l| l.amount.amount())
+                .sum()
+        };
+        assert_eq!(
+            sum(Side::Debit),
+            sum(Side::Credit),
+            "{} balances",
+            fixture.label
+        );
+        assert_eq!(
+            sum(Side::Debit),
+            fixture.total.amount(),
+            "{} total",
+            fixture.label
+        );
+    }
     Ok(())
 }
