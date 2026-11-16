@@ -1348,6 +1348,7 @@ dependencies = [
  "getrandom 0.4.3",
  "mezgeb-core",
  "mezgeb-engine",
+ "mezgeb-offline",
  "proptest",
  "serde",
  "serde_json",
