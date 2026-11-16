@@ -114,6 +114,10 @@ production or to the admin tools.
 
 ### Malicious device owner
 
+These threats are desk-checked in detail, with the offline protocol's
+controls, in the [offline threat addendum](offline/threat-addendum.md)
+(OT-01 to OT-20, step 2.10).
+
 A customer who controls their own phone or card and wants to spend more than
 they have offline.
 
