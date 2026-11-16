@@ -7,6 +7,12 @@ license.workspace = true
 
 [dependencies]
 mezgeb-core.workspace = true
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
+sha2.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [lints]
 workspace = true

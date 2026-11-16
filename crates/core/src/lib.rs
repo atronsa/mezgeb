@@ -40,7 +40,10 @@ pub use fingerprint::{
     hold_place_fingerprint, reversal_fingerprint,
 };
 pub use hold::{Hold, HoldStatus};
-pub use ids::{AccountId, ClientId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError};
+pub use ids::{
+    AccountId, ClientId, DeviceId, EntryId, HoldId, IdError, IdempotencyKey, IdempotencyKeyError,
+    VoucherId,
+};
 pub use model::{
     Holds, InvariantViolation, Ledger, LedgerError, MemLedger, PostedEntry, PostedLine,
     check_invariants,

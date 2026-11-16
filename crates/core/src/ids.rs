@@ -122,6 +122,16 @@ uuid_id! {
     ClientId
 }
 
+uuid_id! {
+    /// Identifies an offline payer or payee device (ADR-0019).
+    DeviceId
+}
+
+uuid_id! {
+    /// Identifies an offline voucher (ADR-0019).
+    VoucherId
+}
+
 /// Longest accepted idempotency key, in characters.
 pub const MAX_IDEMPOTENCY_KEY_LEN: usize = 128;
 
