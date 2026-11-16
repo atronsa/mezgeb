@@ -17,6 +17,7 @@ mod concurrency;
 mod entries;
 mod holds;
 mod offline;
+mod offline_receipts;
 mod periods;
 mod post;
 mod reports;
@@ -56,6 +57,10 @@ pub use offline::{
     NewDevice, NewVoucher, OfflineError, Registered, VoucherStatus, escrow_findings, get_device,
     get_voucher, issue_offline_voucher, issuer_keys, register_device, set_device_status,
     set_tier_limits, tier_limits,
+};
+pub use offline_receipts::{
+    FeePolicy, IngestResult, ReceiptRecord, SettleRequest, Settled, Upload, digest_hex,
+    ingest_receipt, offline_fee_bps, set_offline_fee, voucher_receipts,
 };
 pub use periods::{Period, PeriodStatus, all_periods, current_period};
 pub use post::{

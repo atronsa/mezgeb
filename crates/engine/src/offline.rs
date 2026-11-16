@@ -231,7 +231,7 @@ impl From<LedgerError> for OfflineError {
     }
 }
 
-fn sql(error: sqlx::Error) -> OfflineError {
+pub(crate) fn sql(error: sqlx::Error) -> OfflineError {
     OfflineError::Ledger(db(error))
 }
 
@@ -420,7 +420,7 @@ async fn device_by_key(
 }
 
 /// A device of `client`, optionally locked for update.
-async fn load_device(
+pub(crate) async fn load_device(
     conn: &mut PgConnection,
     client: Option<ClientId>,
     id: DeviceId,
@@ -767,12 +767,12 @@ pub struct IssuedVoucher {
     pub status: VoucherStatus,
 }
 
-const VOUCHER_COLUMNS: &str = "id, device_id, client_id, owner_account_id, escrow_account_id, \
+pub(crate) const VOUCHER_COLUMNS: &str = "id, device_id, client_id, owner_account_id, escrow_account_id, \
      currency, amount_minor, counter_start, issuer_key_id, signature, entry_id, status, \
      (extract(epoch FROM issued_at) * 1000000)::bigint AS issued_micros, \
      (extract(epoch FROM expires_at) * 1000000)::bigint AS expires_micros";
 
-fn voucher_from_row(row: &PgRow) -> Result<IssuedVoucher, LedgerError> {
+pub(crate) fn voucher_from_row(row: &PgRow) -> Result<IssuedVoucher, LedgerError> {
     let get_uuid = |name: &str| row.try_get::<Uuid, _>(name).map_err(db);
     let currency: String = row.try_get("currency").map_err(db)?;
     let counter_start: i64 = row.try_get("counter_start").map_err(db)?;
@@ -1113,15 +1113,18 @@ pub struct EscrowFinding {
 }
 
 /// Checks the acceptance criterion of step 2.11: each voucher's escrow
-/// holds exactly its unspent value (its amount while open, nothing once
-/// returned or closed), and no 2050 account holds money without a voucher.
-/// Receipts, from step 2.12, will reduce the unspent value.
+/// holds exactly its unspent value (its amount less what its receipts took
+/// from escrow while it is open, nothing once returned or closed), and no
+/// 2050 account holds money without a voucher.
 pub async fn escrow_findings(conn: &mut PgConnection) -> Result<Vec<EscrowFinding>, LedgerError> {
     let rows = sqlx::query(
         "SELECT a.id AS account, v.id AS voucher,
                 CASE WHEN v.id IS NULL THEN 0
-                     WHEN v.status IN ('active', 'grace', 'frozen') THEN v.amount_minor
-                     ELSE 0 END AS expected,
+                     WHEN v.status IN ('active', 'grace', 'frozen')
+                         THEN v.amount_minor - COALESCE((
+                             SELECT sum(r.from_escrow_minor) FROM offline_receipts r
+                              WHERE r.voucher_id = v.id), 0)
+                     ELSE 0 END::bigint AS expected,
                 a.credits_total - a.debits_total AS actual
            FROM accounts a
            LEFT JOIN vouchers v ON v.escrow_account_id = a.id
