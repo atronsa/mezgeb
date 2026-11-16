@@ -95,6 +95,12 @@ async fn run() -> Result<(), String> {
         .await
         .map_err(|e| format!("cannot listen on {}: {e}", config.listen))?;
     tracing::info!(address = %config.listen, "mezgeb-api listening");
+    if state.issuer.is_some() && !config.offline_tick.is_zero() {
+        tokio::spawn(mezgeb_api::offline_books::run_ticks(
+            state.clone(),
+            config.offline_tick,
+        ));
+    }
     serve(listener, state, shutdown_signal())
         .await
         .map_err(|e| format!("server error: {e}"))?;

@@ -3,7 +3,7 @@
 //! body's exact bytes (protocol §3).
 
 use mezgeb_core::chain::hex;
-use mezgeb_engine::{Device, IngestResult, IssuedVoucher, ReceiptRecord};
+use mezgeb_engine::{Device, Dispute, IngestResult, IssuedVoucher, ReceiptRecord, Shortfall};
 use serde::Serialize;
 
 use super::*;
@@ -185,6 +185,66 @@ impl From<&ReceiptRecord> for OfflineReceiptJson {
             event_time: format_time(r.event_time),
             outcome: r.outcome.as_str(),
             entry: r.entry.map(|e| e.to_string()),
+        }
+    }
+}
+
+/// What a late receipt's payer could not pay, paid by the loss account.
+#[derive(Debug, Serialize)]
+pub struct ShortfallJson {
+    pub id: String,
+    pub owner_account: String,
+    pub device: String,
+    pub counter: u64,
+    pub amount: MoneyJson,
+    pub entry: String,
+    pub repaid_entry: Option<String>,
+}
+
+impl From<&Shortfall> for ShortfallJson {
+    fn from(s: &Shortfall) -> ShortfallJson {
+        ShortfallJson {
+            id: s.id.to_string(),
+            owner_account: s.owner_account.to_string(),
+            device: s.device.to_string(),
+            counter: s.counter,
+            amount: s.amount.into(),
+            entry: s.entry.to_string(),
+            repaid_entry: s.repaid_entry.map(|e| e.to_string()),
+        }
+    }
+}
+
+/// A frozen voucher's case.
+#[derive(Debug, Serialize)]
+pub struct DisputeJson {
+    pub id: String,
+    pub client: String,
+    pub device: String,
+    pub voucher: String,
+    pub reason: String,
+    pub counter: u64,
+    pub status: &'static str,
+    pub resolution: Option<&'static str>,
+    pub resolved_by: Option<String>,
+}
+
+impl From<&Dispute> for DisputeJson {
+    fn from(d: &Dispute) -> DisputeJson {
+        DisputeJson {
+            id: d.id.to_string(),
+            client: d.client.to_string(),
+            device: d.device.to_string(),
+            voucher: d.voucher.to_string(),
+            reason: d.reason.clone(),
+            counter: d.counter,
+            status: if d.resolution.is_some() {
+                "resolved"
+            } else {
+                "open"
+            },
+            resolution: d.resolution.map(|r| r.as_str()),
+            resolved_by: d.resolved_by.clone(),
         }
     }
 }
