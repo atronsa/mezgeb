@@ -38,7 +38,7 @@ rule has no code here.
 | `idempotency_key_reused` | 409 |  | The idempotency key was used for a different request | LedgerError::IdempotencyKeyReused |
 | `rate_limited` | 429 |  | Too many requests | API gateway: per-client rate limit |
 | `internal_error` | 500 |  | Internal error | LedgerError::Storage, or a template defect (TemplateError 2013) |
-| `not_implemented` | 501 |  | Not implemented yet | offline receipts, before step 2.12 |
+| `not_implemented` | 501 |  | Not implemented yet | a receipt of a voucher already returned: late receipts settle from step 2.13 |
 | `busy` | 503 |  | The accounts are busy; retry later | LedgerError::Busy (Retry-After) |
 | `contention` | 503 |  | Conflicted with concurrent operations; retry later | LedgerError::Contention (Retry-After) |
 | `no_open_period` | 503 |  | No accounting period is open | LedgerError::NoOpenPeriod |
