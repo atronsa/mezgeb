@@ -13,7 +13,7 @@ use mezgeb_core::{
 use mezgeb_engine::{
     Attestation, AttestationKind, DeviceStatus, IssuedVoucher, IssuerKey, NewDevice, NewVoucher,
     OfflineError, PgStore, PostOptions, Registered, VoucherStatus, create_client, escrow_findings,
-    issue_voucher, register_device, set_device_status, set_tier_limits,
+    issue_offline_voucher, register_device, set_device_status, set_tier_limits,
 };
 use mezgeb_offline::{PublicKey, SecretKey, Tier, TierLimits};
 use sha2::{Digest, Sha256};
@@ -48,7 +48,7 @@ fn key(label: &str) -> Result<SecretKey, Box<dyn std::error::Error>> {
     )?)
 }
 
-/// Books E16 as `issue_voucher.v1` does.
+/// Books E16 as `issue_offline_voucher.v1` does.
 fn book(
     voucher: VoucherId,
     amount: PositiveAmount,
@@ -163,7 +163,7 @@ impl Setup {
     ) -> Result<Result<IssuedVoucher, OfflineError>, Box<dyn std::error::Error>> {
         let new = self.voucher(device, n, minor)?;
         let booked = book(new.voucher_id, new.amount);
-        Ok(issue_voucher(
+        Ok(issue_offline_voucher(
             conn,
             &self.issuer,
             &self.chart,
@@ -228,7 +228,7 @@ async fn a_voucher_reserves_escrow_and_is_signed() -> TestResult {
     retry.entry_id = id(399)?;
     retry.escrow_account = id(499)?;
     let booked = book(retry.voucher_id, retry.amount);
-    let again = issue_voucher(
+    let again = issue_offline_voucher(
         &mut conn,
         &s.issuer,
         &s.chart,

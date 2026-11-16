@@ -4,7 +4,7 @@
 //! - [`register_device`] records a device's P-256 key and tier and signs its
 //!   certificate with the issuer key. Registering the same key again with
 //!   the same details returns the device: the key is the idempotency key.
-//! - [`issue_voucher`] checks the device and its limits, opens the voucher's
+//! - [`issue_offline_voucher`] checks the device and its limits, opens the voucher's
 //!   own escrow `2050:vch-…`, posts E16 (booked by the caller's template),
 //!   and signs the voucher, in one transaction. The device's row lock makes
 //!   one voucher at a time per device; the owner's wallet lock makes the
@@ -14,7 +14,7 @@
 //!   voucher value.
 //!
 //! The engine knows nothing about templates: the caller books E16 with
-//! `issue_voucher.v1` through the `book` function, and the engine checks
+//! its template through the `book` function, and the engine checks
 //! that the draft moves exactly the voucher's amount from the wallet into
 //! the new escrow.
 
@@ -1029,7 +1029,7 @@ where
 /// the per-customer cap; opens the escrow; posts E16, which `book` drafts
 /// from the wallet, the escrow and a view of both; and signs the voucher.
 /// All in one transaction, idempotent by the idempotency key.
-pub async fn issue_voucher<F>(
+pub async fn issue_offline_voucher<F>(
     conn: &mut PgConnection,
     issuer: &IssuerKey,
     chart: &Chart,
