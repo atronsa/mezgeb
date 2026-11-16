@@ -34,11 +34,11 @@ rule has no code here.
 | `idempotency_key_required` | 400 |  | An Idempotency-Key header is required | request: a write without Idempotency-Key |
 | `unauthenticated` | 401 |  | Authentication is required | step 2.08: no token, or an invalid or expired one |
 | `forbidden` | 403 |  | The caller may not do this | step 2.08: the token lacks the scope |
-| `not_found` | 404 |  | Not found | an account, entry, hold, period or adjustment that does not exist, or that the caller may not see |
+| `not_found` | 404 |  | Not found | an account, entry, hold, period, adjustment, device or voucher that does not exist, or that the caller may not see |
 | `idempotency_key_reused` | 409 |  | The idempotency key was used for a different request | LedgerError::IdempotencyKeyReused |
 | `rate_limited` | 429 |  | Too many requests | API gateway: per-client rate limit |
 | `internal_error` | 500 |  | Internal error | LedgerError::Storage, or a template defect (TemplateError 2013) |
-| `not_implemented` | 501 |  | Not implemented yet | offline endpoints, before steps 2.11 and 2.12 |
+| `not_implemented` | 501 |  | Not implemented yet | offline receipts, before step 2.12 |
 | `busy` | 503 |  | The accounts are busy; retry later | LedgerError::Busy (Retry-After) |
 | `contention` | 503 |  | Conflicted with concurrent operations; retry later | LedgerError::Contention (Retry-After) |
 | `no_open_period` | 503 |  | No accounting period is open | LedgerError::NoOpenPeriod |
@@ -113,6 +113,23 @@ rule has no code here.
 | `period_label_taken` | 409 |  | A period with this label exists | the periods_label_key constraint |
 | `period_close_findings` | 409 |  | The period did not close: verification found problems | CloseReport with findings |
 | `adjustment_not_pending` | 409 |  | The adjustment request is no longer pending | API: approval or rejection of a decided request |
+
+## Offline
+
+Devices and vouchers (step 2.11, ADR-0019, [protocol](../offline/protocol.md)).
+
+| Code | HTTP | Rule | Meaning | Source |
+|---|---:|---:|---|---|
+| `offline_unavailable` | 503 |  | Offline payments are not configured | the service has no `MEZGEB_OFFLINE_ISSUER_KEY_FILE` |
+| `attestation_unsupported` | 422 |  | This kind of attestation is not verified yet | `card` or `android` attestation, until a chip is chosen and Android Key Attestation is verified |
+| `public_key_registered` | 409 |  | The public key is registered with other details | OfflineError::KeyRegistered |
+| `owner_not_a_wallet` | 422 |  | The owner account is not an open customer wallet | OfflineError::NotAWallet |
+| `tier_disabled` | 422 |  | The client has not enabled this tier | OfflineError::TierDisabled; tier C is off until enabled |
+| `device_not_active` | 409 |  | The device is not active | OfflineError::DeviceNotActive: frozen, lost or revoked |
+| `certificate_expired` | 409 |  | The device certificate has expired | OfflineError::CertificateExpired |
+| `voucher_open` | 409 |  | The device already has an open voucher | OfflineError::VoucherOpen (one per device) |
+| `over_tier_limit` | 422 |  | The amount is over the tier's voucher limit | OfflineError::OverTierLimit |
+| `over_customer_cap` | 422 |  | The customer's open vouchers would exceed the cap | OfflineError::OverCustomerCap (5,000 ETB) |
 
 ## Retrying
 
