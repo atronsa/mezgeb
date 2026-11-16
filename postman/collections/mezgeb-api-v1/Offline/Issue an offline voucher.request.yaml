@@ -1,19 +1,26 @@
 $kind: http-request
-description: Planned for step 2.11 (spec §5). Designed in step 2.10; until then the request body is open and the endpoint answers `501`.
+description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`) into the voucher's own escrow and signs the voucher with the issuer key (protocol §7). One open voucher per device; at most the tier's limit, and 5,000 ETB of open vouchers per customer."
 url: "{{baseUrl}}/v1/offline/vouchers"
 method: POST
 headers:
   - key: Idempotency-Key
-    value: pay-2026-11-14-0001
+    value: offline-0001
     disabled: false
     description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
   - key: Content-Type
     value: application/json
   - key: Accept
-    value: application/problem+json
+    value: application/json
 body:
   type: json
-  content: "{}"
+  content: |-
+    {
+      "device": "0192f3c4-0000-7000-8000-000000000d01",
+      "amount": {
+        "amount": "100.00",
+        "currency": "ETB"
+      }
+    }
 auth:
   type: oauth2
   credentials:

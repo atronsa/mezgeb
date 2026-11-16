@@ -1,5 +1,5 @@
 $kind: http-request
-description: Planned for step 2.12 (spec §5). Designed in step 2.10; until then the request body is open and the endpoint answers `501`.
+description: Planned for step 2.12 (spec §5); until then the request body is open and the endpoint answers `501`.
 url: "{{baseUrl}}/v1/offline/receipts"
 method: POST
 headers:
