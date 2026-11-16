@@ -27,6 +27,7 @@
 
 mod deposits;
 mod error;
+mod offline;
 mod p2p_transfer;
 mod payments;
 mod refunds;
@@ -36,12 +37,13 @@ mod withdrawals;
 
 pub use deposits::{AmountRequest, DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 pub use error::TemplateError;
+pub use offline::IssueVoucherV1;
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
 pub use payments::{CHANNELS, MerchantPaymentV1, PaymentRequest, PaymentRequestSettleV1};
 pub use refunds::{
     DisputeOpenV1, DisputeResolveMerchantV1, DisputeResolvePayerV1, MerchantRefundV1, RefundRequest,
 };
-pub use registry::{RELEASED, RegisterError, TemplateRegistry};
+pub use registry::{ENGINE_ONLY, RELEASED, RegisterError, TemplateRegistry, client_postable};
 pub use template::{
     Accounts, Input, Leg, MetadataField, OperationRequest, Role, TEMPLATE_KEY, Template,
     TemplateId, draft,
