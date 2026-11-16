@@ -106,5 +106,5 @@ pays for a receipt that arrives after its escrow has been returned.
   wallet is empty.
 
 **Makes out of date:** spec §5's open points; the open questions under
-E16–E18; the reserved status of account 5030, which becomes active in step
-2.13.
+E16–E18; the reserved status of account 5030, now active for E29 and E30
+(it is first posted in step 2.13).
