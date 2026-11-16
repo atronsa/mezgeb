@@ -2,8 +2,10 @@
 
 [Documentation](../README.md) · Spec: [§5](../spec.md#5-offline-sync) · Decisions: [ADR-0010](../adr/0010-offline-escrow-model.md), [ADR-0019](../adr/0019-offline-protocol-v1.md) · Threats: [threat-addendum.md](threat-addendum.md) · Scenarios: [scenarios.md](scenarios.md) · Entries: [E16–E18, E25–E31](../accounting/entries/offline-escrow.md)
 
-**Status: v1, design (step 2.10).** Built in steps 2.11–2.14. Pending
-external security review ([review-request.md](review-request.md)).
+**Status: v1 (step 2.10).** Devices and vouchers are built (step 2.11);
+receipts, settlement, conflicts and expiry follow in steps 2.12–2.14. Test
+vectors: [test-vectors/offline](../../test-vectors/offline/README.md).
+Pending external security review ([review-request.md](review-request.md)).
 
 A payer's device with no connection pays a payee by signing a **receipt**
 against a **voucher**: an allowance the ledger reserved in escrow while the

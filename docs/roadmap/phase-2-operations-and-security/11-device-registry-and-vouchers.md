@@ -12,7 +12,7 @@ Offline spending must be backed by money that is already reserved, or the
 ledger takes on unbounded risk.
 
 **3. Concepts and Research**
-- Ed25519.
+- Ed25519. *Superseded by ADR-0019: devices and the issuer use ECDSA P-256, which card chips and phone keystores support; the ledger's own receipts stay Ed25519.*
 - Canonical encoding (fixed binary layout, no ambiguity).
 - Key storage for the issuer key (start with an encrypted file / KMS; evaluate an HSM in step 3.12).
 - Per-device escrow accounts.

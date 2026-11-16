@@ -9,6 +9,18 @@ supported.
 
 ### Added
 
+- **Offline devices and vouchers** (ADR-0019, migration 0011, step 2.11):
+  - Devices register a P-256 key and get a certificate signed by the
+    issuer key (`POST /v1/offline/devices`); clients revoke them.
+  - Vouchers reserve escrow by E16 (`issue_voucher.v1`) and are signed
+    (`POST /v1/offline/vouchers`), within the tier limit and the 5,000 ETB
+    per-customer cap, one open voucher per device.
+  - `GET /v1/offline/issuer-keys` publishes the issuer keys.
+  - `mezgeb-cli offline` generates the issuer key, sets a client's tier
+    limits, freezes and revokes devices, and checks escrow.
+  - Test vectors for firmware in `test-vectors/offline/`.
+  - Until attestation is verified, devices register as tier C only, which
+    a client must enable.
 - **Tamper evidence** (ADR-0018, migration 0010):
   - Every entry is hash-chained in its own posting transaction and signed:
     the signature is its ledger receipt, returned by the API and
