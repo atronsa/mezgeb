@@ -30,11 +30,15 @@
 //! times at once settles once. The settlement entry's idempotency key is
 //! `offline:<device_id>:<counter>`.
 //!
-//! The engine knows nothing about templates: the caller books E17 through
-//! the `book` function, and the engine checks the draft pays exactly the
-//! amount from the escrow, less the client's fee.
+//! After the voucher's return (step 2.13), a receipt is paid by the loss
+//! policy: the payer's wallet first, then the loss account 5030, and the
+//! shortfall is recorded against the payer (`SETTLED_LATE`). After the late
+//! deadline it is `EXPIRED`. A receipt whose successor already settled past
+//! a skipped gap must be the one the successor committed to (§11).
 //!
-//! Gap timeouts, voucher expiry and late receipts are step 2.13.
+//! The engine knows nothing about templates: the caller books every entry
+//! through [`OfflineBooks`], and the engine checks each draft moves exactly
+//! what the decision says.
 
 use std::collections::BTreeMap;
 
@@ -66,14 +70,18 @@ pub struct Upload<'a> {
     pub now: Timestamp,
 }
 
-/// Where the merchant fee goes, if the client charges one.
+/// The ledger's accounts that offline payments use, found by the caller
+/// from the chart.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct FeePolicy {
+pub struct OfflineAccounts {
     /// 4010 Payment fee revenue. Needed only when a fee is due.
     pub fee_account: Option<AccountId>,
+    /// 5030 Offline settlement losses. Needed only when a late receipt's
+    /// payer cannot pay it all.
+    pub loss_account: Option<AccountId>,
 }
 
-/// What `book` is asked to draft: E17 for one receipt.
+/// What `settle` is asked to draft: E17 for one receipt.
 #[derive(Debug, Clone)]
 pub struct SettleRequest {
     pub escrow: AccountId,
@@ -89,6 +97,89 @@ pub struct SettleRequest {
     pub event_time: Option<Timestamp>,
     /// The device's time as it claimed it, when that is outside the bounds.
     pub claimed_time: Option<Timestamp>,
+}
+
+/// What `pay` is asked to draft: a receipt paid by the loss policy, from
+/// escrow, the payer's wallet and the loss account, each only if its part
+/// is positive (E26, E28, E29, E31).
+#[derive(Debug, Clone)]
+pub struct PayRequest {
+    pub escrow: Option<AccountId>,
+    pub wallet: Option<AccountId>,
+    pub loss_account: Option<AccountId>,
+    pub payee: AccountId,
+    pub fee_account: Option<AccountId>,
+    pub from_escrow: Money,
+    pub from_wallet: Money,
+    pub from_loss: Money,
+    /// The merchant fee, possibly zero.
+    pub fee: Money,
+    pub voucher: VoucherId,
+    pub device: DeviceId,
+    pub counter: u64,
+    pub event_time: Option<Timestamp>,
+    pub claimed_time: Option<Timestamp>,
+}
+
+/// What `return_escrow` is asked to draft: the whole escrow left back to
+/// the wallet (E18, E25, E27).
+#[derive(Debug, Clone)]
+pub struct ReturnRequest {
+    pub escrow: AccountId,
+    pub wallet: AccountId,
+    pub amount: Money,
+    pub voucher: VoucherId,
+    /// `expired`, `closed` or `dispute`.
+    pub reason: &'static str,
+}
+
+/// What `repay` is asked to draft: a shortfall repaid from the wallet to
+/// the loss account (E30).
+#[derive(Debug, Clone)]
+pub struct RepayRequest {
+    pub wallet: AccountId,
+    pub loss_account: AccountId,
+    pub amount: Money,
+    pub shortfall: Uuid,
+}
+
+/// How the offline entries are booked. The engine knows nothing about
+/// templates: the caller implements this with them, and the engine checks
+/// every draft moves exactly what the decision says.
+pub trait OfflineBooks: Sync {
+    /// E17.
+    fn settle(
+        &self,
+        view: &BTreeMap<AccountId, Account>,
+        request: &SettleRequest,
+    ) -> Result<EntryDraft, String>;
+    /// E26, E28, E29, E31.
+    fn pay(
+        &self,
+        view: &BTreeMap<AccountId, Account>,
+        request: &PayRequest,
+    ) -> Result<EntryDraft, String>;
+    /// E18, E25, E27.
+    fn return_escrow(
+        &self,
+        view: &BTreeMap<AccountId, Account>,
+        request: &ReturnRequest,
+    ) -> Result<EntryDraft, String>;
+    /// E30.
+    fn repay(
+        &self,
+        view: &BTreeMap<AccountId, Account>,
+        request: &RepayRequest,
+    ) -> Result<EntryDraft, String>;
+}
+
+/// What a decision needs besides the database.
+pub(crate) struct Ctx<'a, B: ?Sized> {
+    pub books: &'a B,
+    pub accounts: OfflineAccounts,
+    /// Ledger time.
+    pub now: Timestamp,
+    pub options: &'a PostOptions,
 }
 
 /// A receipt settled by an upload: the uploaded one, or one that was
@@ -171,32 +262,32 @@ pub async fn set_offline_fee(
 
 /// The fee on `amount` at `bps`, rounded down: a fraction of a santim is
 /// the payee's.
-fn fee_on(amount: Money, bps: u32) -> Money {
+pub(crate) fn fee_on(amount: Money, bps: u32) -> Money {
     let minor = i128::from(amount.amount()) * i128::from(bps) / 10_000;
     Money::from_minor(i64::try_from(minor).unwrap_or(0), amount.currency())
 }
 
 /// A stored receipt, as the checks need it.
 #[derive(Debug, Clone)]
-struct Stored {
-    digest: [u8; 32],
-    prev_digest: [u8; 32],
-    payee: AccountId,
-    amount: Money,
-    event_time: Timestamp,
-    outcome: Outcome,
-    entry: Option<EntryId>,
+pub(crate) struct Stored {
+    pub digest: [u8; 32],
+    pub prev_digest: [u8; 32],
+    pub payee: AccountId,
+    pub amount: Money,
+    pub event_time: Timestamp,
+    pub outcome: Outcome,
+    pub entry: Option<EntryId>,
 }
 
-fn stored_outcome(text: &str) -> Result<Outcome, LedgerError> {
+pub(crate) fn stored_outcome(text: &str) -> Result<Outcome, LedgerError> {
     Outcome::parse(&text.to_uppercase()).ok_or_else(|| storage(format!("outcome {text:?}")))
 }
 
-fn db_outcome(outcome: Outcome) -> String {
+pub(crate) fn db_outcome(outcome: Outcome) -> String {
     outcome.as_str().to_lowercase()
 }
 
-async fn load_stored(
+pub(crate) async fn load_stored(
     conn: &mut PgConnection,
     device: DeviceId,
     counter: u64,
@@ -267,7 +358,7 @@ async fn insert_receipt(
     Ok(())
 }
 
-async fn set_outcome(
+pub(crate) async fn set_outcome(
     conn: &mut PgConnection,
     device: DeviceId,
     counter: u64,
@@ -285,7 +376,7 @@ async fn set_outcome(
 
 /// Freezes the device and its voucher at once (protocol §10), and records
 /// why as an audit event: the alert for the client and the operator.
-async fn freeze(
+pub(crate) async fn freeze(
     conn: &mut PgConnection,
     device: DeviceId,
     client: ClientId,
@@ -326,6 +417,21 @@ async fn freeze(
         ),
     };
     crate::tamper::append_audit(conn, &event, now).await?;
+    // The case for the operator (protocol §14): one open case per voucher.
+    sqlx::query(
+        "INSERT INTO offline_disputes (id, client_id, device_id, voucher_id, reason, counter)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (voucher_id) WHERE status = 'open' DO NOTHING",
+    )
+    .bind(Uuid::now_v7())
+    .bind(client.as_uuid())
+    .bind(device.as_uuid())
+    .bind(voucher.as_uuid())
+    .bind(outcome.as_str().to_lowercase())
+    .bind(i64::try_from(counter).map_err(storage)?)
+    .execute(&mut *conn)
+    .await
+    .map_err(sql)?;
     Ok(())
 }
 
@@ -372,114 +478,80 @@ async fn expected_link(
         return Ok(Some(voucher.voucher.digest()));
     }
     let previous = load_stored(conn, voucher.voucher.device_id, counter - 1).await?;
-    Ok(previous
-        .filter(|p| matches!(p.outcome, Outcome::Settled | Outcome::SettledLate))
-        .map(|p| p.digest))
+    Ok(previous.filter(|p| is_paid(p.outcome)).map(|p| p.digest))
 }
 
-/// Settles one recorded receipt from escrow, or decides why not. Returns
-/// its new outcome and, if settled, its entry.
-#[allow(clippy::too_many_arguments)]
-async fn try_settle<F>(
+pub(crate) fn is_paid(outcome: Outcome) -> bool {
+    matches!(outcome, Outcome::Settled | Outcome::SettledLate)
+}
+
+/// The accounts of `ids`, as a template sees them.
+pub(crate) async fn view(
     conn: &mut PgConnection,
-    voucher: &IssuedVoucher,
-    counter: u64,
-    stored: &Stored,
-    fee_bps: u32,
-    policy: FeePolicy,
-    book: &F,
-    now: Timestamp,
-    options: &PostOptions,
-) -> Result<(Outcome, Option<EntryId>), OfflineError>
-where
-    F: Fn(&BTreeMap<AccountId, Account>, &SettleRequest) -> Result<EntryDraft, String>,
-{
-    let device = voucher.voucher.device_id;
-    // 8: the previous counter must have settled.
-    let Some(link) = expected_link(conn, voucher, counter).await? else {
-        return Ok((Outcome::WaitingForGap, None));
-    };
-    // 9: the chain link.
-    if link != stored.prev_digest {
-        return Ok((Outcome::Conflict, None));
-    }
-    // 10, 11: the escrow left.
-    match voucher.status {
-        VoucherStatus::Active | VoucherStatus::Grace => {}
-        VoucherStatus::Frozen => return Ok((Outcome::Frozen, None)),
-        VoucherStatus::Ended => return Ok((Outcome::Expired, None)),
-        VoucherStatus::Returned | VoucherStatus::Closed => {
-            return Err(OfflineError::NotYet(
-                "receipts after a voucher's return settle from step 2.13".into(),
-            ));
-        }
-    }
-    let escrow_id = voucher.voucher.escrow_account_id;
-    let escrow = crate::accounts::get_account(conn, escrow_id)
-        .await?
-        .ok_or(LedgerError::AccountNotFound(escrow_id))?;
-    if stored.amount.amount() > escrow.balance().amount() {
-        return Ok((Outcome::OverLimit, None));
-    }
-
-    // E17.
-    let fee = fee_on(stored.amount, fee_bps);
-    if fee.is_positive() && policy.fee_account.is_none() {
-        return Err(OfflineError::Booking(
-            "a fee is due but there is no fee account".into(),
-        ));
-    }
-    let in_bounds = stored.event_time >= voucher.voucher.issued_at && stored.event_time <= now;
-    let request = SettleRequest {
-        escrow: escrow_id,
-        payee: stored.payee,
-        fee_account: policy.fee_account.filter(|_| fee.is_positive()),
-        amount: stored.amount,
-        fee,
-        voucher: voucher.voucher.voucher_id,
-        device,
-        counter,
-        event_time: in_bounds.then_some(stored.event_time),
-        claimed_time: (!in_bounds).then_some(stored.event_time),
-    };
+    ids: &[AccountId],
+) -> Result<BTreeMap<AccountId, Account>, LedgerError> {
     let mut view = BTreeMap::new();
-    for id in [Some(escrow_id), Some(stored.payee), request.fee_account]
-        .into_iter()
-        .flatten()
-    {
-        let account = crate::accounts::get_account(conn, id)
+    for id in ids {
+        let account = crate::accounts::get_account(conn, *id)
             .await?
-            .ok_or(LedgerError::AccountNotFound(id))?;
-        view.insert(id, account);
+            .ok_or(LedgerError::AccountNotFound(*id))?;
+        view.insert(*id, account);
     }
-    let draft = book(&view, &request).map_err(OfflineError::Booking)?;
-    check_booking(&draft, &request)?;
+    Ok(view)
+}
 
+/// An account's balance on its normal side, in minor units.
+pub(crate) async fn balance_of(conn: &mut PgConnection, id: AccountId) -> Result<i64, LedgerError> {
+    Ok(crate::accounts::get_account(conn, id)
+        .await?
+        .ok_or(LedgerError::AccountNotFound(id))?
+        .balance()
+        .amount())
+}
+
+/// Posts one of the offline entries inside the open transaction, under its
+/// own idempotency key.
+pub(crate) async fn post_offline(
+    conn: &mut PgConnection,
+    client: ClientId,
+    key: &str,
+    draft: EntryDraft,
+    options: &PostOptions,
+) -> Result<EntryId, OfflineError> {
     let entry = EntryId::from_uuid(Uuid::now_v7()).map_err(storage)?;
-    let key = IdempotencyKey::new(format!("offline:{device}:{counter}")).map_err(storage)?;
-    let posting = PostRequest::new(entry, voucher.voucher.client_id, key, draft);
+    let key = IdempotencyKey::new(key).map_err(storage)?;
+    let posting = PostRequest::new(entry, client, key, draft);
     let fingerprint = posting.draft.fingerprint();
-    let entry = match claim_key(conn, &posting, &fingerprint).await? {
-        // Unreachable while the receipt row is unsettled, but harmless: the
-        // entry that paid it already exists.
+    Ok(match claim_key(conn, &posting, &fingerprint).await? {
         Claim::Existing(posted) => posted.id(),
         Claim::New => post_in_transaction(conn, posting, None, options)
             .await?
             .id(),
-    };
-    sqlx::query(
-        "UPDATE offline_receipts
-            SET outcome = 'settled', entry_id = $3, from_escrow_minor = amount_minor,
-                settled_at = clock_timestamp()
-          WHERE device_id = $1 AND counter = $2",
-    )
-    .bind(device.as_uuid())
-    .bind(i64::try_from(counter).map_err(storage)?)
-    .bind(entry.as_uuid())
-    .execute(&mut *conn)
-    .await
-    .map_err(sql)?;
-    Ok((Outcome::Settled, Some(entry)))
+    })
+}
+
+/// Whether `draft` has exactly these lines, in any order.
+pub(crate) fn has_lines(draft: &EntryDraft, mut expected: Vec<(AccountId, Side, Money)>) -> bool {
+    let mut lines: Vec<(AccountId, Side, Money)> = draft
+        .lines
+        .iter()
+        .map(|l| (l.account, l.side, l.amount))
+        .collect();
+    let key = |l: &(AccountId, Side, Money)| (l.0, l.1 == Side::Debit);
+    lines.sort_by_key(key);
+    expected.sort_by_key(key);
+    lines == expected
+}
+
+/// Whether `draft` names each of these metadata values.
+pub(crate) fn names(draft: &EntryDraft, pairs: &[(&str, String)]) -> bool {
+    pairs
+        .iter()
+        .all(|(key, value)| draft.metadata.get(*key) == Some(value))
+}
+
+fn net(amount: Money, fee: Money) -> Money {
+    Money::from_minor(amount.amount() - fee.amount(), amount.currency())
 }
 
 /// Checks that `draft` is E17 for this receipt: the amount from escrow, the
@@ -490,33 +562,25 @@ fn check_booking(draft: &EntryDraft, request: &SettleRequest) -> Result<(), Offl
         (
             request.payee,
             Side::Credit,
-            Money::from_minor(
-                request.amount.amount() - request.fee.amount(),
-                request.amount.currency(),
-            ),
+            net(request.amount, request.fee),
         ),
     ];
     if let Some(fee_account) = request.fee_account {
         expected.push((fee_account, Side::Credit, request.fee));
     }
-    let mut lines: Vec<(AccountId, Side, Money)> = draft
-        .lines
-        .iter()
-        .map(|l| (l.account, l.side, l.amount))
-        .collect();
-    let key = |l: &(AccountId, Side, Money)| (l.0, l.1 == Side::Debit);
-    lines.sort_by_key(key);
-    expected.sort_by_key(key);
-    if lines != expected {
+    if !has_lines(draft, expected) {
         return Err(OfflineError::Booking(
             "the booking does not pay the receipt from its escrow".into(),
         ));
     }
-    let named = |key: &str, value: String| draft.metadata.get(key) == Some(&value);
-    if !(named("voucher", request.voucher.to_string())
-        && named("device", request.device.to_string())
-        && named("counter", request.counter.to_string()))
-    {
+    if !names(
+        draft,
+        &[
+            ("voucher", request.voucher.to_string()),
+            ("device", request.device.to_string()),
+            ("counter", request.counter.to_string()),
+        ],
+    ) {
         return Err(OfflineError::Booking(
             "the booking does not name the receipt".into(),
         ));
@@ -524,7 +588,409 @@ fn check_booking(draft: &EntryDraft, request: &SettleRequest) -> Result<(), Offl
     Ok(())
 }
 
-async fn lock_voucher(
+/// The device's time, if it lies between the voucher's issue and now.
+fn bounded_time(voucher: &IssuedVoucher, time: Timestamp, now: Timestamp) -> Option<Timestamp> {
+    (time >= voucher.voucher.issued_at && time <= now).then_some(time)
+}
+
+/// E17: pays a stored receipt from escrow, and records it settled.
+async fn settle_from_escrow<B: OfflineBooks + ?Sized>(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_, B>,
+    voucher: &IssuedVoucher,
+    counter: u64,
+    stored: &Stored,
+    gap_skipped: bool,
+) -> Result<EntryId, OfflineError> {
+    let device = voucher.voucher.device_id;
+    let fee = fee_on(
+        stored.amount,
+        offline_fee_bps(conn, voucher.voucher.client_id).await?,
+    );
+    if fee.is_positive() && ctx.accounts.fee_account.is_none() {
+        return Err(OfflineError::Booking(
+            "a fee is due but there is no fee account".into(),
+        ));
+    }
+    let event_time = bounded_time(voucher, stored.event_time, ctx.now);
+    let request = SettleRequest {
+        escrow: voucher.voucher.escrow_account_id,
+        payee: stored.payee,
+        fee_account: ctx.accounts.fee_account.filter(|_| fee.is_positive()),
+        amount: stored.amount,
+        fee,
+        voucher: voucher.voucher.voucher_id,
+        device,
+        counter,
+        event_time,
+        claimed_time: event_time.is_none().then_some(stored.event_time),
+    };
+    let ids: Vec<AccountId> = [
+        Some(request.escrow),
+        Some(request.payee),
+        request.fee_account,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let draft = ctx
+        .books
+        .settle(&view(conn, &ids).await?, &request)
+        .map_err(OfflineError::Booking)?;
+    check_booking(&draft, &request)?;
+    let entry = post_offline(
+        conn,
+        voucher.voucher.client_id,
+        &format!("offline:{device}:{counter}"),
+        draft,
+        ctx.options,
+    )
+    .await?;
+    record_paid(
+        conn,
+        device,
+        counter,
+        Outcome::Settled,
+        entry,
+        Parts {
+            escrow: stored.amount.amount(),
+            wallet: 0,
+            loss: 0,
+        },
+        gap_skipped,
+    )
+    .await?;
+    Ok(entry)
+}
+
+/// How much of a payment came from each source, in minor units.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Parts {
+    pub escrow: i64,
+    pub wallet: i64,
+    pub loss: i64,
+}
+
+/// One receipt to pay under the loss policy: a late receipt, or one a
+/// dispute pays.
+pub(crate) struct ToPay {
+    pub device: DeviceId,
+    pub counter: u64,
+    pub payee: AccountId,
+    pub amount: Money,
+    pub event_time: Timestamp,
+    /// The entry's idempotency key.
+    pub key: String,
+    /// Whether the voucher's escrow pays first (a dispute), or not (a late
+    /// receipt, after the escrow went back).
+    pub use_escrow: bool,
+}
+
+/// Pays a receipt from escrow (if `use_escrow`) as far as it goes, then the
+/// payer's wallet as far as its balance allows, then the loss account
+/// (ADR-0019, protocol §12; E26, E28, E29, E31). Records a shortfall for
+/// what the loss account paid. Returns the entry and the parts.
+pub(crate) async fn pay_receipt<B: OfflineBooks + ?Sized>(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_, B>,
+    voucher: &IssuedVoucher,
+    pay: &ToPay,
+) -> Result<(EntryId, Parts), OfflineError> {
+    let client = voucher.voucher.client_id;
+    let amount = pay.amount.amount();
+    let escrow = voucher.voucher.escrow_account_id;
+    let wallet = voucher.owner_account;
+    // The wallet, locked before its balance is read, so the part it pays
+    // cannot change before the entry posts.
+    sqlx::query("SELECT 1 FROM accounts WHERE id = $1 FOR NO KEY UPDATE")
+        .bind(wallet.as_uuid())
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(sql)?;
+    let from_escrow = if pay.use_escrow {
+        balance_of(conn, escrow).await?.clamp(0, amount)
+    } else {
+        0
+    };
+    let from_wallet = balance_of(conn, wallet)
+        .await?
+        .clamp(0, amount - from_escrow);
+    let from_loss = amount - from_escrow - from_wallet;
+    let loss_account = ctx.accounts.loss_account;
+    if from_loss > 0 && loss_account.is_none() {
+        return Err(OfflineError::Booking(
+            "the loss account must pay part of it but there is none".into(),
+        ));
+    }
+    let fee = fee_on(pay.amount, offline_fee_bps(conn, client).await?);
+    if fee.is_positive() && ctx.accounts.fee_account.is_none() {
+        return Err(OfflineError::Booking(
+            "a fee is due but there is no fee account".into(),
+        ));
+    }
+    let currency = pay.amount.currency();
+    let money = |minor| Money::from_minor(minor, currency);
+    let event_time = bounded_time(voucher, pay.event_time, ctx.now);
+    let request = PayRequest {
+        escrow: (from_escrow > 0).then_some(escrow),
+        wallet: (from_wallet > 0).then_some(wallet),
+        loss_account: loss_account.filter(|_| from_loss > 0),
+        payee: pay.payee,
+        fee_account: ctx.accounts.fee_account.filter(|_| fee.is_positive()),
+        from_escrow: money(from_escrow),
+        from_wallet: money(from_wallet),
+        from_loss: money(from_loss),
+        fee,
+        voucher: voucher.voucher.voucher_id,
+        device: pay.device,
+        counter: pay.counter,
+        event_time,
+        claimed_time: event_time.is_none().then_some(pay.event_time),
+    };
+    let ids: Vec<AccountId> = [
+        request.escrow,
+        request.wallet,
+        request.loss_account,
+        Some(request.payee),
+        request.fee_account,
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let draft = ctx
+        .books
+        .pay(&view(conn, &ids).await?, &request)
+        .map_err(OfflineError::Booking)?;
+    let mut expected = vec![(request.payee, Side::Credit, net(pay.amount, fee))];
+    for (account, part) in [
+        (request.escrow, request.from_escrow),
+        (request.wallet, request.from_wallet),
+        (request.loss_account, request.from_loss),
+    ] {
+        if let Some(account) = account {
+            expected.push((account, Side::Debit, part));
+        }
+    }
+    if let Some(fee_account) = request.fee_account {
+        expected.push((fee_account, Side::Credit, fee));
+    }
+    if !has_lines(&draft, expected)
+        || !names(
+            &draft,
+            &[
+                ("voucher", request.voucher.to_string()),
+                ("device", request.device.to_string()),
+                ("counter", request.counter.to_string()),
+            ],
+        )
+    {
+        return Err(OfflineError::Booking(
+            "the booking does not pay the receipt by the loss policy".into(),
+        ));
+    }
+    let entry = post_offline(conn, client, &pay.key, draft, ctx.options).await?;
+    if from_loss > 0 {
+        sqlx::query(
+            "INSERT INTO offline_shortfalls
+                 (id, client_id, owner_account_id, device_id, counter, currency, amount_minor,
+                  entry_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(client.as_uuid())
+        .bind(wallet.as_uuid())
+        .bind(pay.device.as_uuid())
+        .bind(i64::try_from(pay.counter).map_err(storage)?)
+        .bind(currency.code())
+        .bind(from_loss)
+        .bind(entry.as_uuid())
+        .execute(&mut *conn)
+        .await
+        .map_err(sql)?;
+    }
+    Ok((
+        entry,
+        Parts {
+            escrow: from_escrow,
+            wallet: from_wallet,
+            loss: from_loss,
+        },
+    ))
+}
+
+/// Records a stored receipt as paid.
+pub(crate) async fn record_paid(
+    conn: &mut PgConnection,
+    device: DeviceId,
+    counter: u64,
+    outcome: Outcome,
+    entry: EntryId,
+    parts: Parts,
+    gap_skipped: bool,
+) -> Result<(), OfflineError> {
+    sqlx::query(
+        "UPDATE offline_receipts
+            SET outcome = $3, entry_id = $4, from_escrow_minor = $5, from_wallet_minor = $6,
+                from_loss_minor = $7, gap_skipped = $8, settled_at = clock_timestamp()
+          WHERE device_id = $1 AND counter = $2",
+    )
+    .bind(device.as_uuid())
+    .bind(i64::try_from(counter).map_err(storage)?)
+    .bind(db_outcome(outcome))
+    .bind(entry.as_uuid())
+    .bind(parts.escrow)
+    .bind(parts.wallet)
+    .bind(parts.loss)
+    .bind(gap_skipped)
+    .execute(&mut *conn)
+    .await
+    .map_err(sql)?;
+    Ok(())
+}
+
+/// Decides one recorded, unsettled receipt (protocol §9 checks 7–13, §11,
+/// §12), and pays it if it may be paid. `skip_gap` lets it settle past a
+/// missing predecessor: at the gap timeout, or at the voucher's return.
+pub(crate) async fn decide<B: OfflineBooks + ?Sized>(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_, B>,
+    voucher: &IssuedVoucher,
+    counter: u64,
+    stored: &Stored,
+    skip_gap: bool,
+) -> Result<(Outcome, Option<EntryId>), OfflineError> {
+    let device = voucher.voucher.device_id;
+    match voucher.status {
+        VoucherStatus::Frozen => return Ok((Outcome::Frozen, None)),
+        VoucherStatus::Ended => return Ok((Outcome::Expired, None)),
+        _ => {}
+    }
+    // A missing receipt arriving after its successor settled must be the
+    // one the successor committed to (§11).
+    let successor = load_stored(conn, device, counter + 1).await?;
+    let successor_paid = successor.as_ref().is_some_and(|s| is_paid(s.outcome));
+    if let Some(next) = successor.as_ref().filter(|s| is_paid(s.outcome))
+        && next.prev_digest != stored.digest
+    {
+        return Ok((Outcome::Conflict, None));
+    }
+    // 8, 9: the link to the predecessor.
+    let late = matches!(
+        voucher.status,
+        VoucherStatus::Returned | VoucherStatus::Closed
+    );
+    let mut gap_skipped = false;
+    match expected_link(conn, voucher, counter).await? {
+        Some(link) if link != stored.prev_digest => return Ok((Outcome::Conflict, None)),
+        Some(_) => {}
+        None if successor_paid || skip_gap || late => gap_skipped = true,
+        None => return Ok((Outcome::WaitingForGap, None)),
+    }
+    if late {
+        // 12: after the return, by the loss policy.
+        let (entry, parts) = pay_receipt(
+            conn,
+            ctx,
+            voucher,
+            &ToPay {
+                device,
+                counter,
+                payee: stored.payee,
+                amount: stored.amount,
+                event_time: stored.event_time,
+                key: format!("offline:{device}:{counter}"),
+                use_escrow: false,
+            },
+        )
+        .await?;
+        record_paid(
+            conn,
+            device,
+            counter,
+            Outcome::SettledLate,
+            entry,
+            parts,
+            gap_skipped,
+        )
+        .await?;
+        return Ok((Outcome::SettledLate, Some(entry)));
+    }
+    // 10, 11: the escrow left.
+    let left = balance_of(conn, voucher.voucher.escrow_account_id).await?;
+    if stored.amount.amount() > left {
+        return Ok((Outcome::OverLimit, None));
+    }
+    let entry = settle_from_escrow(conn, ctx, voucher, counter, stored, gap_skipped).await?;
+    Ok((Outcome::Settled, Some(entry)))
+}
+
+/// Applies a decision that pays nothing: a conflict or an over-spend
+/// freezes; anything else is recorded as it is.
+pub(crate) async fn apply_unpaid(
+    conn: &mut PgConnection,
+    voucher: &IssuedVoucher,
+    counter: u64,
+    outcome: Outcome,
+    now: Timestamp,
+) -> Result<(), OfflineError> {
+    let device = voucher.voucher.device_id;
+    if outcome != Outcome::WaitingForGap {
+        set_outcome(conn, device, counter, outcome).await?;
+    }
+    if matches!(outcome, Outcome::Conflict | Outcome::OverLimit) {
+        freeze(
+            conn,
+            device,
+            voucher.voucher.client_id,
+            voucher.voucher.voucher_id,
+            counter,
+            outcome,
+            now,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Settles the receipts of `voucher` that are waiting, in counter order,
+/// starting at `from`, as far as they go: each one that settles lets the
+/// next settle. With `skip_gap`, missing predecessors are skipped (§11).
+/// Stops at a freeze. Returns what it settled.
+pub(crate) async fn settle_waiting<B: OfflineBooks + ?Sized>(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_, B>,
+    voucher: &IssuedVoucher,
+    skip_gap: bool,
+) -> Result<Vec<Settled>, OfflineError> {
+    let mut settled = Vec::new();
+    loop {
+        let next: Option<i64> = sqlx::query_scalar(
+            "SELECT min(counter) FROM offline_receipts
+              WHERE voucher_id = $1 AND outcome = 'waiting_for_gap'",
+        )
+        .bind(voucher.voucher.voucher_id.as_uuid())
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(sql)?;
+        let Some(counter) = next.map(u64::try_from).transpose().map_err(storage)? else {
+            break;
+        };
+        let stored = load_stored(conn, voucher.voucher.device_id, counter)
+            .await?
+            .ok_or_else(|| storage("a waiting receipt disappeared"))?;
+        match decide(conn, ctx, voucher, counter, &stored, skip_gap).await? {
+            (outcome, Some(entry)) if is_paid(outcome) => settled.push(Settled { counter, entry }),
+            (Outcome::WaitingForGap, _) => break,
+            (outcome, _) => {
+                apply_unpaid(conn, voucher, counter, outcome, ctx.now).await?;
+                break;
+            }
+        }
+    }
+    Ok(settled)
+}
+
+pub(crate) async fn lock_voucher(
     conn: &mut PgConnection,
     device: DeviceId,
     voucher: VoucherId,
@@ -541,17 +1007,12 @@ async fn lock_voucher(
 }
 
 #[allow(clippy::too_many_lines)]
-async fn ingest_in<F>(
+async fn ingest_in<B: OfflineBooks + ?Sized>(
     conn: &mut PgConnection,
     receipt: &Receipt,
     upload: &Upload<'_>,
-    policy: FeePolicy,
-    book: &F,
-    options: &PostOptions,
-) -> Result<IngestResult, OfflineError>
-where
-    F: Fn(&BTreeMap<AccountId, Account>, &SettleRequest) -> Result<EntryDraft, String>,
-{
+    ctx: &Ctx<'_, B>,
+) -> Result<IngestResult, OfflineError> {
     let refused = |o: Outcome, why: String| Ok(IngestResult::refused(o, Some(receipt), why));
     // 2: the device, locked: everything for one device queues here.
     let device = match load_device(conn, Some(upload.client), receipt.device_id, true).await {
@@ -667,57 +1128,34 @@ where
         return Ok(result);
     }
 
-    // 8–11, then whatever was waiting for it, in counter order.
-    let fee_bps = offline_fee_bps(conn, client).await?;
-    let mut counter = receipt.counter;
-    loop {
-        let Some(stored) = load_stored(conn, receipt.device_id, counter).await? else {
-            break;
-        };
-        let (outcome, entry) = try_settle(
-            conn, &voucher, counter, &stored, fee_bps, policy, book, upload.now, options,
-        )
-        .await?;
-        let uploaded = counter == receipt.counter;
-        if uploaded {
-            result.outcome = outcome;
-            result.entry = entry;
+    // 8–13 for this receipt, then whatever was waiting for it.
+    let stored = load_stored(conn, receipt.device_id, receipt.counter)
+        .await?
+        .ok_or_else(|| storage("a receipt just recorded disappeared"))?;
+    let (outcome, entry) = decide(conn, ctx, &voucher, receipt.counter, &stored, false).await?;
+    result.outcome = outcome;
+    result.entry = entry;
+    match (outcome, entry) {
+        (outcome, Some(entry)) if is_paid(outcome) => {
+            result.settled.push(Settled {
+                counter: receipt.counter,
+                entry,
+            });
+            let next = load_stored(conn, receipt.device_id, receipt.counter + 1).await?;
+            if next.is_some_and(|n| n.outcome == Outcome::WaitingForGap) {
+                result
+                    .settled
+                    .extend(settle_waiting(conn, ctx, &voucher, false).await?);
+            }
         }
-        match (outcome, entry) {
-            (Outcome::Settled, Some(entry)) => {
-                result.settled.push(Settled { counter, entry });
-                counter += 1;
-                // Only a receipt that was waiting continues the chain.
-                match load_stored(conn, receipt.device_id, counter).await? {
-                    Some(next) if next.outcome == Outcome::WaitingForGap => continue,
-                    _ => break,
-                }
-            }
-            (Outcome::WaitingForGap, _) => break,
-            (Outcome::Conflict | Outcome::OverLimit, _) => {
-                set_outcome(conn, receipt.device_id, counter, outcome).await?;
-                freeze(
-                    conn,
-                    receipt.device_id,
-                    client,
-                    receipt.voucher_id,
-                    counter,
-                    outcome,
-                    upload.now,
-                )
-                .await?;
-                if uploaded {
-                    result.detail = Some(match outcome {
-                        Outcome::Conflict => "the chain link does not match".into(),
-                        _ => "more than the escrow left".into(),
-                    });
-                }
-                break;
-            }
-            (other, _) => {
-                set_outcome(conn, receipt.device_id, counter, other).await?;
-                break;
-            }
+        (outcome, _) => {
+            apply_unpaid(conn, &voucher, receipt.counter, outcome, upload.now).await?;
+            result.detail = match outcome {
+                Outcome::Conflict => Some("the chain link does not match".into()),
+                Outcome::OverLimit => Some("more than the escrow left".into()),
+                Outcome::Expired => Some("past the voucher's late deadline".into()),
+                _ => None,
+            };
         }
     }
     Ok(result)
@@ -726,16 +1164,13 @@ where
 /// Ingests one uploaded receipt (protocol §9): see the module
 /// documentation. One transaction, retried on contention; a refusal writes
 /// nothing.
-pub async fn ingest_receipt<F>(
+pub async fn ingest_receipt<B: OfflineBooks + ?Sized>(
     conn: &mut PgConnection,
     upload: &Upload<'_>,
-    policy: FeePolicy,
-    book: F,
+    accounts: OfflineAccounts,
+    books: &B,
     options: &PostOptions,
-) -> Result<IngestResult, OfflineError>
-where
-    F: Fn(&BTreeMap<AccountId, Account>, &SettleRequest) -> Result<EntryDraft, String>,
-{
+) -> Result<IngestResult, OfflineError> {
     // 1: decode.
     let receipt = match Receipt::decode(upload.body) {
         Ok(receipt) => receipt,
@@ -754,11 +1189,17 @@ where
             "a signature is 64 bytes",
         ));
     }
+    let ctx = Ctx {
+        books,
+        accounts,
+        now: upload.now,
+        options,
+    };
     let mut attempt = 1;
     loop {
         let result = async {
             let mut tx = options.begin(conn).await?;
-            match ingest_in(&mut tx, &receipt, upload, policy, &book, options).await {
+            match ingest_in(&mut tx, &receipt, upload, &ctx).await {
                 // Refusals write nothing: roll back what was locked.
                 Ok(result) if is_refusal(result.outcome) => {
                     let _ = tx.rollback().await;
