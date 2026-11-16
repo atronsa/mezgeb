@@ -49,7 +49,7 @@ tags:
   - name: "Reports"
     description: "Trial balance and ageing."
   - name: "Offline"
-    description: "Offline payments. Planned (steps 2.10–2.12)."
+    description: "Offline payments (ADR-0019): devices and vouchers (step 2.11); receipts planned (step 2.12)."
   - name: "OAuth"
     description: "Access tokens for client credentials (RFC 6749, ADR-0017)."
   - name: "Audit"
@@ -3215,47 +3215,185 @@ paths:
       tags:
         - "Offline"
       summary: "Register an offline device"
-      description: "Planned for step 2.11 (spec §5). Designed in step 2.10; until then the request body is open and the endpoint answers `501`."
+      description: "Registers a payer device's P-256 public key for a customer wallet and returns its device certificate, signed by the issuer key (protocol §5). The attestation decides the tier: until a card chip is chosen and Android Key Attestation is verified, only `none` is accepted, which earns tier C if the client has enabled it. The public key identifies the request: registering it again with the same details returns the device (`200`, `Idempotent-Replayed: true`)."
       security:
         - oauth2:
             - "offline:write"
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
           application/json:
             schema:
               $ref: "#/components/schemas/OfflineDeviceRequest"
-            example: {}
+            example:
+              owner_account: "2010:cust-hana"
+              public_key: "03ca16e9076330c0c89ff8738477b10113a8d324b21e95863ef1f442035b1203c1"
+              label: "Hana's phone"
+              attestation:
+                type: "none"
       responses:
+        "200":
+          description: "The device, registered earlier with the same details."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "201":
+          description: "The device and its certificate."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+              example:
+                id: "0192f3c4-0000-7000-8000-000000000d01"
+                owner_account: "0192f3c4-0000-7000-8000-000000000002"
+                public_key: "03ca16e9076330c0c89ff8738477b10113a8d324b21e95863ef1f442035b1203c1"
+                key_id: "a2bfef699d293e97"
+                tier: "C"
+                attestation: "none"
+                label: "Hana's phone"
+                status: "active"
+                status_reason: null
+                next_counter: 1
+                certificate:
+                  body: "6d657a6765622e6f66666c696e652e6465766963652e763100"
+                  signature: "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+                  issuer_key_id: "8356ab979cb1fbd8"
+                  issued_at: "2026-11-16T00:00:00Z"
+                  valid_until: "2027-11-16T00:00:00Z"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "429":
-          $ref: "#/components/responses/RateLimited"
-        "500":
-          $ref: "#/components/responses/InternalError"
-        "501":
-          description: "Not implemented yet"
+        "409":
+          description: "The key is registered with other details"
           content:
             "application/problem+json":
               schema:
                 $ref: "#/components/schemas/Problem"
               examples:
-                not_implemented:
-                  $ref: "#/components/examples/error-not_implemented"
-      x-mezgeb-status: "planned"
+                public_key_registered:
+                  $ref: "#/components/examples/error-public_key_registered"
+        "422":
+          description: "The device was refused"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                owner_not_a_wallet:
+                  $ref: "#/components/examples/error-owner_not_a_wallet"
+                tier_disabled:
+                  $ref: "#/components/examples/error-tier_disabled"
+                attestation_unsupported:
+                  $ref: "#/components/examples/error-attestation_unsupported"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "Unavailable, or offline payments are not configured"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                offline_unavailable:
+                  $ref: "#/components/examples/error-offline_unavailable"
+                busy:
+                  $ref: "#/components/examples/error-busy"
+  /v1/offline/devices/{device_id}:
+    get:
+      operationId: "getDevice"
+      tags:
+        - "Offline"
+      summary: "Get a device"
+      description: "One of the client's devices, with its status and certificate."
+      security:
+        - oauth2:
+            - "offline:write"
+      parameters:
+        - name: "device_id"
+          in: "path"
+          required: true
+          description: "The device."
+          schema:
+            $ref: "#/components/schemas/DeviceId"
+      responses:
+        "200":
+          description: "The device."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/offline/devices/{device_id}/revoke:
+    post:
+      operationId: "revokeDevice"
+      tags:
+        - "Offline"
+      summary: "Revoke a device"
+      description: "Retires a device for good: it gets no new voucher, and payees refuse its receipts once their revocation list is refreshed (protocol §4). Revoking a revoked device returns it unchanged. An open voucher is not closed early: receipts may still be on their way (protocol §13)."
+      security:
+        - oauth2:
+            - "offline:write"
+      parameters:
+        - name: "device_id"
+          in: "path"
+          required: true
+          description: "The device."
+          schema:
+            $ref: "#/components/schemas/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RevokeDeviceRequest"
+            example:
+              reason: "replaced"
+      responses:
+        "200":
+          description: "The revoked device."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Device"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
   /v1/offline/vouchers:
     post:
       operationId: "issueVoucher"
       tags:
         - "Offline"
       summary: "Issue an offline voucher"
-      description: "Planned for step 2.11 (spec §5). Designed in step 2.10; until then the request body is open and the endpoint answers `501`."
+      description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`), moving the amount from the owner's wallet into the voucher's own escrow `2050:vch-<id>`, and signs the voucher with the issuer key (protocol §7). One open voucher per device; the amount is at most the tier's limit, and the owner's open vouchers at most 5,000 ETB. A repeat with the same Idempotency-Key returns the same voucher."
       security:
         - oauth2:
             - "offline:write"
@@ -3267,10 +3405,163 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/OfflineVoucherRequest"
-            example: {}
+            example:
+              device: "0192f3c4-0000-7000-8000-000000000d01"
+              amount:
+                amount: "100.00"
+                currency: "ETB"
       responses:
+        "200":
+          description: "The voucher, issued earlier for this Idempotency-Key."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "201":
+          description: "The signed voucher."
+          headers:
+            Location:
+              $ref: "#/components/headers/Location"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+              example:
+                id: "0192f3c4-0000-7000-8000-000000000e01"
+                device: "0192f3c4-0000-7000-8000-000000000d01"
+                owner_account: "0192f3c4-0000-7000-8000-000000000002"
+                escrow_account: "0192f3c4-0000-7000-8000-000000000e02"
+                amount:
+                  amount: "100.00"
+                  currency: "ETB"
+                counter_start: 1
+                issued_at: "2026-11-16T00:00:00Z"
+                expires_at: "2026-11-17T00:00:00Z"
+                status: "active"
+                entry: "0192f3c4-0000-7000-8000-000000000e03"
+                issuer_key_id: "8356ab979cb1fbd8"
+                body: "6d657a6765622e6f66666c696e652e766f75636865722e763100"
+                signature: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "The device cannot get a voucher now"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                device_not_active:
+                  $ref: "#/components/examples/error-device_not_active"
+                certificate_expired:
+                  $ref: "#/components/examples/error-certificate_expired"
+                voucher_open:
+                  $ref: "#/components/examples/error-voucher_open"
+                idempotency_key_reused:
+                  $ref: "#/components/examples/error-idempotency_key_reused"
+        "422":
+          description: "The voucher was refused"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                over_tier_limit:
+                  $ref: "#/components/examples/error-over_tier_limit"
+                over_customer_cap:
+                  $ref: "#/components/examples/error-over_customer_cap"
+                tier_disabled:
+                  $ref: "#/components/examples/error-tier_disabled"
+                insufficient_funds:
+                  $ref: "#/components/examples/error-insufficient_funds"
+                account_not_open:
+                  $ref: "#/components/examples/error-account_not_open"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          description: "Unavailable, or offline payments are not configured"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                offline_unavailable:
+                  $ref: "#/components/examples/error-offline_unavailable"
+                busy:
+                  $ref: "#/components/examples/error-busy"
+                contention:
+                  $ref: "#/components/examples/error-contention"
+                no_open_period:
+                  $ref: "#/components/examples/error-no_open_period"
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+  /v1/offline/vouchers/{voucher_id}:
+    get:
+      operationId: "getVoucher"
+      tags:
+        - "Offline"
+      summary: "Get a voucher"
+      description: "One of the client's vouchers, with its signed body and status."
+      security:
+        - oauth2:
+            - "offline:write"
+      parameters:
+        - name: "voucher_id"
+          in: "path"
+          required: true
+          description: "The voucher."
+          schema:
+            $ref: "#/components/schemas/VoucherId"
+      responses:
+        "200":
+          description: "The voucher."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Voucher"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/offline/issuer-keys:
+    get:
+      operationId: "listIssuerKeys"
+      tags:
+        - "Offline"
+      summary: "List the offline issuer keys"
+      description: "The P-256 public keys that sign device certificates and vouchers, oldest first. Retired keys stay listed, so old vouchers remain verifiable. Apps and terminals check a voucher's signature with the key its `issuer_key_id` names."
+      security:
+        - oauth2:
+            - "offline:write"
+      responses:
+        "200":
+          description: "The keys"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuerKeyList"
+              example:
+                items:
+                  - key_id: "8356ab979cb1fbd8"
+                    public_key: "02b7c6a1f0e2d3c4b5a69788796a5b4c3d2e1f00112233445566778899aabbccdd"
+                    added_at: "2026-11-16T00:00:00Z"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
@@ -3279,16 +3570,6 @@ paths:
           $ref: "#/components/responses/RateLimited"
         "500":
           $ref: "#/components/responses/InternalError"
-        "501":
-          description: "Not implemented yet"
-          content:
-            "application/problem+json":
-              schema:
-                $ref: "#/components/schemas/Problem"
-              examples:
-                not_implemented:
-                  $ref: "#/components/examples/error-not_implemented"
-      x-mezgeb-status: "planned"
   /v1/offline/receipts:
     post:
       operationId: "submitReceipts"
@@ -4750,10 +5031,227 @@ components:
           minimum: 0
     OfflineDeviceRequest:
       type: "object"
-      description: "Designed in step 2.10."
+      additionalProperties: false
+      required:
+        - "owner_account"
+        - "public_key"
+        - "label"
+        - "attestation"
+      properties:
+        owner_account:
+          type: "string"
+          description: "The owner's customer wallet (2010), by ID or chart reference."
+        public_key:
+          $ref: "#/components/schemas/P256PublicKey"
+        label:
+          type: "string"
+          minLength: 1
+          maxLength: 100
+        attestation:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "type"
+          properties:
+            type:
+              type: "string"
+              enum:
+                - "none"
+                - "card"
+                - "android"
+              description: "`none` earns tier C. `card` and `android` are refused as `attestation_unsupported` until they are verified."
+    RevokeDeviceRequest:
+      type: "object"
+      additionalProperties: false
+      properties:
+        reason:
+          type: "string"
+          maxLength: 200
     OfflineVoucherRequest:
       type: "object"
-      description: "Designed in step 2.10."
+      additionalProperties: false
+      required:
+        - "device"
+        - "amount"
+      properties:
+        device:
+          $ref: "#/components/schemas/DeviceId"
+        amount:
+          $ref: "#/components/schemas/Money"
+    DeviceId:
+      allOf:
+        - $ref: "#/components/schemas/Uuid7"
+      description: "An offline device ID."
+    VoucherId:
+      allOf:
+        - $ref: "#/components/schemas/Uuid7"
+      description: "An offline voucher ID."
+    P256PublicKey:
+      type: "string"
+      pattern: "^0[23][0-9a-f]{64}$"
+      description: "A compressed P-256 public key (SEC1, 33 bytes), in lower-case hex."
+    P256Signature:
+      type: "string"
+      pattern: "^[0-9a-f]{128}$"
+      description: "An ECDSA P-256 signature, r || s with low s, in lower-case hex."
+    SignedBody:
+      type: "string"
+      pattern: "^([0-9a-f]{2})+$"
+      description: "The exact bytes signed, in lower-case hex (protocol §3)."
+    Device:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "owner_account"
+        - "public_key"
+        - "key_id"
+        - "tier"
+        - "attestation"
+        - "label"
+        - "status"
+        - "status_reason"
+        - "next_counter"
+        - "certificate"
+      properties:
+        id:
+          $ref: "#/components/schemas/DeviceId"
+        owner_account:
+          $ref: "#/components/schemas/AccountId"
+        public_key:
+          $ref: "#/components/schemas/P256PublicKey"
+        key_id:
+          $ref: "#/components/schemas/KeyId"
+        tier:
+          type: "string"
+          enum:
+            - "A"
+            - "B"
+            - "C"
+        attestation:
+          type: "string"
+          enum:
+            - "none"
+            - "card"
+            - "android"
+        label:
+          type: "string"
+        status:
+          type: "string"
+          enum:
+            - "active"
+            - "frozen"
+            - "lost"
+            - "revoked"
+        status_reason:
+          oneOf:
+            - type: "string"
+            - type: "null"
+        next_counter:
+          type: "integer"
+          minimum: 1
+          description: "The first counter the device's next voucher authorises."
+        certificate:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "body"
+            - "signature"
+            - "issuer_key_id"
+            - "issued_at"
+            - "valid_until"
+          properties:
+            body:
+              $ref: "#/components/schemas/SignedBody"
+            signature:
+              $ref: "#/components/schemas/P256Signature"
+            issuer_key_id:
+              $ref: "#/components/schemas/KeyId"
+            issued_at:
+              type: "string"
+              format: "date-time"
+            valid_until:
+              type: "string"
+              format: "date-time"
+    Voucher:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "device"
+        - "owner_account"
+        - "escrow_account"
+        - "amount"
+        - "counter_start"
+        - "issued_at"
+        - "expires_at"
+        - "status"
+        - "entry"
+        - "issuer_key_id"
+        - "body"
+        - "signature"
+      properties:
+        id:
+          $ref: "#/components/schemas/VoucherId"
+        device:
+          $ref: "#/components/schemas/DeviceId"
+        owner_account:
+          $ref: "#/components/schemas/AccountId"
+        escrow_account:
+          $ref: "#/components/schemas/AccountId"
+        amount:
+          $ref: "#/components/schemas/Money"
+        counter_start:
+          type: "integer"
+          minimum: 1
+        issued_at:
+          type: "string"
+          format: "date-time"
+        expires_at:
+          type: "string"
+          format: "date-time"
+        status:
+          type: "string"
+          enum:
+            - "active"
+            - "grace"
+            - "frozen"
+            - "returned"
+            - "closed"
+            - "ended"
+        entry:
+          $ref: "#/components/schemas/EntryId"
+        issuer_key_id:
+          $ref: "#/components/schemas/KeyId"
+        body:
+          $ref: "#/components/schemas/SignedBody"
+        signature:
+          $ref: "#/components/schemas/P256Signature"
+    IssuerKey:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "key_id"
+        - "public_key"
+        - "added_at"
+      properties:
+        key_id:
+          $ref: "#/components/schemas/KeyId"
+        public_key:
+          $ref: "#/components/schemas/P256PublicKey"
+        added_at:
+          type: "string"
+          format: "date-time"
+    IssuerKeyList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/IssuerKey"
     OfflineReceiptsRequest:
       type: "object"
       description: "Designed in step 2.10."
@@ -4828,6 +5326,16 @@ components:
         - "period_label_taken"
         - "period_close_findings"
         - "adjustment_not_pending"
+        - "offline_unavailable"
+        - "attestation_unsupported"
+        - "public_key_registered"
+        - "owner_not_a_wallet"
+        - "tier_disabled"
+        - "device_not_active"
+        - "certificate_expired"
+        - "voucher_open"
+        - "over_tier_limit"
+        - "over_customer_cap"
       description: "A stable error code. Never renumbered or reused; see docs/api/errors.md."
     Problem:
       type: "object"
@@ -6102,4 +6610,94 @@ components:
         status: 409
         code: "adjustment_not_pending"
         detail: "The adjustment request is no longer pending."
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-offline_unavailable:
+      summary: "offline_unavailable"
+      value:
+        type: "urn:mezgeb:problem:offline_unavailable"
+        title: "Offline payments are not configured"
+        status: 503
+        code: "offline_unavailable"
+        detail: "This ledger has no offline issuer key, so offline payments are off."
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-attestation_unsupported:
+      summary: "attestation_unsupported"
+      value:
+        type: "urn:mezgeb:problem:attestation_unsupported"
+        title: "This kind of attestation is not verified yet"
+        status: 422
+        code: "attestation_unsupported"
+        detail: "card attestation is not verified yet; register with none for tier C."
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-public_key_registered:
+      summary: "public_key_registered"
+      value:
+        type: "urn:mezgeb:problem:public_key_registered"
+        title: "The public key is registered with other details"
+        status: 409
+        code: "public_key_registered"
+        detail: "this public key is already registered with other details"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-owner_not_a_wallet:
+      summary: "owner_not_a_wallet"
+      value:
+        type: "urn:mezgeb:problem:owner_not_a_wallet"
+        title: "The owner account is not an open customer wallet"
+        status: 422
+        code: "owner_not_a_wallet"
+        detail: "account 0192f3c4-0000-7000-8000-000000000001 is not an open customer wallet"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-tier_disabled:
+      summary: "tier_disabled"
+      value:
+        type: "urn:mezgeb:problem:tier_disabled"
+        title: "The client has not enabled this tier"
+        status: 422
+        code: "tier_disabled"
+        detail: "tier C is not enabled"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-device_not_active:
+      summary: "device_not_active"
+      value:
+        type: "urn:mezgeb:problem:device_not_active"
+        title: "The device is not active"
+        status: 409
+        code: "device_not_active"
+        detail: "the device is frozen, not active"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-certificate_expired:
+      summary: "certificate_expired"
+      value:
+        type: "urn:mezgeb:problem:certificate_expired"
+        title: "The device certificate has expired"
+        status: 409
+        code: "certificate_expired"
+        detail: "the device certificate has expired"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-voucher_open:
+      summary: "voucher_open"
+      value:
+        type: "urn:mezgeb:problem:voucher_open"
+        title: "The device already has an open voucher"
+        status: 409
+        code: "voucher_open"
+        detail: "the device already has an open voucher"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-over_tier_limit:
+      summary: "over_tier_limit"
+      value:
+        type: "urn:mezgeb:problem:over_tier_limit"
+        title: "The amount is over the tier's voucher limit"
+        status: 422
+        code: "over_tier_limit"
+        detail: "over the tier's voucher limit of 20000 minor units"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-over_customer_cap:
+      summary: "over_customer_cap"
+      value:
+        type: "urn:mezgeb:problem:over_customer_cap"
+        title: "The customer's open vouchers would exceed the cap"
+        status: 422
+        code: "over_customer_cap"
+        detail: "the customer has 400000 minor units in open vouchers; the cap is 500000"
         instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
