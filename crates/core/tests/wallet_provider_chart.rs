@@ -7,7 +7,7 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use common::{CHART, CHART_DOC, cells, fixtures, is_digits};
+use common::{CHART, CHART_DOC, cells, fixtures, is_digits, offline_state_fixtures};
 use mezgeb_core::{AccountKind, Chart, ChartStatus, Side};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -22,7 +22,7 @@ fn chart_file_loads() -> TestResult {
         .iter()
         .filter(|a| a.status() == ChartStatus::Active)
         .count();
-    assert_eq!(active, 13);
+    assert_eq!(active, 14);
     Ok(())
 }
 
@@ -88,7 +88,7 @@ fn every_worked_entry_line_uses_a_chart_account() -> TestResult {
     let chart = Chart::from_toml(CHART)?;
     let mut used = BTreeSet::new();
 
-    for fixture in fixtures()? {
+    for fixture in fixtures()?.into_iter().chain(offline_state_fixtures()?) {
         for line in &fixture.lines {
             let (template, _) = chart
                 .resolve(&line.reference)

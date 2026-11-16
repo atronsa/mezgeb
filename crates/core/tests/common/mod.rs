@@ -7,7 +7,7 @@ use mezgeb_core::{AccountType, Currency, Money, Side};
 pub const CHART: &str = include_str!("../../../../charts/wallet-provider.toml");
 pub const CHART_DOC: &str = include_str!("../../../../docs/accounting/chart-of-accounts.md");
 
-/// The opening position and worked entries E01–E24, by file, in story order.
+/// The opening position and worked entries E01–E31, by file, in story order.
 pub const ENTRY_DOCS: [(&str, &str); 8] = [
     (
         "README.md",
@@ -89,11 +89,39 @@ pub struct Fixture {
     pub total: Money,
 }
 
-/// Every journal table in the entry docs, in document order. Blank template
-/// rows (no account) are skipped.
+/// Where the standalone examples of every offline state (E25 onwards) start
+/// in `offline-escrow.md`. They are not part of the running story.
+pub const OFFLINE_STATES: &str = "## Every offline state";
+
+/// The journal tables of the running story (the opening position and
+/// E01–E24), in document order. Blank template rows (no account) are skipped.
 pub fn fixtures() -> Result<Vec<Fixture>, String> {
     let mut fixtures = Vec::new();
     for (file, text) in ENTRY_DOCS {
+        let story = text.find(OFFLINE_STATES).map_or(text, |at| &text[..at]);
+        parse_tables(file, story, &mut fixtures)?;
+    }
+    Ok(fixtures)
+}
+
+/// The standalone examples of every offline state (E25–E31). Each stands on
+/// its own, so they balance but do not replay against the story.
+pub fn offline_state_fixtures() -> Result<Vec<Fixture>, String> {
+    let (file, text) = ENTRY_DOCS
+        .iter()
+        .find(|(file, _)| *file == "offline-escrow.md")
+        .ok_or("offline-escrow.md missing")?;
+    let at = text
+        .find(OFFLINE_STATES)
+        .ok_or("no offline states section")?;
+    let mut fixtures = Vec::new();
+    parse_tables(file, &text[at..], &mut fixtures)?;
+    Ok(fixtures)
+}
+
+/// Every journal table in `text`, appended to `fixtures`.
+fn parse_tables(file: &str, text: &str, fixtures: &mut Vec<Fixture>) -> Result<(), String> {
+    {
         let mut heading = String::from(file);
         let mut table_in_heading = 0;
         let mut lines: Vec<FixtureLine> = Vec::new();
@@ -136,7 +164,7 @@ pub fn fixtures() -> Result<Vec<Fixture>, String> {
             }
         }
     }
-    Ok(fixtures)
+    Ok(())
 }
 
 pub const TRIAL_BALANCE: &str = include_str!("../../../../docs/accounting/trial-balance.md");
