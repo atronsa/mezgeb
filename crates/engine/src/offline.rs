@@ -177,6 +177,8 @@ pub enum OfflineError {
     Invalid(String),
     /// The booking function failed, or booked something other than E16.
     Booking(String),
+    /// Built in a later step, such as late receipts (step 2.13).
+    NotYet(String),
     Ledger(LedgerError),
 }
 
@@ -217,7 +219,9 @@ impl fmt::Display for OfflineError {
                 from.as_str(),
                 to.as_str()
             ),
-            OfflineError::Invalid(why) | OfflineError::Booking(why) => f.write_str(why),
+            OfflineError::Invalid(why) | OfflineError::Booking(why) | OfflineError::NotYet(why) => {
+                f.write_str(why)
+            }
             OfflineError::Ledger(e) => write!(f, "{e}"),
         }
     }

@@ -409,7 +409,7 @@ where
         VoucherStatus::Frozen => return Ok((Outcome::Frozen, None)),
         VoucherStatus::Ended => return Ok((Outcome::Expired, None)),
         VoucherStatus::Returned | VoucherStatus::Closed => {
-            return Err(OfflineError::Invalid(
+            return Err(OfflineError::NotYet(
                 "receipts after a voucher's return settle from step 2.13".into(),
             ));
         }
