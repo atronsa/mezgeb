@@ -122,7 +122,7 @@ fn a_voucher_needs_its_voucher_and_wallet_funds() -> TestResult {
     let too_much = issue(
         wallet,
         escrow,
-        Money::from_minor(680_01, Currency::ETB),
+        Money::from_minor(68_001, Currency::ETB),
         "v",
     );
     let draft = registry.draft(&too_much, &ledger)?;
