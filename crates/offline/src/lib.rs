@@ -7,19 +7,19 @@
 //! - [`crypto`]: P-256 keys and low-S signatures.
 //! - [`Tier`]: trust tiers and their limits.
 //! - [`DeviceCertificate`] and [`Voucher`]: what the issuer key signs.
+//! - [`Receipt`]: what the payer's device signs; [`Outcome`]: what the
+//!   ledger does with it.
 
 pub mod crypto;
 mod device;
 pub mod encoding;
-pub mod ingest;
-pub mod receipt;
+mod receipt;
 mod tier;
 mod voucher;
 
 pub use crypto::{CryptoError, PublicKey, SecretKey};
 pub use device::DeviceCertificate;
-pub use ingest::{IngestOutcome, ingest_receipt};
-pub use receipt::Receipt;
+pub use receipt::{Outcome, Receipt};
 pub use tier::{
     CERTIFICATE_MICROS, CUSTOMER_CAP_MINOR, GRACE_MICROS, Tier, TierLimits, UnknownTier,
 };
