@@ -6,6 +6,7 @@
 //! mezgeb-cli offline tier CLIENT A|B|C --enable [--max ETB] [--lifetime-hours N]
 //! mezgeb-cli offline tier CLIENT A|B|C --disable
 //! mezgeb-cli offline device freeze|unfreeze|lost|revoke DEVICE_ID [--reason TEXT]
+//! mezgeb-cli offline fee CLIENT --bps N
 //! mezgeb-cli offline check
 //! ```
 //!
@@ -17,16 +18,21 @@
 //! - `device` moves any client's device: `freeze` for a conflict under
 //!   review, `unfreeze` when it is resolved, `lost` when its owner reports
 //!   it, `revoke` to retire it. Connect as `mezgeb_admin`.
+//! - `fee` sets a client's merchant fee on offline payments, in basis points
+//!   (200 is 2%, at most 1,000), taken from each settled receipt (E17).
+//!   Without it, there is no fee. Connect as `mezgeb_admin`.
 //! - `check` verifies that every escrow holds exactly its voucher's unspent
 //!   value (exit status 1 if not). Connect as `mezgeb_verifier`.
 //!
-//! Every change by `tier` and `device` is recorded as an audit event.
+//! Every change by `tier`, `device` and `fee` is recorded as an audit event.
 
 use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use mezgeb_core::DeviceId;
-use mezgeb_engine::{DeviceStatus, IssuerKey, escrow_findings, set_device_status, set_tier_limits};
+use mezgeb_engine::{
+    DeviceStatus, IssuerKey, escrow_findings, set_device_status, set_offline_fee, set_tier_limits,
+};
 use mezgeb_offline::{Tier, TierLimits};
 use sqlx::PgConnection;
 
@@ -37,6 +43,7 @@ pub const USAGE: &str = "       mezgeb-cli offline key generate --out FILE\n    
      [--database-url URL]\n       \
      mezgeb-cli offline device freeze|unfreeze|lost|revoke DEVICE_ID [--reason TEXT] \
      [--database-url URL]\n       \
+     mezgeb-cli offline fee CLIENT --bps N [--database-url URL]\n       \
      mezgeb-cli offline check [--database-url URL]";
 
 /// A parsed `offline` command.
@@ -55,6 +62,10 @@ pub enum OfflineCommand {
         device: DeviceId,
         to: DeviceStatus,
         reason: Option<String>,
+    },
+    Fee {
+        client: String,
+        bps: u32,
     },
     Check,
 }
@@ -80,6 +91,7 @@ pub fn parse(args: &[String]) -> Result<OfflineCommand, String> {
     let mut words = Vec::new();
     let (mut out, mut enable, mut disable, mut max, mut hours, mut reason) =
         (None, false, false, None, None, None);
+    let mut bps = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -101,6 +113,14 @@ pub fn parse(args: &[String]) -> Result<OfflineCommand, String> {
                 );
             }
             "--reason" => reason = Some(args.next().ok_or("--reason needs a text")?.clone()),
+            "--bps" => {
+                bps = Some(
+                    args.next()
+                        .and_then(|b| b.parse::<u32>().ok())
+                        .filter(|b| *b <= 1_000)
+                        .ok_or("--bps needs a whole number from 0 to 1000")?,
+                );
+            }
             other if other.starts_with("--") => {
                 return Err(format!("unknown argument {other:?}\n{}", usage()));
             }
@@ -154,6 +174,10 @@ pub fn parse(args: &[String]) -> Result<OfflineCommand, String> {
                 reason,
             })
         }
+        ["fee", client] => Ok(OfflineCommand::Fee {
+            client: (*client).to_owned(),
+            bps: bps.ok_or(format!("fee needs --bps N\n{}", usage()))?,
+        }),
         ["check"] => Ok(OfflineCommand::Check),
         _ => Err(usage()),
     }
@@ -235,6 +259,26 @@ pub async fn run(
             .await?;
             let _ = writeln!(out, "device {device} is {}", changed.status.as_str());
         }
+        OfflineCommand::Fee { client, bps } => {
+            let id = client_named(conn, &client).await?;
+            set_offline_fee(conn, id, bps)
+                .await
+                .map_err(|e| e.to_string())?;
+            audit(
+                conn,
+                "offline.fee",
+                Some(id),
+                format!("client:{id}"),
+                format!(r#"{{"after":{{"fee_bps":{bps}}}}}"#),
+            )
+            .await?;
+            let _ = writeln!(
+                out,
+                "the offline merchant fee for {client} is {}.{:02}%",
+                bps / 100,
+                bps % 100
+            );
+        }
         OfflineCommand::Check => {
             let findings = escrow_findings(conn).await.map_err(|e| e.to_string())?;
             for f in &findings {
@@ -308,6 +352,13 @@ mod tests {
             }
         );
         assert_eq!(parse(&args(&["check"]))?, OfflineCommand::Check);
+        assert_eq!(
+            parse(&args(&["fee", "acme", "--bps", "200"]))?,
+            OfflineCommand::Fee {
+                client: "acme".into(),
+                bps: 200
+            }
+        );
         for bad in [
             &["tier", "acme", "C"][..],
             &["tier", "acme", "C", "--enable", "--max", "200.01"],
@@ -318,6 +369,9 @@ mod tests {
             &["device", "revoke", "not-a-uuid"],
             &["key", "generate"],
             &["check", "--full"],
+            &["fee", "acme"],
+            &["fee", "acme", "--bps", "1001"],
+            &["fee", "acme", "--bps", "-1"],
         ] {
             assert!(parse(&args(bad)).is_err(), "{bad:?}");
         }
