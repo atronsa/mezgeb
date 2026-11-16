@@ -266,7 +266,7 @@ async fn issue_voucher(
                     };
                     registry.draft(&request, view).map_err(|e| e.to_string())
                 };
-                Ok(mezgeb_engine::issue_voucher(
+                Ok(mezgeb_engine::issue_offline_voucher(
                     &mut conn,
                     &issuer,
                     &state.chart,
