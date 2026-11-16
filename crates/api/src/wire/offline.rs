@@ -3,7 +3,7 @@
 //! body's exact bytes (protocol §3).
 
 use mezgeb_core::chain::hex;
-use mezgeb_engine::{Device, IssuedVoucher};
+use mezgeb_engine::{Device, IngestResult, IssuedVoucher, ReceiptRecord};
 use serde::Serialize;
 
 use super::*;
@@ -113,4 +113,78 @@ pub fn parse_hex(text: &str) -> Option<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(text.get(i..i + 2)?, 16).ok())
         .collect()
+}
+
+#[derive(Debug, Serialize)]
+pub struct SettledJson {
+    pub counter: u64,
+    pub entry: String,
+}
+
+/// One uploaded receipt's outcome.
+#[derive(Debug, Serialize)]
+pub struct ReceiptResultJson {
+    /// Its place in the upload.
+    pub index: usize,
+    pub outcome: &'static str,
+    pub device: Option<String>,
+    pub counter: Option<u64>,
+    pub digest: Option<String>,
+    pub entry: Option<String>,
+    pub detail: Option<String>,
+    /// Every receipt this upload settled: this one, and those that were
+    /// waiting for it.
+    pub settled: Vec<SettledJson>,
+}
+
+impl From<(usize, &IngestResult)> for ReceiptResultJson {
+    fn from((index, r): (usize, &IngestResult)) -> ReceiptResultJson {
+        ReceiptResultJson {
+            index,
+            outcome: r.outcome.as_str(),
+            device: r.device.map(|d| d.to_string()),
+            counter: r.counter,
+            digest: r.digest.as_ref().map(|d| hex(d)),
+            entry: r.entry.map(|e| e.to_string()),
+            detail: r.detail.clone(),
+            settled: r
+                .settled
+                .iter()
+                .map(|s| SettledJson {
+                    counter: s.counter,
+                    entry: s.entry.to_string(),
+                })
+                .collect(),
+        }
+    }
+}
+
+/// A recorded receipt.
+#[derive(Debug, Serialize)]
+pub struct OfflineReceiptJson {
+    pub device: String,
+    pub counter: u64,
+    pub voucher: String,
+    pub digest: String,
+    pub payee: String,
+    pub amount: MoneyJson,
+    pub event_time: String,
+    pub outcome: &'static str,
+    pub entry: Option<String>,
+}
+
+impl From<&ReceiptRecord> for OfflineReceiptJson {
+    fn from(r: &ReceiptRecord) -> OfflineReceiptJson {
+        OfflineReceiptJson {
+            device: r.device.to_string(),
+            counter: r.counter,
+            voucher: r.voucher.to_string(),
+            digest: hex(&r.digest),
+            payee: r.payee.to_string(),
+            amount: r.amount.into(),
+            event_time: format_time(r.event_time),
+            outcome: r.outcome.as_str(),
+            entry: r.entry.map(|e| e.to_string()),
+        }
+    }
 }

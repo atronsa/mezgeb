@@ -328,6 +328,7 @@ fn every_engine_operation_is_reachable() {
         "revokeDevice",
         "issueVoucher",
         "getVoucher",
+        "listVoucherReceipts",
         "listIssuerKeys",
         "submitReceipts",
     ] {

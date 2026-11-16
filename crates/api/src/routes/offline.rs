@@ -11,12 +11,12 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderValue, StatusCode};
 use axum::routing::{get, post};
 use mezgeb_core::{AccountId, DeviceId, PositiveAmount, VoucherId};
 use mezgeb_engine::{
-    Attestation, AttestationKind, DeviceStatus, IssuerKey, NewDevice, NewVoucher, OfflineError,
-    Registered,
+    Attestation, AttestationKind, DeviceStatus, FeePolicy, IssuerKey, NewDevice, NewVoucher,
+    OfflineError, Registered, SettleRequest, Upload,
 };
 use mezgeb_offline::{PublicKey, Tier};
 use mezgeb_ops::OperationRequest;
@@ -29,7 +29,10 @@ use crate::auth::scope::{Auth, OfflineWrite};
 use crate::http::extract::{IdemKey, JsonBody, parse_id};
 use crate::http::reply::{json_response, written};
 use crate::problem::ApiError;
-use crate::wire::{DeviceJson, IssuerKeyJson, MoneyJson, VoucherJson, format_time, now, parse_hex};
+use crate::wire::{
+    DeviceJson, IssuerKeyJson, MoneyJson, OfflineReceiptJson, ReceiptResultJson, VoucherJson,
+    format_time, now, parse_hex,
+};
 
 pub(super) fn router() -> Router<AppState> {
     Router::new()
@@ -42,6 +45,10 @@ pub(super) fn router() -> Router<AppState> {
         .route("/v1/offline/vouchers", post(issue_voucher))
         .route("/v1/offline/vouchers/{voucher_id}", get(get_voucher))
         .route("/v1/offline/issuer-keys", get(issuer_keys))
+        .route(
+            "/v1/offline/vouchers/{voucher_id}/receipts",
+            get(voucher_receipts),
+        )
         .route("/v1/offline/receipts", post(receipts))
 }
 
@@ -322,9 +329,124 @@ async fn issuer_keys(
     Ok(json_response(StatusCode::OK, json!({ "items": items })))
 }
 
-async fn receipts(Auth(_caller, _): Auth<OfflineWrite>, _headers: HeaderMap) -> ApiResult {
-    Err(ApiError::new(
-        "not_implemented",
-        "Offline receipts are planned for step 2.12.",
-    ))
+/// The most receipts one upload may carry.
+const MAX_RECEIPTS: usize = 100;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignedReceiptBody {
+    body: String,
+    signature: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReceiptsBody {
+    receipts: Vec<SignedReceiptBody>,
+}
+
+/// Uploads receipts, from the payer's device or the payee's terminal: each
+/// gets its own outcome (protocol §9). The batch is not one transaction:
+/// each receipt is settled, kept or refused on its own, and an upload can
+/// simply be repeated.
+async fn receipts(
+    State(state): State<AppState>,
+    Auth(caller, _): Auth<OfflineWrite>,
+    JsonBody(body): JsonBody<ReceiptsBody>,
+) -> ApiResult {
+    if body.receipts.is_empty() || body.receipts.len() > MAX_RECEIPTS {
+        return Err(ApiError::invalid(
+            "/receipts",
+            format!("an upload carries 1 to {MAX_RECEIPTS} receipts"),
+        ));
+    }
+    let mut items = Vec::with_capacity(body.receipts.len());
+    for (i, r) in body.receipts.iter().enumerate() {
+        let decode = |text: &str, field: &str| {
+            parse_hex(text)
+                .ok_or_else(|| ApiError::invalid(&format!("/receipts/{i}/{field}"), "not hex"))
+        };
+        items.push((decode(&r.body, "body")?, decode(&r.signature, "signature")?));
+    }
+    let results = state
+        .write({
+            let state = state.clone();
+            async move {
+                let mut conn = connection(&state).await?;
+                // The merchant fee, if the client charges one, goes to 4010.
+                let fee_account = mezgeb_engine::account_by_reference(&mut conn, "4010")
+                    .await?
+                    .map(|a| a.id());
+                let policy = FeePolicy { fee_account };
+                let registry = state.registry.clone();
+                let book = move |view: &BTreeMap<AccountId, mezgeb_core::Account>,
+                                 r: &SettleRequest| {
+                    let mut accounts = BTreeMap::from([
+                        ("voucher_escrow".to_owned(), r.escrow),
+                        ("payee".to_owned(), r.payee),
+                    ]);
+                    let mut amounts = BTreeMap::from([("amount".to_owned(), r.amount)]);
+                    if let Some(fees) = r.fee_account {
+                        accounts.insert("fee_revenue".into(), fees);
+                        amounts.insert("merchant_fee".into(), r.fee);
+                    }
+                    let mut metadata = BTreeMap::from([
+                        ("voucher".to_owned(), r.voucher.to_string()),
+                        ("device".to_owned(), r.device.to_string()),
+                        ("counter".to_owned(), r.counter.to_string()),
+                    ]);
+                    if let Some(claimed) = r.claimed_time {
+                        metadata.insert("claimed_event_time".into(), format_time(claimed));
+                    }
+                    let request = OperationRequest {
+                        template: "offline_receipt_settle.v1".into(),
+                        accounts,
+                        amounts,
+                        metadata,
+                        event_time: r.event_time,
+                        ..OperationRequest::default()
+                    };
+                    registry.draft(&request, view).map_err(|e| e.to_string())
+                };
+                let mut results = Vec::with_capacity(items.len());
+                for (index, (body, signature)) in items.iter().enumerate() {
+                    let upload = Upload {
+                        client: caller.client,
+                        body,
+                        signature,
+                        now: now(),
+                    };
+                    let result = mezgeb_engine::ingest_receipt(
+                        &mut conn,
+                        &upload,
+                        policy,
+                        &book,
+                        &state.options,
+                    )
+                    .await?;
+                    results.push(ReceiptResultJson::from((index, &result)));
+                }
+                Ok(results)
+            }
+        })
+        .await?;
+    Ok(json_response(StatusCode::OK, json!({ "results": results })))
+}
+
+async fn voucher_receipts(
+    State(state): State<AppState>,
+    Auth(caller, _): Auth<OfflineWrite>,
+    Path(voucher_id): Path<String>,
+) -> ApiResult {
+    let id: VoucherId = parse_id(&voucher_id, "voucher_id")?;
+    let mut conn = connection(&state).await?;
+    // 404 for a voucher that is not the caller's.
+    mezgeb_engine::get_voucher(&mut conn, caller.client, id).await?;
+    let items: Vec<OfflineReceiptJson> =
+        mezgeb_engine::voucher_receipts(&mut conn, caller.client, id)
+            .await?
+            .iter()
+            .map(OfflineReceiptJson::from)
+            .collect();
+    Ok(json_response(StatusCode::OK, json!({ "items": items })))
 }
