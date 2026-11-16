@@ -94,7 +94,8 @@ impl Receipt {
     }
 }
 
-/// What happened to one uploaded receipt (protocol §9, spec §5.5).
+/// What happened to one uploaded receipt (protocol §9, spec §5.5), or, for
+/// `REFUSED`, to a disputed one (§14).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Outcome {
     /// Paid from escrow (E17).
@@ -122,10 +123,13 @@ pub enum Outcome {
     UnknownDevice,
     /// Not the device's voucher, or a counter before it.
     UnknownVoucher,
+    /// Refused by the operator at the end of a dispute (protocol §14): its
+    /// payee bears it.
+    Refused,
 }
 
 impl Outcome {
-    pub const ALL: [Outcome; 12] = [
+    pub const ALL: [Outcome; 13] = [
         Outcome::Settled,
         Outcome::SettledLate,
         Outcome::Duplicate,
@@ -138,6 +142,7 @@ impl Outcome {
         Outcome::BadSignature,
         Outcome::UnknownDevice,
         Outcome::UnknownVoucher,
+        Outcome::Refused,
     ];
 
     /// As in the protocol and the API: `SETTLED`, `WAITING_FOR_GAP`, ...
@@ -155,6 +160,7 @@ impl Outcome {
             Outcome::BadSignature => "BAD_SIGNATURE",
             Outcome::UnknownDevice => "UNKNOWN_DEVICE",
             Outcome::UnknownVoucher => "UNKNOWN_VOUCHER",
+            Outcome::Refused => "REFUSED",
         }
     }
 
