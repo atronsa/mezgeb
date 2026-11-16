@@ -94,6 +94,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
     let period = periods::list_get_and_close(&api).await?;
     reports::trial_balance_and_ageing(&api, period).await?;
     offline::devices_and_vouchers(&api, &server).await?;
+    offline::disputes_and_shortfalls(&api, &server).await?;
     oauth::token_and_refusals(&api).await?;
     audit::keys_checkpoints_and_events(&api).await?;
 
@@ -103,7 +104,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
         uncovered.is_empty(),
         "operations no test called: {uncovered:?}"
     );
-    assert_eq!(contract.operation_count(), 51, "operations in the contract");
+    assert_eq!(contract.operation_count(), 56, "operations in the contract");
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }

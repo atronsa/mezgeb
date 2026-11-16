@@ -329,6 +329,11 @@ fn every_engine_operation_is_reachable() {
         "issueVoucher",
         "getVoucher",
         "listVoucherReceipts",
+        "listShortfalls",
+        "repayShortfall",
+        "listDisputes",
+        "getDispute",
+        "resolveDispute",
         "listIssuerKeys",
         "submitReceipts",
     ] {
