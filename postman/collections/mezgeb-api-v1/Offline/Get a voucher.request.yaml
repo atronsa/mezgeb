@@ -1,0 +1,21 @@
+$kind: http-request
+description: "One of the client's vouchers, with its signed body and status."
+url: "{{baseUrl}}/v1/offline/vouchers/:voucher_id"
+method: GET
+headers:
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: voucher_id
+    value: 0192f3c4-0000-7000-8000-000000000e01
+    disabled: false
+    description: (Required) The voucher.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Get a voucher.resources/examples
+order: 2100

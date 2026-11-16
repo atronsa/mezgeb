@@ -7,28 +7,35 @@ request:
       value: <token>
       description: "Added as a part of security scheme: oauth2"
     - key: Idempotency-Key
-      value: pay-2026-11-14-0001
+      value: offline-0001
       disabled: false
       description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
     - key: Accept
       value: application/problem+json
   body:
     type: json
-    content: "{}"
+    content: |-
+      {
+        "device": "0192f3c4-0000-7000-8000-000000000d01",
+        "amount": {
+          "amount": "100.00",
+          "currency": "ETB"
+        }
+      }
 response:
-  statusCode: 501
-  statusText: Not Implemented
+  statusCode: 422
+  statusText: Unprocessable Entity
   headers:
     Content-Type: application/problem+json
   body:
     type: json
     content: |-
       {
-        "type": "urn:mezgeb:problem:not_implemented",
-        "title": "Not implemented yet",
-        "status": 501,
-        "code": "not_implemented",
-        "detail": "Not implemented yet.",
+        "type": "urn:mezgeb:problem:over_customer_cap",
+        "title": "The customer's open vouchers would exceed the cap",
+        "status": 422,
+        "code": "over_customer_cap",
+        "detail": "the customer has 400000 minor units in open vouchers; the cap is 500000",
         "instance": "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
       }
-order: 6000
+order: 6100

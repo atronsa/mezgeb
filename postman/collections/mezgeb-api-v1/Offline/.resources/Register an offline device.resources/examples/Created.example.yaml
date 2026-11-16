@@ -1,0 +1,50 @@
+$kind: http-example
+name: "The device and its certificate."
+request:
+  url: "{{baseUrl}}/v1/offline/devices"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "owner_account": "2010:cust-hana",
+        "public_key": "03ca16e9076330c0c89ff8738477b10113a8d324b21e95863ef1f442035b1203c1",
+        "label": "Hana's phone",
+        "attestation": {
+          "type": "none"
+        }
+      }
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": "0192f3c4-0000-7000-8000-000000000d01",
+        "owner_account": "0192f3c4-0000-7000-8000-000000000002",
+        "public_key": "03ca16e9076330c0c89ff8738477b10113a8d324b21e95863ef1f442035b1203c1",
+        "key_id": "a2bfef699d293e97",
+        "tier": "C",
+        "attestation": "none",
+        "label": "Hana's phone",
+        "status": "active",
+        "status_reason": null,
+        "next_counter": 1,
+        "certificate": {
+          "body": "6d657a6765622e6f66666c696e652e6465766963652e763100",
+          "signature": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+          "issuer_key_id": "8356ab979cb1fbd8",
+          "issued_at": "2026-11-16T00:00:00Z",
+          "valid_until": "2027-11-16T00:00:00Z"
+        }
+      }
+order: 500
