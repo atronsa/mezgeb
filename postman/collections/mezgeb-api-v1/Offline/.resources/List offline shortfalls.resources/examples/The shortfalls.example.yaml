@@ -1,0 +1,39 @@
+$kind: http-example
+name: "The shortfalls"
+request:
+  url: "{{baseUrl}}/v1/offline/shortfalls"
+  method: GET
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: text
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "items": [
+          {
+            "id": "0192f3c4-0000-7000-8000-000000000f01",
+            "owner_account": "0192f3c4-0000-7000-8000-000000000002",
+            "device": "0192f3c4-0000-7000-8000-000000000d01",
+            "counter": 1,
+            "amount": {
+              "amount": "65.00",
+              "currency": "ETB"
+            },
+            "entry": "0192f3c4-0000-7000-8000-000000000f02",
+            "repaid_entry": null
+          }
+        ]
+      }
+order: 1000

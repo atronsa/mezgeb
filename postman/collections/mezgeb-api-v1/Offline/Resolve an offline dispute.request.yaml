@@ -1,0 +1,29 @@
+$kind: http-request
+description: "Ends a frozen voucher's case: `paid` pays every valid receipt in counter order (escrow, then the payer's wallet, then 5030); `refused` pays none. Either way the escrow left returns and the device is revoked."
+url: "{{baseUrl}}/v1/offline/disputes/:dispute_id/resolve"
+method: POST
+headers:
+  - key: Content-Type
+    value: application/json
+  - key: Accept
+    value: application/json
+pathVariables:
+  - key: dispute_id
+    value: 0192f3c4-0000-7000-8000-000000000f11
+    disabled: false
+    description: (Required) The dispute.
+body:
+  type: json
+  content: |-
+    {
+      "resolution": "paid"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read offline:write offline:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Resolve an offline dispute.resources/examples
+order: 6200
