@@ -1,0 +1,45 @@
+$kind: http-example
+name: "The earlier counter has not arrived yet."
+request:
+  url: "{{baseUrl}}/v1/offline/receipts"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "receipts": [
+          {
+            "body": "6d657a6765622e6f66666c696e652e726563656970742e763100",
+            "signature": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+          }
+        ]
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "results": [
+          {
+            "index": 0,
+            "outcome": "WAITING_FOR_GAP",
+            "device": "0192f3c4-0000-7000-8000-000000000d01",
+            "counter": 2,
+            "digest": "e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3",
+            "entry": null,
+            "detail": null,
+            "settled": []
+          }
+        ]
+      }
+order: 600
