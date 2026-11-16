@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 mezgeb-core.workspace = true
 mezgeb-engine.workspace = true
+mezgeb-offline.workspace = true
 serde.workspace = true
 sqlx.workspace = true
 tokio.workspace = true

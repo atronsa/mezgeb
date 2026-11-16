@@ -290,6 +290,34 @@ Silent changes by someone with full database access are made detectable
 The cost: postings serialise on the `entries` head from their last step to
 their commit (see [What one posting costs](#what-one-posting-costs)).
 
+## Offline devices and vouchers
+
+Payer devices and the vouchers that reserve their offline spending
+(ADR-0019, migration 0011, step 2.11; the protocol is
+[offline protocol v1](offline/protocol.md), the operator's procedure the
+[offline runbook](runbooks/offline.md)).
+
+- **One escrow per voucher.** Issuing a voucher opens its own `2050:vch-…`
+  account and posts E16 into it, in the same transaction as the signed
+  voucher row. `vouchers.escrow_account_id` and `entry_id` are unique.
+- **One open voucher per device (ADR-0019).** A partial unique index on
+  `vouchers (device_id)` over `active`, `grace` and `frozen`.
+- **Limits only lowered.** `offline_tier_limits` holds a client's own
+  limits per tier; a `CHECK` keeps them at or below the protocol's maxima.
+  Without a row, tiers A and B have the maxima and tier C is disabled.
+- **Keys.** A device's compressed public key and its key ID are unique.
+  `offline_issuer_keys` holds the public half of each issuer key,
+  append-only; the secret key is never in the database.
+- **Serialised where it matters.** Issuing locks the device row (one issue
+  at a time per device), then the owner's wallet (one at a time per
+  customer, so the 5,000 ETB cap holds across their devices).
+- **Only states move.** The service may update a device's status and next
+  counter, and a voucher's status, and nothing else; `mezgeb_admin` may
+  change a device's status and a client's tier limits.
+
+The invariant, *each escrow holds exactly its voucher's unspent value*, is
+checked by `mezgeb-cli offline check`.
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
@@ -398,10 +426,10 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads. No DELETE on anything else. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads; SELECT and INSERT on devices, vouchers and issuer keys, UPDATE on their status columns and a device's next counter, and SELECT on tier limits. No DELETE on anything else. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
 | `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
-| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, and records those changes as audit events; nothing in the ledger (step 2.08). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
+| `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, sets clients' offline tier limits and devices' status, and records those changes as audit events; nothing in the ledger (steps 2.08, 2.11). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
 
 `mezgeb_app` also has `transaction_timeout = 30s`, which verification
 relies on (see [Verification](#verification)). Both are set in

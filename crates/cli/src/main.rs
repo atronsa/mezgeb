@@ -6,6 +6,7 @@
 //! mezgeb-cli migrate [--database-url URL]
 //! mezgeb-cli client create|list|disable|seed ... [--database-url URL]
 //! mezgeb-cli credential issue|list|revoke ... [--database-url URL]
+//! mezgeb-cli offline key|tier|device|check ... [--database-url URL]
 //! ```
 //!
 //! `verify` proves that the stored balances equal the journal
@@ -32,10 +33,14 @@
 //! chains for the period it closed, with the key in `--signing-key` or
 //! `MEZGEB_SIGNING_KEY_FILE` (or `--no-checkpoint`, for tests).
 //!
+//! `offline` sets up offline payments: the issuer key, each client's tier
+//! limits, and device freezes and revocations ([`offline`], ADR-0019).
+//!
 //! Planned: `import` (step 3.14).
 
 mod chain;
 mod clients;
+mod offline;
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -82,6 +87,10 @@ enum Command {
     },
     Client {
         command: clients::ClientCommand,
+        url: Option<String>,
+    },
+    Offline {
+        command: offline::OfflineCommand,
         url: Option<String>,
     },
 }
@@ -164,7 +173,25 @@ fn parse(args: &[String]) -> Result<Command, String> {
             let command = clients::parse(group, &rest)?;
             Ok(Command::Client { command, url })
         }
-        _ => Err(format!("{USAGE}\n{}\n{}", clients::USAGE, chain::USAGE)),
+        Some("offline") => {
+            let mut rest = Vec::new();
+            let mut url = None;
+            while let Some(arg) = args.next() {
+                if arg == "--database-url" {
+                    url = Some(database_url(&mut args)?);
+                } else {
+                    rest.push(arg.clone());
+                }
+            }
+            let command = offline::parse(&rest)?;
+            Ok(Command::Offline { command, url })
+        }
+        _ => Err(format!(
+            "{USAGE}\n{}\n{}\n{}",
+            clients::USAGE,
+            chain::USAGE,
+            offline::USAGE
+        )),
     }
 }
 
@@ -316,6 +343,19 @@ async fn run(command: Command) -> Result<bool, String> {
             let mut conn = connect(url).await?;
             print!("{}", clients::run(&mut conn, command).await?);
             Ok(true)
+        }
+        Command::Offline {
+            command: offline::OfflineCommand::GenerateKey { out },
+            ..
+        } => {
+            print!("{}", offline::generate(&out)?);
+            Ok(true)
+        }
+        Command::Offline { command, url } => {
+            let mut conn = connect(url).await?;
+            let (out, clean) = offline::run(&mut conn, command).await?;
+            print!("{out}");
+            Ok(clean)
         }
     }
 }

@@ -180,7 +180,7 @@ fn failed(error: ClientError) -> String {
     error.to_string()
 }
 
-async fn client_named(conn: &mut PgConnection, name: &str) -> Result<ClientId, String> {
+pub(crate) async fn client_named(conn: &mut PgConnection, name: &str) -> Result<ClientId, String> {
     client_by_name(conn, name)
         .await
         .map_err(failed)?
@@ -207,7 +207,7 @@ fn operator() -> String {
 /// Records a change to clients or credentials (ADR-0018): configuration,
 /// so with its before and after. The values are names, IDs and roles that
 /// were checked already; none needs escaping, and no secret is recorded.
-async fn audit(
+pub(crate) async fn audit(
     conn: &mut PgConnection,
     action: &str,
     client: Option<ClientId>,
