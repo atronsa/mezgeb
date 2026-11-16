@@ -27,6 +27,8 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync>;
 
 /// The test servers' signing key (ADR-0018), as a hex seed.
 pub const SIGNING_SEED: &str = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
+/// The P-256 offline issuer key the test servers sign vouchers with.
+pub const ISSUER_SEED: &str = "4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b4b";
 
 /// The wallet client's token: `poster` and `reader`.
 pub const CLIENT: &str = "client-token";
@@ -221,6 +223,7 @@ impl TestServer {
                 signer: Some(Arc::new(signer)),
                 ..PostOptions::default()
             },
+            issuer: Some(Arc::new(mezgeb_engine::IssuerKey::from_hex(ISSUER_SEED)?)),
             tasks: TaskTracker::new(),
             request_timeout: timeout,
             body_limit: 65_536,
