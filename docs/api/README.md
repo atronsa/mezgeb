@@ -32,7 +32,7 @@ in code. After the v1 release, only backward-compatible changes are made to
 | Holds | Place, get, capture, release |
 | Periods | List, get the open one, get one, close |
 | Reports | Trial balance (now, at a period's end, or at a time); ageing of open items |
-| Offline | Devices, vouchers, receipts: answer `501` until steps 2.11 and 2.12 |
+| Offline | Register and revoke devices, issue vouchers, list the issuer keys (step 2.11, [offline runbook](../runbooks/offline.md)); receipts answer `501` until step 2.12 |
 
 ## Conventions
 
