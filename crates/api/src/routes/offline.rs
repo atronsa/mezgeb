@@ -61,6 +61,7 @@ impl From<OfflineError> for ApiError {
             OfflineError::OverCustomerCap { .. } => ApiError::new("over_customer_cap", detail),
             OfflineError::WrongCurrency(_) => ApiError::invalid("/amount/currency", detail),
             OfflineError::Invalid(_) => ApiError::new("invalid_request", detail),
+            OfflineError::NotYet(_) => ApiError::new("not_implemented", detail),
             OfflineError::BadTransition { .. } | OfflineError::Booking(_) => {
                 ApiError::internal(detail)
             }
