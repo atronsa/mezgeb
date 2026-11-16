@@ -37,7 +37,7 @@ pub use entry::{AccountsView, BalancedEntry, EntryDraft, Line, LineDraft};
 pub use error::PostingError;
 pub use fingerprint::{
     Fingerprint, adjustment_fingerprint, hold_capture_fingerprint, hold_end_fingerprint,
-    hold_place_fingerprint, reversal_fingerprint,
+    hold_place_fingerprint, reversal_fingerprint, voucher_issue_fingerprint,
 };
 pub use hold::{Hold, HoldStatus};
 pub use ids::{

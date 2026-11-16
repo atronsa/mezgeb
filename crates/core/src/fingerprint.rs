@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use crate::authorization::Authorization;
 use crate::chart::Side;
 use crate::entry::EntryDraft;
-use crate::ids::{AccountId, EntryId, HoldId};
+use crate::ids::{AccountId, DeviceId, EntryId, HoldId};
 use crate::money::PositiveAmount;
 use crate::time::Timestamp;
 
@@ -34,6 +34,7 @@ const HOLD_EXPIRE: u8 = 7;
 /// Follows the lines of a refund, with the entry it refunds. Absent for any
 /// other post, so fingerprints from before refunds existed are unchanged.
 const REFUNDS: u8 = 8;
+const VOUCHER_ISSUE: u8 = 9;
 
 fn length(hasher: &mut Sha256, n: usize) {
     // Lengths are bounded by the posting limits, far below u32::MAX.
@@ -164,6 +165,18 @@ pub fn hold_end_fingerprint(hold: HoldId, expire: bool) -> Fingerprint {
     hasher.update(VERSION);
     hasher.update([if expire { HOLD_EXPIRE } else { HOLD_RELEASE }]);
     hasher.update(hold.as_uuid().as_bytes());
+    hasher.finalize().into()
+}
+
+/// The fingerprint of a request to issue a voucher of `value` to `device`
+/// (step 2.11). The voucher's ID, like the entry's, is minted by the ledger
+/// for each attempt, so it is not part of it.
+pub fn voucher_issue_fingerprint(device: DeviceId, value: PositiveAmount) -> Fingerprint {
+    let mut hasher = Sha256::new();
+    hasher.update(VERSION);
+    hasher.update([VOUCHER_ISSUE]);
+    hasher.update(device.as_uuid().as_bytes());
+    amount(&mut hasher, value);
     hasher.finalize().into()
 }
 
