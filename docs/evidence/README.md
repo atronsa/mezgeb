@@ -37,3 +37,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.08 | [Authentication, authorization and privilege separation](2.08-authentication-and-authorization.md) | Passed |
 | 2.09 | [Audit logging and tamper evidence](2.09-audit-logging-and-tamper-evidence.md) | Passed; chain head bottleneck recorded for 3.03 |
 | 2.10 | [Offline protocol design](2.10-offline-protocol-design.md) | Passed; external security review requested, card chip confirmation pending |
+| 2.11 | [Device registry and voucher issuance](2.11-device-registry-and-vouchers.md) | Passed; tier C only until attestation is verified; firmware handover pending |
