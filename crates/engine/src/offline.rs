@@ -645,6 +645,7 @@ pub async fn set_device_status(
     let mut tx = sqlx::Acquire::begin(&mut *conn).await.map_err(sql)?;
     let device = load_device(&mut tx, client, id, true).await?;
     if device.status == to {
+        tx.commit().await.map_err(sql)?;
         return Ok(device);
     }
     if !device.status.may_become(to) {
@@ -874,6 +875,9 @@ async fn open_escrow(
     Ok(account)
 }
 
+/// One attempt: [`issue_in`] in a transaction, committed if it succeeds and
+/// rolled back at once if not, so a refusal releases the device's lock
+/// before it returns.
 async fn issue_once<F>(
     conn: &mut PgConnection,
     issuer: &IssuerKey,
@@ -885,9 +889,34 @@ async fn issue_once<F>(
 where
     F: Fn(&BTreeMap<AccountId, Account>, AccountId, AccountId) -> Result<EntryDraft, String>,
 {
-    let fingerprint = voucher_issue_fingerprint(new.device_id, new.amount);
     let mut tx = options.begin(conn).await?;
-    if entry_exists(&mut tx, new.entry_id).await? {
+    match issue_in(&mut tx, issuer, chart, new, book, options).await {
+        Ok(issued) => {
+            options.commit(tx).await?;
+            Ok(issued)
+        }
+        Err(error) => {
+            // The refusal matters more than a failed rollback, which the
+            // connection's next use completes anyway.
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+async fn issue_in<F>(
+    tx: &mut PgConnection,
+    issuer: &IssuerKey,
+    chart: &Chart,
+    new: &NewVoucher,
+    book: &F,
+    options: &PostOptions,
+) -> Result<IssuedVoucher, OfflineError>
+where
+    F: Fn(&BTreeMap<AccountId, Account>, AccountId, AccountId) -> Result<EntryDraft, String>,
+{
+    let fingerprint = voucher_issue_fingerprint(new.device_id, new.amount);
+    if entry_exists(tx, new.entry_id).await? {
         return Err(LedgerError::DuplicateEntry(new.entry_id).into());
     }
     let claim = PostRequest::new(
@@ -896,14 +925,14 @@ where
         new.idempotency_key.clone(),
         EntryDraft::default(),
     );
-    if let Claim::Existing(entry) = claim_key(&mut tx, &claim, &fingerprint).await? {
-        return voucher_of_entry(&mut tx, entry.id())
+    if let Claim::Existing(entry) = claim_key(tx, &claim, &fingerprint).await? {
+        return voucher_of_entry(tx, entry.id())
             .await?
             .ok_or(OfflineError::Ledger(LedgerError::IdempotencyKeyReused));
     }
 
     // The device, locked: one issue at a time per device.
-    let device = load_device(&mut tx, Some(new.client), new.device_id, true).await?;
+    let device = load_device(tx, Some(new.client), new.device_id, true).await?;
     if device.status != DeviceStatus::Active {
         return Err(OfflineError::DeviceNotActive(device.status));
     }
@@ -915,7 +944,7 @@ where
         return Err(OfflineError::WrongCurrency(amount.currency()));
     }
     let tier = device.certificate.tier;
-    let limits = tier_limits(&mut tx, new.client, tier)
+    let limits = tier_limits(tx, new.client, tier)
         .await?
         .ok_or(OfflineError::TierDisabled(tier))?;
     if amount.amount() > limits.max_voucher_minor {
@@ -959,9 +988,9 @@ where
     }
 
     // E16, into a new escrow.
-    let escrow = open_escrow(&mut tx, chart, new).await?;
+    let escrow = open_escrow(tx, chart, new).await?;
     let mut view = BTreeMap::new();
-    let wallet_account = crate::accounts::get_account(&mut tx, wallet)
+    let wallet_account = crate::accounts::get_account(tx, wallet)
         .await?
         .ok_or(LedgerError::AccountNotFound(wallet))?;
     view.insert(wallet, wallet_account);
@@ -969,7 +998,7 @@ where
     let draft = book(&view, wallet, new.escrow_account).map_err(OfflineError::Booking)?;
     check_booking(&draft, wallet, new.escrow_account, new)?;
     let posting = PostRequest::new(new.entry_id, new.client, new.idempotency_key.clone(), draft);
-    post_in_transaction(&mut tx, posting, None, options).await?;
+    post_in_transaction(tx, posting, None, options).await?;
 
     // The voucher, signed.
     let voucher = Voucher {
@@ -984,7 +1013,7 @@ where
         issuer_key_id: issuer.key_id(),
     };
     let signature = voucher.sign(&issuer.key);
-    issuer.register(&mut tx).await?;
+    issuer.register(tx).await?;
     sqlx::query(
         "INSERT INTO vouchers
              (id, device_id, client_id, owner_account_id, escrow_account_id, currency,
@@ -1018,11 +1047,9 @@ where
         }
         _ => sql(e),
     })?;
-    let issued = voucher_of_entry(&mut tx, new.entry_id)
+    Ok(voucher_of_entry(tx, new.entry_id)
         .await?
-        .ok_or_else(|| storage("an issued voucher disappeared"))?;
-    options.commit(tx).await?;
-    Ok(issued)
+        .ok_or_else(|| storage("an issued voucher disappeared"))?)
 }
 
 /// Issues a voucher (protocol §7): checks the device, its tier limit and

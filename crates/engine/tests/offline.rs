@@ -359,8 +359,11 @@ async fn frozen_and_revoked_devices_get_no_voucher() -> TestResult {
         Err(OfflineError::DeviceNotActive(DeviceStatus::Frozen))
     ));
 
-    // The operator lifts the freeze, and it works again.
-    set_device_status(&mut conn, None, device, DeviceStatus::Active, None).await?;
+    // The operator lifts the freeze, as `mezgeb_admin` (`mezgeb-cli
+    // offline device unfreeze`), and it works again.
+    let mut admin = s.db.admin().await?;
+    set_device_status(&mut admin, None, device, DeviceStatus::Active, None).await?;
+    drop(admin);
     s.issue(&mut conn, device, 2, 1_000).await??;
     // One open voucher per device.
     assert!(matches!(
