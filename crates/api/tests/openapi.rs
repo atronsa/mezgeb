@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use mezgeb_ops::{RELEASED, TemplateRegistry};
+use mezgeb_ops::{TemplateRegistry, client_postable};
 
 const SPEC: &str = include_str!("../../../openapi/mezgeb.v1.yaml");
 
@@ -91,11 +91,12 @@ fn every_template_has_an_operation_with_its_exact_shape() -> TestResult {
         .iter()
         .filter_map(|d| d["id"].as_str().map(str::to_owned))
         .collect();
-    let released: BTreeSet<String> = RELEASED.iter().map(|s| (*s).to_owned()).collect();
+    // Templates only the engine books have no operation of their own.
+    let released: BTreeSet<String> = client_postable().iter().map(|s| (*s).to_owned()).collect();
     assert_eq!(ids, released, "templates in the contract");
     assert_eq!(
         documented.len(),
-        RELEASED.len(),
+        client_postable().len(),
         "one operation per template"
     );
 

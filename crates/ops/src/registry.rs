@@ -7,6 +7,7 @@ use mezgeb_core::{AccountsView, EntryDraft};
 
 use crate::deposits::{DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 use crate::error::TemplateError;
+use crate::offline::IssueVoucherV1;
 use crate::p2p_transfer::P2pTransferV1;
 use crate::payments::{MerchantPaymentV1, PaymentRequestSettleV1};
 use crate::refunds::{
@@ -43,7 +44,26 @@ pub const RELEASED: &[&str] = &[
     "dispute_open.v1",
     "dispute_resolve_payer.v1",
     "dispute_resolve_merchant.v1",
+    // Step 2.11.
+    "issue_voucher.v1",
 ];
+
+/// Released templates that only the engine books, never a client through
+/// `POST /v1/operations`: each is one step of a larger operation the engine
+/// does in one transaction. `issue_voucher.v1` reserves the escrow of a
+/// voucher the engine checks against its tier and signs; booked alone, it
+/// would leave escrow with no voucher.
+pub const ENGINE_ONLY: &[&str] = &["issue_voucher.v1"];
+
+/// The released templates a client may post: [`RELEASED`] without
+/// [`ENGINE_ONLY`].
+pub fn client_postable() -> Vec<&'static str> {
+    RELEASED
+        .iter()
+        .copied()
+        .filter(|id| !ENGINE_ONLY.contains(id))
+        .collect()
+}
 
 type Book = fn(&OperationRequest, &dyn AccountsView) -> Result<EntryDraft, TemplateError>;
 
@@ -113,6 +133,7 @@ impl TemplateRegistry {
             TemplateRegistry::register::<DisputeOpenV1>,
             TemplateRegistry::register::<DisputeResolvePayerV1>,
             TemplateRegistry::register::<DisputeResolveMerchantV1>,
+            TemplateRegistry::register::<IssueVoucherV1>,
         ];
         for register in builtin {
             register(&mut registry)

@@ -51,9 +51,10 @@ pub struct Permissions {
 }
 
 impl Permissions {
-    /// The built-in matrix, checked against the released templates.
+    /// The built-in matrix, checked against the templates a client may
+    /// post: released, and not booked only by the engine.
     pub fn built_in() -> Result<Permissions, String> {
-        Permissions::parse(BUILT_IN, mezgeb_ops::RELEASED)
+        Permissions::parse(BUILT_IN, &mezgeb_ops::client_postable())
     }
 
     /// Parses and checks a matrix: every role of the engine and no other,
@@ -166,11 +167,24 @@ mod tests {
         let poster = p.scopes(&roles(&["poster"]));
         assert!(poster.contains("operations:write"));
         assert!(!poster.contains("accounts:read_all"));
-        // Every released template can be posted by someone.
+        // Every released template can be posted by someone, except those
+        // only the engine books, which no one can.
         let postable = p.templates(&roles(&mezgeb_engine::ROLES));
         for id in mezgeb_ops::RELEASED {
-            assert!(postable.contains(*id), "no role may post {id}");
+            let engine_only = mezgeb_ops::ENGINE_ONLY.contains(id);
+            assert_eq!(postable.contains(*id), !engine_only, "{id}");
         }
+        assert!(
+            Permissions::parse(
+                &BUILT_IN.replace(
+                    "\"p2p_transfer.v1\",",
+                    "\"p2p_transfer.v1\", \"issue_voucher.v1\","
+                ),
+                &mezgeb_ops::client_postable()
+            )
+            .is_err(),
+            "an engine-only template cannot be granted"
+        );
         // Only the operator and the auditor read across clients.
         for (name, grant) in p.roles() {
             let all = grant.scopes.contains("accounts:read_all");
