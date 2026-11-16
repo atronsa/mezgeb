@@ -37,7 +37,7 @@ mod withdrawals;
 
 pub use deposits::{AmountRequest, DepositConfirmedV1, DepositUnmatchedV1, SuspenseResolveV1};
 pub use error::TemplateError;
-pub use offline::IssueVoucherV1;
+pub use offline::{IssueVoucherV1, OfflineReceiptSettleV1};
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
 pub use payments::{CHANNELS, MerchantPaymentV1, PaymentRequest, PaymentRequestSettleV1};
 pub use refunds::{

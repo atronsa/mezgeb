@@ -38,9 +38,9 @@ const CUSTOMER_WALLETS: &[u16] = &[2010];
 /// 2030 Merchant balances.
 const MERCHANT_BALANCES: &[u16] = &[2030];
 /// Who a payment request can be paid to: a customer or a merchant.
-const PAYEES: &[u16] = &[2010, 2030];
+pub(crate) const PAYEES: &[u16] = &[2010, 2030];
 /// 4010 Payment fee revenue.
-const FEE_REVENUE: &[u16] = &[4010];
+pub(crate) const FEE_REVENUE: &[u16] = &[4010];
 
 /// The typed request of both payment templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,7 +66,7 @@ fn positive(minor: i64, like: PositiveAmount) -> Option<PositiveAmount> {
 }
 
 /// The lines of a payment from `payer` to `payee`, with its fees.
-fn book_payment(
+pub(crate) fn book_payment(
     payer: &'static str,
     payee: &'static str,
     request: &PaymentRequest,
