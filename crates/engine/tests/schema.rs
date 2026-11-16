@@ -526,7 +526,7 @@ async fn migrations_go_up_down_and_up() -> TestResult {
         sqlx::query_scalar::<_, i64>(tables)
             .fetch_one(&mut owner)
             .await?,
-        25
+        28
     );
     MIGRATOR.undo(&mut owner, 0).await?;
     assert_eq!(
@@ -540,7 +540,7 @@ async fn migrations_go_up_down_and_up() -> TestResult {
         sqlx::query_scalar::<_, i64>(tables)
             .fetch_one(&mut owner)
             .await?,
-        25
+        28
     );
     drop(owner);
     db.drop().await?;
