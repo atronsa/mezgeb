@@ -5506,7 +5506,6 @@ components:
           type: "integer"
           minimum: 1
           description: "The first counter the device's next voucher authorises, at the least: it rises with every receipt recorded and every voucher issued."
-          description: "The first counter the device's next voucher authorises."
         certificate:
           type: "object"
           additionalProperties: false
