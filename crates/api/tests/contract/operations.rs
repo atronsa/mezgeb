@@ -110,6 +110,31 @@ pub async fn every_template(api: &Api, wallets: &Wallets) -> Result<Posted, BoxE
         .await?,
         201
     );
+    // A bank charge the ledger did not have, parked and closed (E32, E33).
+    expect!(
+        operate(
+            api,
+            "bank_debit_unmatched.v1",
+            "sbd-1",
+            json!({
+        "accounts": {"bank_debit_item": "9040:sbd-0001", "customer_funds": "1010"},
+        "amounts": {"amount": etb("15.00")}})
+        )
+        .await?,
+        201
+    );
+    expect!(
+        operate(
+            api,
+            "bank_debit_resolve.v1",
+            "sbd-res-1",
+            json!({
+        "accounts": {"cause": "5020", "bank_debit_item": "9040:sbd-0001"},
+        "amounts": {"amount": etb("15.00")}})
+        )
+        .await?,
+        201
+    );
     for (n, outcome) in [(1, "withdrawal_confirmed.v1"), (2, "withdrawal_failed.v1")] {
         expect!(operate(api, "withdrawal_request.v1", &format!("wd-{n}"), json!({
             "accounts": {"customer_wallet": "2010:cust-abebe", "pending_withdrawal": format!("2020:wd-000{n}")},

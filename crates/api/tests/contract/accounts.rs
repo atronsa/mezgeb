@@ -13,7 +13,7 @@ pub struct Wallets {
 }
 
 pub async fn open_and_find(api: &Api) -> Result<Wallets, BoxError> {
-    for reference in ["1010", "4010", "5010"] {
+    for reference in ["1010", "4010", "5010", "5020"] {
         open(api, OPERATOR, reference).await?;
     }
     let abebe = open(api, CLIENT, "2010:cust-abebe").await?;
@@ -25,6 +25,7 @@ pub async fn open_and_find(api: &Api) -> Result<Wallets, BoxError> {
         "2020:wd-0002",
         "9030:wdt-0002",
         "9010:sus-0001",
+        "9040:sbd-0001",
         "2060:dsp-0001",
         "2060:dsp-0002",
         "2010:cust-hold-0001",
