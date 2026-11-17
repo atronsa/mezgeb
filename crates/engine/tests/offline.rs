@@ -150,6 +150,7 @@ impl Setup {
             escrow_account: id(400 + n)?,
             idempotency_key: IdempotencyKey::new(format!("voucher-{n}"))?,
             amount: positive(minor)?,
+            last_counter: 0,
             now: Timestamp::from_micros(NOW),
         })
     }

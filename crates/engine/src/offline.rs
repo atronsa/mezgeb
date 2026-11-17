@@ -372,7 +372,8 @@ pub struct Device {
     pub label: String,
     pub status: DeviceStatus,
     pub status_reason: Option<String>,
-    /// The first counter its next voucher authorises.
+    /// The first counter its next voucher authorises at the least: past its
+    /// last voucher's first counter and every counter recorded for it.
     pub next_counter: u64,
 }
 
@@ -777,6 +778,12 @@ pub struct NewVoucher {
     pub escrow_account: AccountId,
     pub idempotency_key: IdempotencyKey,
     pub amount: PositiveAmount,
+    /// The device's last counter, as it reports it: 0 if it has never
+    /// signed a receipt. The voucher starts after it, and after every
+    /// counter the ledger has recorded for the device, so no counter of an
+    /// earlier voucher, uploaded late, can collide with one of this voucher
+    /// (protocol §7).
+    pub last_counter: u64,
     /// Ledger time.
     pub now: Timestamp,
 }
@@ -1000,6 +1007,7 @@ where
             max_minor: limits.max_voucher_minor,
         });
     }
+    let counter_start = counter_start(tx, &device, new.last_counter).await?;
     let open: bool = sqlx::query_scalar(
         "SELECT EXISTS (SELECT 1 FROM vouchers
                          WHERE device_id = $1 AND status IN ('active', 'grace', 'frozen'))",
@@ -1069,7 +1077,7 @@ where
         client_id: new.client,
         escrow_account_id: new.escrow_account,
         amount,
-        counter_start: device.next_counter,
+        counter_start,
         issued_at: new.now,
         expires_at: Timestamp::from_micros(new.now.as_micros() + limits.lifetime_micros),
         issuer_key_id: issuer.key_id(),
@@ -1109,9 +1117,41 @@ where
         }
         _ => sql(e),
     })?;
+    // The next voucher starts at this one's first counter at the least;
+    // each receipt recorded raises it further.
+    sqlx::query("UPDATE devices SET next_counter = $2 WHERE id = $1")
+        .bind(new.device_id.as_uuid())
+        .bind(i64::try_from(counter_start).map_err(storage)?)
+        .execute(&mut *tx)
+        .await
+        .map_err(sql)?;
     Ok(voucher_of_entry(tx, new.entry_id)
         .await?
         .ok_or_else(|| storage("an issued voucher disappeared"))?)
+}
+
+/// The first counter of a device's new voucher: after the device's last
+/// counter as it reports it, and after every counter the ledger has
+/// recorded or expects for it. A counter is at most `i64::MAX`, as stored.
+async fn counter_start(
+    tx: &mut PgConnection,
+    device: &Device,
+    last_counter: u64,
+) -> Result<u64, OfflineError> {
+    let reported = i64::try_from(last_counter)
+        .ok()
+        .and_then(|c| c.checked_add(1))
+        .ok_or_else(|| OfflineError::Invalid("the last counter is too large".into()))?;
+    let recorded: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(max(counter), 0)::bigint FROM offline_receipts WHERE device_id = $1",
+    )
+    .bind(device.id().as_uuid())
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(sql)?;
+    let next = i64::try_from(device.next_counter).map_err(storage)?;
+    let start = reported.max(recorded.saturating_add(1)).max(next);
+    Ok(u64::try_from(start).map_err(storage)?)
 }
 
 /// Issues a voucher (protocol §7): checks the device, its tier limit and
