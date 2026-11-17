@@ -40,3 +40,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.11 | [Device registry and voucher issuance](2.11-device-registry-and-vouchers.md) | Passed; tier C only until attestation is verified; firmware handover pending |
 | 2.12 | [Receipt ingestion and settlement](2.12-receipt-ingestion-and-settlement.md) | Passed |
 | 2.13 | [Gaps, conflicts, expiry, rejections and disputes](2.13-offline-conflicts-and-expiry.md) | Passed; late receipts follow ADR-0019's loss policy, not suspense |
+| 2.14 | [Offline deterministic simulation](2.14-offline-simulation.md) | Built; planted bugs caught, seeds reproduce across machines; 14 clean nights pending |

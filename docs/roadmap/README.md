@@ -187,7 +187,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 2.11 | [Device Registry and Voucher Issuance](phase-2-operations-and-security/11-device-registry-and-vouchers.md) | 27 | Done ([evidence](../evidence/2.11-device-registry-and-vouchers.md)) |
 | 2.12 | [Receipt Ingestion and Settlement](phase-2-operations-and-security/12-receipt-ingestion-and-settlement.md) | 28 | Done ([evidence](../evidence/2.12-receipt-ingestion-and-settlement.md)) |
 | 2.13 | [Gaps, Conflicts, Expiry, Rejections and Disputes](phase-2-operations-and-security/13-offline-conflicts-and-expiry.md) | 29 | Done ([evidence](../evidence/2.13-offline-conflicts-and-expiry.md)) |
-| 2.14 | [Offline Deterministic Simulation](phase-2-operations-and-security/14-offline-simulation.md) | 30 | Built; accepted after 14 consecutive clean nightly runs |
+| 2.14 | [Offline Deterministic Simulation](phase-2-operations-and-security/14-offline-simulation.md) | 30 | Built ([evidence](../evidence/2.14-offline-simulation.md)); accepted after 14 consecutive clean nightly runs |
 | 2.15 | [Reconciliation (Internal, External, Offline)](phase-2-operations-and-security/15-reconciliation.md) | 31 | Not started |
 | 2.16 | [Phase 2 Security Review and Exit](phase-2-operations-and-security/16-phase-2-security-review-and-exit.md) | 32 | Not started |
 | 3.01 | [Performance Methodology and Realistic Workload](phase-3-scale-and-integration/01-performance-methodology.md) | 33 | Not started |
