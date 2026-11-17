@@ -77,9 +77,9 @@ listed by ID in the [traceability matrix](#traceability-matrix).
 |---|---|---|---|
 | INV-19 | The receipts settled against a voucher never exceed the voucher's escrow amount. | Engine, DB | T-19a, T-19b |
 | INV-20 | A `(device_id, counter)` pair is settled at most once, whoever uploads it and however many times. | Engine, DB, Protocol | T-20a, T-20b |
-| INV-21 | Two different receipts with the same `(device_id, counter)` are never both settled. The second one always raises a conflict and freezes the device. | Engine, Protocol | T-21a |
+| INV-21 | Two different receipts with the same `(device_id, counter)` are never both settled. The second one always raises a conflict and freezes the device. | Engine, Protocol | T-21a, T-21b |
 | INV-22 | Only receipts with a valid device signature, a known active voucher and an unbroken hash chain are settled. | Protocol, Engine | T-22a, T-22b |
-| INV-23 | After a voucher expires and its unspent escrow is returned, its escrow sub-account is zero. | Engine, Job | T-23a |
+| INV-23 | After a voucher expires and its unspent escrow is returned, its escrow sub-account is zero. | Engine, Job | T-23a, T-23b |
 
 ### Control
 
@@ -158,9 +158,11 @@ Every invariant has at least one planned test. Test kinds:
 | T-20a | INV-20 | Unit | The same receipt uploaded twice returns duplicate the second time | 2.12 |
 | T-20b | INV-20 | Simulation | Payer and payee uploading the same receipts in any order settle each once | 2.14 |
 | T-21a | INV-21 | Simulation | A cloned device producing two receipts with one counter: one settles, the device freezes | 2.13 |
+| T-21b | INV-21 | Simulation | Across millions of operations with clones and rolled-back phones, escrow never pays one counter twice | 2.14 |
 | T-22a | INV-22 | Unit | Receipts with a bad signature, unknown voucher or broken chain are rejected | 2.12 |
 | T-22b | INV-22 | Simulation | Forged and replayed receipts never settle | 2.14 |
 | T-23a | INV-23 | Unit | After expiry and return, the escrow sub-account is zero | 2.13 |
+| T-23b | INV-23 | Simulation | After every simulated operation, every returned or ended voucher's escrow is zero | 2.14 |
 | T-24a | INV-24 | Unit | Posting to a closed, frozen or control account is rejected | 1.09 |
 | T-24b | INV-24 | DB | A line to a closed account is rejected by the database | 1.08 |
 | T-25a | INV-25 | Unit | An adjustment with the same maker and checker, or without a reason, is rejected | 1.12 |
@@ -231,6 +233,32 @@ measurement already exists: `concurrency.rs`, `recorded_time_against_sequence`
 | T-10a | INV-10 | `periods.rs` (engine): `posting_into_a_closed_period_is_refused` (the engine with no open period, the database for an entry or a line written into a closed period) |
 | T-10b | INV-10 | `periods.rs` (engine): `thirty_days_of_snapshots_match_the_full_recomputation`, `a_snapshot_plus_later_lines_is_the_current_balance`, `a_close_that_stopped_is_finished_and_a_bad_period_stays_closing` |
 | T-10c | INV-10 | `periods.rs` (engine): `closing_while_postings_are_in_flight` |
+
+### Step 2.14 tests
+
+The offline simulation (`mezgeb-sim --workload offline`, `crates/sim/src/offline/`)
+runs fleets of devices that pay, clone, roll back, over-spend, forge,
+replay and lose receipts, against the reference model and against
+PostgreSQL. Its checker (`check.rs`) audits the model after **every**
+operation; against PostgreSQL every answer must also equal the model's.
+Nightly: 10 million operations on 4,096 devices, and 200,000 against
+PostgreSQL with 10% of attempts crashed (`.github/workflows/nightly.yml`).
+
+| Test | Invariant | Where |
+|---|---|---|
+| T-19b | INV-19 | `check.rs`: no voucher pays more from escrow than its amount, and every open escrow holds its amount less what it paid, after every operation; against PostgreSQL, `escrow_findings` at the end of the run |
+| T-20b | INV-20 | `check.rs`: no receipt digest paid twice, and no two receipts recorded for one `(device_id, counter)` both paid, after every operation; payer and payee upload every receipt, in any order, any number of times |
+| T-21a, T-21b | INV-21 | `check.rs`: escrow never pays one counter twice; the simulation's clones and rolled-back phones; the planted bug `skip-counter-check` is caught (`offline::tests::planted_bugs_are_caught`, and nightly) |
+| T-22b | INV-22 | `check.rs`: every paid receipt was signed by its device's real key (the simulation knows which); every link settled without a gap skip names its predecessor; the planted bug `skip-chain-check` is caught |
+| T-23b | INV-23 | `check.rs`: a returned or ended voucher's escrow is zero, after every operation |
+
+At the end of each epoch every receipt still held is uploaded, every
+dispute resolved and every deadline passed; then every receipt must be
+settled, refused or expired, and every voucher ended
+(`check::settled_or_refused`). The reference ledger's own checker (INV-1 to
+INV-8, INV-13 to INV-25 in memory) runs every 1,000 operations; against
+PostgreSQL a full verification (INV-1 to INV-12) and the hash chains end
+the run.
 
 ## Mapping from the draft spec
 
