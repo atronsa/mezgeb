@@ -54,6 +54,8 @@ tags:
     description: "Access tokens for client credentials (RFC 6749, ADR-0017)."
   - name: "Audit"
     description: "Tamper evidence: signing keys, signed checkpoints and audit events (ADR-0018)."
+  - name: "Reconciliation"
+    description: "Breaks between the ledger and the bank statement, client caches and offline devices, and the suspense entries that resolve them (ADR-0020)."
 paths:
   /v1/accounts:
     post:
@@ -2124,6 +2126,246 @@ paths:
               accounts:
                 dispute_item: "2060:dsp-0001"
                 merchant_balance: "2030:merch-coffee"
+              amounts:
+                amount:
+                  amount: "100.00"
+                  currency: "ETB"
+      responses:
+        "201":
+          $ref: "#/components/responses/EntryPosted"
+        "200":
+          $ref: "#/components/responses/EntryReplayed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: "Conflict"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_reused:
+                  $ref: "#/components/examples/error-idempotency_key_reused"
+        "422":
+          description: "Refused"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                missing_amount:
+                  $ref: "#/components/examples/error-missing_amount"
+                unexpected_amount:
+                  $ref: "#/components/examples/error-unexpected_amount"
+                non_positive_amount:
+                  $ref: "#/components/examples/error-non_positive_amount"
+                missing_account:
+                  $ref: "#/components/examples/error-missing_account"
+                unexpected_account:
+                  $ref: "#/components/examples/error-unexpected_account"
+                bound_account_not_found:
+                  $ref: "#/components/examples/error-bound_account_not_found"
+                account_not_allowed:
+                  $ref: "#/components/examples/error-account_not_allowed"
+                same_account:
+                  $ref: "#/components/examples/error-same_account"
+                reserved_metadata:
+                  $ref: "#/components/examples/error-reserved_metadata"
+                amount_not_whole_balance:
+                  $ref: "#/components/examples/error-amount_not_whole_balance"
+                account_not_new:
+                  $ref: "#/components/examples/error-account_not_new"
+                fee_exceeds_amount:
+                  $ref: "#/components/examples/error-fee_exceeds_amount"
+                amount_currency_mismatch:
+                  $ref: "#/components/examples/error-amount_currency_mismatch"
+                amount_too_large:
+                  $ref: "#/components/examples/error-amount_too_large"
+                missing_metadata:
+                  $ref: "#/components/examples/error-missing_metadata"
+                invalid_metadata:
+                  $ref: "#/components/examples/error-invalid_metadata"
+                missing_refunded_entry:
+                  $ref: "#/components/examples/error-missing_refunded_entry"
+                unexpected_refunded_entry:
+                  $ref: "#/components/examples/error-unexpected_refunded_entry"
+                too_few_lines:
+                  $ref: "#/components/examples/error-too_few_lines"
+                too_many_lines:
+                  $ref: "#/components/examples/error-too_many_lines"
+                metadata_too_large:
+                  $ref: "#/components/examples/error-metadata_too_large"
+                amount_not_positive:
+                  $ref: "#/components/examples/error-amount_not_positive"
+                account_not_found:
+                  $ref: "#/components/examples/error-account_not_found"
+                account_not_open:
+                  $ref: "#/components/examples/error-account_not_open"
+                currency_mismatch:
+                  $ref: "#/components/examples/error-currency_mismatch"
+                duplicate_line:
+                  $ref: "#/components/examples/error-duplicate_line"
+                amount_overflow:
+                  $ref: "#/components/examples/error-amount_overflow"
+                unbalanced:
+                  $ref: "#/components/examples/error-unbalanced"
+                account_total_overflow:
+                  $ref: "#/components/examples/error-account_total_overflow"
+                insufficient_funds:
+                  $ref: "#/components/examples/error-insufficient_funds"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/operations/bank_debit_unmatched.v1:
+    post:
+      operationId: "postBankDebitUnmatchedV1"
+      tags:
+        - "Reconciliation"
+      summary: "Park an unexplained bank debit"
+      description: "Books `bank_debit_unmatched.v1` (worked entries E32, E34). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
+      x-mezgeb-template: {"id": "bank_debit_unmatched.v1", "roles": ["bank_debit_item", "customer_funds"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
+      security:
+        - oauth2:
+            - "operations:write"
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankDebitUnmatchedV1Request"
+            example:
+              accounts:
+                bank_debit_item: "9040:sbd-0001"
+                customer_funds: "1010"
+              amounts:
+                amount:
+                  amount: "100.00"
+                  currency: "ETB"
+      responses:
+        "201":
+          $ref: "#/components/responses/EntryPosted"
+        "200":
+          $ref: "#/components/responses/EntryReplayed"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: "Conflict"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                idempotency_key_reused:
+                  $ref: "#/components/examples/error-idempotency_key_reused"
+        "422":
+          description: "Refused"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                missing_amount:
+                  $ref: "#/components/examples/error-missing_amount"
+                unexpected_amount:
+                  $ref: "#/components/examples/error-unexpected_amount"
+                non_positive_amount:
+                  $ref: "#/components/examples/error-non_positive_amount"
+                missing_account:
+                  $ref: "#/components/examples/error-missing_account"
+                unexpected_account:
+                  $ref: "#/components/examples/error-unexpected_account"
+                bound_account_not_found:
+                  $ref: "#/components/examples/error-bound_account_not_found"
+                account_not_allowed:
+                  $ref: "#/components/examples/error-account_not_allowed"
+                same_account:
+                  $ref: "#/components/examples/error-same_account"
+                reserved_metadata:
+                  $ref: "#/components/examples/error-reserved_metadata"
+                amount_not_whole_balance:
+                  $ref: "#/components/examples/error-amount_not_whole_balance"
+                account_not_new:
+                  $ref: "#/components/examples/error-account_not_new"
+                fee_exceeds_amount:
+                  $ref: "#/components/examples/error-fee_exceeds_amount"
+                amount_currency_mismatch:
+                  $ref: "#/components/examples/error-amount_currency_mismatch"
+                amount_too_large:
+                  $ref: "#/components/examples/error-amount_too_large"
+                missing_metadata:
+                  $ref: "#/components/examples/error-missing_metadata"
+                invalid_metadata:
+                  $ref: "#/components/examples/error-invalid_metadata"
+                missing_refunded_entry:
+                  $ref: "#/components/examples/error-missing_refunded_entry"
+                unexpected_refunded_entry:
+                  $ref: "#/components/examples/error-unexpected_refunded_entry"
+                too_few_lines:
+                  $ref: "#/components/examples/error-too_few_lines"
+                too_many_lines:
+                  $ref: "#/components/examples/error-too_many_lines"
+                metadata_too_large:
+                  $ref: "#/components/examples/error-metadata_too_large"
+                amount_not_positive:
+                  $ref: "#/components/examples/error-amount_not_positive"
+                account_not_found:
+                  $ref: "#/components/examples/error-account_not_found"
+                account_not_open:
+                  $ref: "#/components/examples/error-account_not_open"
+                currency_mismatch:
+                  $ref: "#/components/examples/error-currency_mismatch"
+                duplicate_line:
+                  $ref: "#/components/examples/error-duplicate_line"
+                amount_overflow:
+                  $ref: "#/components/examples/error-amount_overflow"
+                unbalanced:
+                  $ref: "#/components/examples/error-unbalanced"
+                account_total_overflow:
+                  $ref: "#/components/examples/error-account_total_overflow"
+                insufficient_funds:
+                  $ref: "#/components/examples/error-insufficient_funds"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/operations/bank_debit_resolve.v1:
+    post:
+      operationId: "postBankDebitResolveV1"
+      tags:
+        - "Reconciliation"
+      summary: "Close an unexplained bank debit"
+      description: "Books `bank_debit_resolve.v1` (worked entries E33, E35). The request binds each role to an account and gives each amount; the template turns it into one balanced entry, which the ledger posts in one transaction. The client decides whether the operation is allowed (ADR-0002); the ledger decides how it is booked."
+      x-mezgeb-template: {"id": "bank_debit_resolve.v1", "roles": ["cause", "bank_debit_item"], "optional_roles": [], "amounts": ["amount"], "optional_amounts": [], "metadata": [], "refunds": false}
+      security:
+        - oauth2:
+            - "operations:write"
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BankDebitResolveV1Request"
+            example:
+              accounts:
+                cause: "5020"
+                bank_debit_item: "9040:sbd-0001"
               amounts:
                 amount:
                   amount: "100.00"
@@ -6536,6 +6778,74 @@ components:
               allOf:
                 - $ref: "#/components/schemas/AccountRef"
               description: "The account bound to `merchant_balance`: one opened under chart account 2030."
+        amounts:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "amount"
+          properties:
+            amount:
+              $ref: "#/components/schemas/PositiveMoney"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        event_time:
+          $ref: "#/components/schemas/EventTime"
+    BankDebitUnmatchedV1Request:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "accounts"
+        - "amounts"
+      properties:
+        accounts:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "bank_debit_item"
+            - "customer_funds"
+          properties:
+            bank_debit_item:
+              allOf:
+                - $ref: "#/components/schemas/AccountRef"
+              description: "The account bound to `bank_debit_item`: one opened under chart account 9040."
+            customer_funds:
+              allOf:
+                - $ref: "#/components/schemas/AccountRef"
+              description: "The account bound to `customer_funds`: one opened under chart account 1010."
+        amounts:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "amount"
+          properties:
+            amount:
+              $ref: "#/components/schemas/PositiveMoney"
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        event_time:
+          $ref: "#/components/schemas/EventTime"
+    BankDebitResolveV1Request:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "accounts"
+        - "amounts"
+      properties:
+        accounts:
+          type: "object"
+          additionalProperties: false
+          required:
+            - "cause"
+            - "bank_debit_item"
+          properties:
+            cause:
+              allOf:
+                - $ref: "#/components/schemas/AccountRef"
+              description: "The account bound to `cause`: one opened under chart accounts 1010, 2010, 2030, 5020."
+            bank_debit_item:
+              allOf:
+                - $ref: "#/components/schemas/AccountRef"
+              description: "The account bound to `bank_debit_item`: one opened under chart account 9040."
         amounts:
           type: "object"
           additionalProperties: false
