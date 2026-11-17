@@ -160,13 +160,9 @@ impl OfflineBooks for TestBooks {
     }
 }
 
-/// The wall clock, in µs: the receipts' `received_at` is the database's
-/// clock, so gap timeouts are measured from it.
-pub fn wall() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_micros()).unwrap_or(i64::MAX))
-}
+/// When [`World::upload`] uploads, in ledger time: a receipt's
+/// `received_at`, from which its gap timeout runs.
+pub const UPLOADED: i64 = NOW + 24 * HOUR;
 
 pub const DAY: i64 = 24 * HOUR;
 
@@ -314,7 +310,7 @@ impl World {
             client: self.client,
             body,
             signature,
-            now: Timestamp::from_micros(NOW + 24 * HOUR),
+            now: Timestamp::from_micros(UPLOADED),
         };
         Ok(ingest_receipt(
             conn,

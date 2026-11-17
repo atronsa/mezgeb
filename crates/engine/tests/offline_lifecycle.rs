@@ -66,12 +66,21 @@ async fn a_gap_times_out_and_the_missing_receipt_must_match() -> TestResult {
         w.upload(&mut conn, &chain[2]).await?.outcome,
         Outcome::WaitingForGap
     );
+    // Received at the upload's ledger time, not the database's clock: the
+    // timeout runs from it.
+    let received: i64 = sqlx::query_scalar(
+        "SELECT (extract(epoch FROM received_at) * 1000000)::bigint
+           FROM offline_receipts WHERE counter = 2",
+    )
+    .fetch_one(&mut conn)
+    .await?;
+    assert_eq!(received, UPLOADED);
 
     // Not yet: 71 hours.
-    let report = w.tick(&mut conn, wall() + 71 * HOUR).await?;
+    let report = w.tick(&mut conn, UPLOADED + 71 * HOUR).await?;
     assert!(report.settled_past_gaps.is_empty());
     // 73 hours: both settle, in order, past the gap.
-    let report = w.tick(&mut conn, wall() + 73 * HOUR).await?;
+    let report = w.tick(&mut conn, UPLOADED + 73 * HOUR).await?;
     assert_eq!(report.settled_past_gaps.len(), 1);
     assert_eq!(report.settled_past_gaps[0].1.len(), 2);
     assert_eq!(outcome_of(&w, &mut conn, 2).await?, Outcome::Settled);
@@ -99,7 +108,7 @@ async fn a_gap_times_out_and_the_missing_receipt_must_match() -> TestResult {
     let mut conn = w.db.app().await?;
     let chain = w.chain(&[(COFFEE, 1_000), (STALL, 2_000)])?;
     w.upload(&mut conn, &chain[1]).await?;
-    w.tick(&mut conn, wall() + 73 * HOUR).await?;
+    w.tick(&mut conn, UPLOADED + 73 * HOUR).await?;
     assert_eq!(
         w.upload(&mut conn, &chain[0]).await?.outcome,
         Outcome::Settled

@@ -341,7 +341,7 @@ async fn scenario_8_partial_sync() -> TestResult {
     for i in [0, 1, 2, 4, 5] {
         w.upload(&mut conn, &r[i]).await?;
     }
-    let report = w.tick(&mut conn, wall() + 73 * HOUR).await?;
+    let report = w.tick(&mut conn, UPLOADED + 73 * HOUR).await?;
     assert_eq!(report.settled_past_gaps[0].1.len(), 2);
     assert_eq!(w.upload(&mut conn, &r[3]).await?.outcome, Outcome::Settled);
     assert_eq!(outcomes(&w, &mut conn).await?, [Outcome::Settled; 6]);
