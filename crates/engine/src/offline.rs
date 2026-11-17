@@ -1088,11 +1088,11 @@ where
         "INSERT INTO vouchers
              (id, device_id, client_id, owner_account_id, escrow_account_id, currency,
               amount_minor, counter_start, issued_at, expires_at, issuer_key_id, signature,
-              entry_id)
+              entry_id, reported_last_counter)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
                  timestamptz 'epoch' + $9::bigint * interval '1 microsecond',
                  timestamptz 'epoch' + $10::bigint * interval '1 microsecond',
-                 $11, $12, $13)",
+                 $11, $12, $13, $14)",
     )
     .bind(new.voucher_id.as_uuid())
     .bind(new.device_id.as_uuid())
@@ -1107,6 +1107,8 @@ where
     .bind(&voucher.issuer_key_id)
     .bind(&signature[..])
     .bind(new.entry_id.as_uuid())
+    // What the device reported, for the offline reconciliation (step 2.15).
+    .bind(i64::try_from(new.last_counter).map_err(storage)?)
     .execute(&mut *tx)
     .await
     .map_err(|e| match constraint_violation(&e) {
