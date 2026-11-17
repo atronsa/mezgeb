@@ -16,6 +16,8 @@
 //!   numeric codes in the 2000 range.
 //! - [`AGED_ACCOUNTS`]: the clearing and suspense accounts whose open items
 //!   the ageing report lists (`docs/accounting/clearing-and-suspense.md`).
+//! - [`RECON_RESOLUTION_TEMPLATES`]: the templates whose entries may
+//!   resolve a reconciliation break (ADR-0020).
 //!
 //! The draft records its template in the entry metadata under
 //! [`TEMPLATE_KEY`]. The engine stores the metadata and includes it in the
@@ -30,6 +32,7 @@ mod error;
 mod offline;
 mod p2p_transfer;
 mod payments;
+mod reconciliation;
 mod refunds;
 mod registry;
 mod template;
@@ -43,6 +46,7 @@ pub use offline::{
 };
 pub use p2p_transfer::{P2pTransferRequest, P2pTransferV1};
 pub use payments::{CHANNELS, MerchantPaymentV1, PaymentRequest, PaymentRequestSettleV1};
+pub use reconciliation::{BankDebitResolveV1, BankDebitUnmatchedV1};
 pub use refunds::{
     DisputeOpenV1, DisputeResolveMerchantV1, DisputeResolvePayerV1, MerchantRefundV1, RefundRequest,
 };
@@ -56,7 +60,13 @@ pub use withdrawals::{
 };
 
 /// The chart accounts whose open items the ageing report lists: 2020 Pending
-/// withdrawals, 2060 Disputed merchant funds, 9010 Suspense and 9030
-/// Clearing: withdrawals in transit. Each sub-account is one item, open while
-/// its balance is not zero.
-pub const AGED_ACCOUNTS: &[u16] = &[2020, 2060, 9010, 9030];
+/// withdrawals, 2060 Disputed merchant funds, 9010 Suspense, 9030 Clearing:
+/// withdrawals in transit and 9040 Suspense: unexplained bank debits. Each
+/// sub-account is one item, open while its balance is not zero.
+pub const AGED_ACCOUNTS: &[u16] = &[2020, 2060, 9010, 9030, 9040];
+
+/// The templates whose entries may resolve a reconciliation break
+/// (ADR-0020 decision 7): each moves 1010 to the bank's figure and parks the
+/// difference in a suspense item.
+pub const RECON_RESOLUTION_TEMPLATES: &[&str] =
+    &["deposit_unmatched.v1", "bank_debit_unmatched.v1"];

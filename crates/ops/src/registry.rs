@@ -13,6 +13,7 @@ use crate::offline::{
 };
 use crate::p2p_transfer::P2pTransferV1;
 use crate::payments::{MerchantPaymentV1, PaymentRequestSettleV1};
+use crate::reconciliation::{BankDebitResolveV1, BankDebitUnmatchedV1};
 use crate::refunds::{
     DisputeOpenV1, DisputeResolveMerchantV1, DisputeResolvePayerV1, MerchantRefundV1,
 };
@@ -55,6 +56,9 @@ pub const RELEASED: &[&str] = &[
     "offline_voucher_return.v1",
     "offline_receipt_pay.v1",
     "offline_shortfall_repay.v1",
+    // Step 2.15.
+    "bank_debit_unmatched.v1",
+    "bank_debit_resolve.v1",
 ];
 
 /// Released templates that only the engine books, never a client through
@@ -157,6 +161,8 @@ impl TemplateRegistry {
             TemplateRegistry::register::<OfflineVoucherReturnV1>,
             TemplateRegistry::register::<OfflineReceiptPayV1>,
             TemplateRegistry::register::<OfflineShortfallRepayV1>,
+            TemplateRegistry::register::<BankDebitUnmatchedV1>,
+            TemplateRegistry::register::<BankDebitResolveV1>,
         ];
         for register in builtin {
             register(&mut registry)
