@@ -4,9 +4,10 @@
 
 **Status: v1 (step 2.10).** Built: devices and vouchers (step 2.11),
 receipts and their settlement (step 2.12), gap timeouts, expiry, late
-receipts, shortfalls and disputes (step 2.13); the simulation follows in
-step 2.14. Not built yet: the early close (§7.1) and payee
-acknowledgements (§8). Test
+receipts, shortfalls and disputes (step 2.13), and the deterministic
+simulation that runs fleets of devices against all of it (step 2.14,
+`mezgeb-sim --workload offline`). Not built yet: the early close (§7.1) and
+payee acknowledgements (§8). Test
 vectors: [test-vectors/offline](../../test-vectors/offline/README.md).
 Pending external security review ([review-request.md](review-request.md)).
 
@@ -178,14 +179,29 @@ transaction.
 | `client_id` | ID | |
 | `escrow_account_id` | ID | `2050:vch-…` |
 | `amount` | amount | The allowance |
-| `counter_start` | `u64` | The first counter it authorises: 1 for a device's first voucher, else the last voucher's last counter + 1 |
+| `counter_start` | `u64` | The first counter it authorises: after the device's last counter (see below) |
 | `issued_at` | `i64` µs | Ledger time |
 | `expires_at` | `i64` µs | Ledger time; `issued_at` + the tier's lifetime |
 | `issuer_key_id` | text | |
 
 `signature`: the issuer key's signature over the body.
 
+**The first counter.** The request carries the device's `last_counter`: 0
+if it has never signed a receipt. `counter_start` is the highest of:
+- `last_counter` + 1;
+- the highest counter the ledger has recorded for the device, + 1;
+- the device's `next_counter`, which rises with every receipt recorded and
+  with every voucher issued.
+
+So a receipt of an earlier voucher still in transit never shares a counter
+with the new voucher: it arrives later and is settled under its own
+voucher's rules. A device that reports too little (rolled back, or a clone)
+still starts after what the ledger has recorded.
+
 **Loading the voucher.**
+- **The device refuses a voucher whose `counter_start` is not above its own
+  counter**; that would mean the ledger saw counters the device did not
+  sign. It then continues from `counter_start`.
 - **On a card:** the chip stores the voucher and sets
   `remaining = amount`.
 - **On a phone:** the app stores it in its protected storage.
@@ -347,7 +363,9 @@ waits as `WAITING_FOR_GAP`.
 
 **The gap timeout.** A gap stops waiting after **72 hours** from the first
 receipt that waited on it, or when the voucher's escrow is returned,
-whichever comes first. The waiting receipts then settle in counter order:
+whichever comes first. The 72 hours are ledger time, from when the waiting
+receipt reached the ledger (`received_at`), like every other deadline
+here. The waiting receipts then settle in counter order:
 - **skipping the gap**, so the gap's own `prev_digest` link is not checked;
 - with every other check still applied (signature, no conflict, escrow);
 - each marked `gap_skipped`.
@@ -406,9 +424,21 @@ A frozen device's case goes to the operator, who sees:
 | A receipt the payer contests ("I never paid") | Valid signatures stand: the device signed it. The client handles the customer's complaint outside the ledger | none |
 | A fault in the ledger or the hardware vendor's chip | Operator adjustment, two people (INV-25) | adjustment |
 
+**The late deadline still holds.** A receipt or a conflicting copy that
+reached the ledger after the voucher `ENDED` is never paid, however the
+dispute ends: a recorded one becomes `EXPIRED`, and its payee bears it, as
+for any receipt past the deadline (§12). What arrived before the end is
+paid, however long the operator took.
+
 **When the dispute ends:**
-1. the voucher's remaining escrow is returned (**E27**);
-2. the voucher becomes `RETURNED`, then `ENDED` normally.
+1. if the voucher is still open (`ACTIVE`, `GRACE` or `FROZEN`), its
+   remaining escrow is returned (**E27**) and it becomes `RETURNED`, then
+   `ENDED` normally. A voucher that had already returned or ended keeps its
+   state and its return time, so its late deadline does not move;
+2. the device is revoked;
+3. receipts of the device's other vouchers, kept `FROZEN` only because the
+   device was frozen, are decided as if they had just arrived: `EXPIRED` if
+   their voucher has ended.
 
 ## 15. Card hardware requirements
 

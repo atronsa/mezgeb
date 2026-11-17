@@ -196,9 +196,19 @@ curl -X POST .../v1/offline/disputes/<id>/resolve -d '{"resolution": "paid"}'
 | `paid` | The receipts are validly signed: a cloned or rolled-back device, an over-spend. The payer is liable for what their device signed | Every receipt of the voucher is paid in counter order: from the escrow left, then the payer's wallet, then 5030 (recorded as a shortfall). A conflicting copy is paid from the wallet and 5030 only |
 | `refused` | A fault in the ledger or the chip, established by the operator | No receipt is paid; they become `REFUSED`, and their payees bear them |
 
-Either way, the escrow left goes back to the wallet (E27), the device is
-revoked, and an `offline.dispute` audit event names who decided. Resolving
-it again the same way changes nothing; the other way is refused.
+Either way:
+- **The escrow left of an open voucher goes back** to the wallet (E27). A
+  voucher that had already returned or ended keeps its state and its
+  return time: resolving late never extends its late deadline.
+- **Nothing that reached the ledger after the voucher ended is paid**, even
+  under `paid`: it becomes `EXPIRED`, and its payee bears it (protocol
+  §12). What arrived before the end is paid, however long the case took.
+- **The device is revoked**, and an `offline.dispute` audit event names who
+  decided.
+- **The device's receipts on its other vouchers**, kept `FROZEN` while it
+  was frozen, are decided at once, as if they had just arrived.
+
+Resolving it again the same way changes nothing; the other way is refused.
 
 ## 8. Shortfalls
 
