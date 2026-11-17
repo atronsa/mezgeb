@@ -3393,7 +3393,7 @@ paths:
       tags:
         - "Offline"
       summary: "Issue an offline voucher"
-      description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`), moving the amount from the owner's wallet into the voucher's own escrow `2050:vch-<id>`, and signs the voucher with the issuer key (protocol §7). One open voucher per device; the amount is at most the tier's limit, and the owner's open vouchers at most 5,000 ETB. A repeat with the same Idempotency-Key returns the same voucher."
+      description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`), moving the amount from the owner's wallet into the voucher's own escrow `2050:vch-<id>`, and signs the voucher with the issuer key (protocol §7). One open voucher per device; the amount is at most the tier's limit, and the owner's open vouchers at most 5,000 ETB. The voucher's `counter_start` is after the device's reported `last_counter` and after every counter the ledger has recorded for it, so a receipt of an earlier voucher still in transit never collides with it. A repeat with the same Idempotency-Key returns the same voucher."
       security:
         - oauth2:
             - "offline:write"
@@ -3410,6 +3410,7 @@ paths:
               amount:
                 amount: "100.00"
                 currency: "ETB"
+              last_counter: 0
       responses:
         "200":
           description: "The voucher, issued earlier for this Idempotency-Key."
@@ -5426,6 +5427,12 @@ components:
           $ref: "#/components/schemas/DeviceId"
         amount:
           $ref: "#/components/schemas/Money"
+        last_counter:
+          type: "integer"
+          minimum: 0
+          maximum: 9223372036854775806
+          default: 0
+          description: "The device's last counter, as the device reports it: 0 if it has never signed a receipt. The voucher starts after it (protocol §7)."
     DeviceId:
       allOf:
         - $ref: "#/components/schemas/Uuid7"
@@ -5498,6 +5505,7 @@ components:
         next_counter:
           type: "integer"
           minimum: 1
+          description: "The first counter the device's next voucher authorises, at the least: it rises with every receipt recorded and every voucher issued."
           description: "The first counter the device's next voucher authorises."
         certificate:
           type: "object"
@@ -5552,6 +5560,7 @@ components:
         counter_start:
           type: "integer"
           minimum: 1
+          description: "The voucher's first counter: after the device's reported last counter and every counter recorded for it. A device refuses a voucher that does not start above its own counter."
         issued_at:
           type: "string"
           format: "date-time"
