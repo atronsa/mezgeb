@@ -465,3 +465,95 @@ async fn a_client_sets_its_own_late_deadline() -> TestResult {
     w.db.drop().await?;
     Ok(())
 }
+
+/// A device's next voucher starts after its last counter: the one it
+/// reports, and every one the ledger has recorded. A receipt of the old
+/// voucher, uploaded late, then settles late instead of colliding with the
+/// new voucher's first counter.
+#[tokio::test]
+async fn a_new_voucher_starts_after_the_last_counter() -> TestResult {
+    let Some(w) = world(10_000, 0).await? else {
+        return Ok(());
+    };
+    let mut conn = w.db.app().await?;
+    // Counters 1–3 spent; 3 is still with the payee when the voucher returns.
+    let chain = w.chain(&[(COFFEE, 1_000), (COFFEE, 1_000), (STALL, 1_000)])?;
+    for r in &chain[..2] {
+        assert_eq!(w.upload(&mut conn, r).await?.outcome, Outcome::Settled);
+    }
+    assert_eq!(
+        get_device(&mut conn, w.client, w.device)
+            .await?
+            .next_counter,
+        3
+    );
+    w.tick(&mut conn, NOW + 7 * DAY).await?;
+    w.tick(&mut conn, RETURN_AT).await?;
+
+    // The device reports 3: the new voucher starts at 4.
+    let second = w
+        .issue_after(&mut conn, 2, 1_000, RETURN_AT + DAY, 3)
+        .await??;
+    assert_eq!(second.voucher.counter_start, 4);
+    assert_eq!(
+        get_device(&mut conn, w.client, w.device)
+            .await?
+            .next_counter,
+        4
+    );
+    let first = Receipt {
+        device_id: w.device,
+        voucher_id: second.voucher.voucher_id,
+        counter: 4,
+        prev_digest: second.voucher.digest(),
+        payee_account_id: id(COFFEE)?,
+        payee_device_id: None,
+        amount: etb(500),
+        event_time: mezgeb_core::Timestamp::from_micros(RETURN_AT + DAY + HOUR),
+        payee_challenge: [9; 16],
+    };
+    assert_eq!(
+        w.upload_at(&mut conn, &w.signed(&first), RETURN_AT + DAY + HOUR)
+            .await?
+            .outcome,
+        Outcome::Settled
+    );
+    // The old voucher's counter 3 arrives: late, not a conflict.
+    assert_eq!(
+        w.upload_at(&mut conn, &chain[2], RETURN_AT + 2 * DAY)
+            .await?
+            .outcome,
+        Outcome::SettledLate
+    );
+    assert_eq!(
+        get_device(&mut conn, w.client, w.device).await?.status,
+        DeviceStatus::Active
+    );
+    drop(conn);
+    w.db.drop().await?;
+
+    // A device that reports less than the ledger recorded still starts
+    // after what was recorded.
+    let Some(w) = world(10_000, 0).await? else {
+        return Ok(());
+    };
+    let mut conn = w.db.app().await?;
+    for r in &w.chain(&[(COFFEE, 1_000), (COFFEE, 1_000)])? {
+        w.upload(&mut conn, r).await?;
+    }
+    w.tick(&mut conn, NOW + 7 * DAY).await?;
+    w.tick(&mut conn, RETURN_AT).await?;
+    let second = w
+        .issue_after(&mut conn, 2, 1_000, RETURN_AT + DAY, 0)
+        .await??;
+    assert_eq!(second.voucher.counter_start, 3);
+    // A counter that cannot be stored is refused.
+    assert!(matches!(
+        w.issue_after(&mut conn, 3, 1_000, RETURN_AT + DAY, u64::MAX)
+            .await?,
+        Err(OfflineError::Invalid(_))
+    ));
+    drop(conn);
+    w.db.drop().await?;
+    Ok(())
+}

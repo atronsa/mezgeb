@@ -253,6 +253,7 @@ pub async fn world(voucher_minor: i64, fee_bps: u32) -> Result<Option<World>, Bo
         escrow_account: id(400)?,
         idempotency_key: IdempotencyKey::new("voucher-1")?,
         amount,
+        last_counter: 0,
         now: Timestamp::from_micros(NOW),
     };
     let voucher = issue_offline_voucher(
@@ -353,6 +354,19 @@ impl World {
         minor: i64,
         now: i64,
     ) -> Result<Result<IssuedVoucher, mezgeb_engine::OfflineError>, BoxError> {
+        self.issue_after(conn, n, minor, now, 0).await
+    }
+
+    /// Issues another voucher to Hana's device, which reports
+    /// `last_counter` as its last counter.
+    pub async fn issue_after(
+        &self,
+        conn: &mut PgConnection,
+        n: u64,
+        minor: i64,
+        now: i64,
+        last_counter: u64,
+    ) -> Result<Result<IssuedVoucher, mezgeb_engine::OfflineError>, BoxError> {
         let amount = PositiveAmount::new(etb(minor))?;
         let new = NewVoucher {
             voucher_id: id(200 + n)?,
@@ -362,6 +376,7 @@ impl World {
             escrow_account: id(400 + n)?,
             idempotency_key: IdempotencyKey::new(format!("voucher-{n}"))?,
             amount,
+            last_counter,
             now: Timestamp::from_micros(now),
         };
         let issuer = IssuerKey::from_secret(key("issuer")?);

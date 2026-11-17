@@ -237,6 +237,10 @@ async fn revoke_device(
 struct IssueVoucherBody {
     device: String,
     amount: MoneyJson,
+    /// The device's last counter, as it reports it; 0 (the default) if it
+    /// has never signed a receipt.
+    #[serde(default)]
+    last_counter: u64,
 }
 
 async fn issue_voucher(
@@ -258,6 +262,7 @@ async fn issue_voucher(
         escrow_account: AccountId::from_uuid(mint()).map_err(ApiError::internal)?,
         idempotency_key: key,
         amount,
+        last_counter: body.last_counter,
         now: now(),
     };
     let issued = state

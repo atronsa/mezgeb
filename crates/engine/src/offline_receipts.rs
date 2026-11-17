@@ -297,6 +297,7 @@ pub(crate) fn fee_on(amount: Money, bps: u32) -> Money {
 /// A stored receipt, as the checks need it.
 #[derive(Debug, Clone)]
 pub(crate) struct Stored {
+    pub voucher: VoucherId,
     pub digest: [u8; 32],
     pub prev_digest: [u8; 32],
     pub payee: AccountId,
@@ -320,7 +321,8 @@ pub(crate) async fn load_stored(
     counter: u64,
 ) -> Result<Option<Stored>, LedgerError> {
     let row = sqlx::query(
-        "SELECT digest, prev_digest, payee_account_id, currency, amount_minor, outcome, entry_id,
+        "SELECT voucher_id, digest, prev_digest, payee_account_id, currency, amount_minor,
+                outcome, entry_id,
                 (extract(epoch FROM event_time) * 1000000)::bigint AS event_micros
            FROM offline_receipts WHERE device_id = $1 AND counter = $2",
     )
@@ -340,6 +342,7 @@ pub(crate) async fn load_stored(
     let entry: Option<Uuid> = row.try_get("entry_id").map_err(db)?;
     let outcome: String = row.try_get("outcome").map_err(db)?;
     Ok(Some(Stored {
+        voucher: VoucherId::from_uuid(row.try_get("voucher_id").map_err(db)?).map_err(storage)?,
         digest: digest32("digest")?,
         prev_digest: digest32("prev_digest")?,
         payee: crate::rows::account_id(row.try_get("payee_account_id").map_err(db)?)?,
@@ -387,6 +390,13 @@ async fn insert_receipt(
     .execute(&mut *conn)
     .await
     .map_err(sql)?;
+    // The device's next voucher starts after it. The device is locked.
+    sqlx::query("UPDATE devices SET next_counter = GREATEST(next_counter, $2) WHERE id = $1")
+        .bind(receipt.device_id.as_uuid())
+        .bind(i64::try_from(receipt.counter).map_or(i64::MAX, |c| c.saturating_add(1)))
+        .execute(&mut *conn)
+        .await
+        .map_err(sql)?;
     Ok(())
 }
 
@@ -898,8 +908,11 @@ pub(crate) async fn decide<B: OfflineBooks + ?Sized>(
         _ => {}
     }
     // A missing receipt arriving after its successor settled must be the
-    // one the successor committed to (§11).
-    let successor = load_stored(conn, device, counter + 1).await?;
+    // one the successor committed to (§11). The next counter may be the
+    // first of the device's next voucher, which links to that voucher.
+    let successor = load_stored(conn, device, counter + 1)
+        .await?
+        .filter(|s| s.voucher == voucher.voucher.voucher_id);
     let successor_paid = successor.as_ref().is_some_and(|s| is_paid(s.outcome));
     if let Some(next) = successor.as_ref().filter(|s| is_paid(s.outcome))
         && next.prev_digest != stored.digest
