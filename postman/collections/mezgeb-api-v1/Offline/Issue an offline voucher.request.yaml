@@ -1,5 +1,5 @@
 $kind: http-request
-description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`) into the voucher's own escrow and signs the voucher with the issuer key (protocol §7). One open voucher per device; at most the tier's limit, and 5,000 ETB of open vouchers per customer."
+description: "Reserves an offline allowance for an active device: posts E16 (`issue_voucher.v1`) into the voucher's own escrow and signs the voucher with the issuer key (protocol §7). One open voucher per device; at most the tier's limit, and 5,000 ETB of open vouchers per customer. Send the device's `last_counter` (0 if it never signed a receipt): the voucher starts after it and after every counter the ledger has recorded."
 url: "{{baseUrl}}/v1/offline/vouchers"
 method: POST
 headers:
@@ -19,7 +19,8 @@ body:
       "amount": {
         "amount": "100.00",
         "currency": "ETB"
-      }
+      },
+      "last_counter": 0
     }
 auth:
   type: oauth2

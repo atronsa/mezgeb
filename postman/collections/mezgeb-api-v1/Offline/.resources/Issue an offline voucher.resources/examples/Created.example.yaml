@@ -21,7 +21,8 @@ request:
         "amount": {
           "amount": "100.00",
           "currency": "ETB"
-        }
+        },
+        "last_counter": 0
       }
 response:
   statusCode: 201
