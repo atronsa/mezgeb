@@ -119,6 +119,17 @@ pub fn offline_state_fixtures() -> Result<Vec<Fixture>, String> {
     Ok(fixtures)
 }
 
+pub const RECONCILIATION_DOC: &str =
+    include_str!("../../../../docs/accounting/entries/reconciliation.md");
+
+/// The standalone reconciliation examples (E32–E35). Each pair stands on
+/// its own, so they balance but do not replay against the story.
+pub fn reconciliation_fixtures() -> Result<Vec<Fixture>, String> {
+    let mut fixtures = Vec::new();
+    parse_tables("reconciliation.md", RECONCILIATION_DOC, &mut fixtures)?;
+    Ok(fixtures)
+}
+
 /// Every journal table in `text`, appended to `fixtures`.
 fn parse_tables(file: &str, text: &str, fixtures: &mut Vec<Fixture>) -> Result<(), String> {
     {

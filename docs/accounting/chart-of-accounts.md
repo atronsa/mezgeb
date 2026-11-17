@@ -52,6 +52,7 @@ sub-account belongs to:
 | `dsp` | A dispute | 2060 |
 | `sus` | An unidentified payment (suspense item) | 9010 |
 | `wdt` | A withdrawal payout in transit | 9030 |
+| `sbd` | An unexplained bank debit (reconciliation item) | 9040 |
 
 ## Accounts
 
@@ -95,7 +96,7 @@ are fixed now, and the step named decides how they are posted.
 | Code | Name | Kind | Normal side | Status | Used in | Purpose |
 |---|---|---|---|---|---|---|
 | 5010 | Customer compensation expense | System | Dr | Active | E14 | Goodwill credits and compensation paid from the platform's own money. |
-| 5020 | Bank charges | System | Dr | Reserved (no bank charges yet, ADR-0014) | E01, E03, E05 open questions | Fees the partner bank charges the platform for transfers and returns. |
+| 5020 | Bank charges | System | Dr | Active | E33 | Fees the partner bank charges the platform for transfers and returns, booked when reconciliation finds one on the statement (ADR-0020). |
 | 5030 | Offline settlement losses | System | Dr | Active | E29, E30 | Late offline receipts the payer's wallet could not cover, paid to the payee under the loss policy (ADR-0019); credited back when the payer repays. |
 
 ### Suspense and clearing
@@ -105,6 +106,7 @@ are fixed now, and the step named decides how they are posted.
 | 9010 | Suspense: unidentified funds | Liability | Control | Cr | Active | E19, E20 | Money that has arrived in the bank but cannot yet be matched to a customer or merchant, one sub-account per item. Every item must be cleared to its owner or returned. |
 | 9020 | Clearing: deposits in transit | Asset | System | Dr | Reserved (unused, step 2.02) | E01 open questions | Deposits the bank has confirmed but not yet settled into the customer funds account (1010). Unused while the bank notices booked are final. |
 | 9030 | Clearing: withdrawals in transit | Liability | Control | Cr | Active | E03, E04 | Customer payouts submitted to the bank and not yet confirmed or rejected, one sub-account per withdrawal. Each sub-account returns to zero. |
+| 9040 | Suspense: unexplained bank debits | Asset | Control | Dr | Active | E32–E35 | Money the ledger shows in 1010 that the bank statement does not, parked by reconciliation until it is explained, one sub-account per item (ADR-0020). Each sub-account returns to zero. |
 
 How these accounts are used: [clearing and suspense](clearing-and-suspense.md).
 
@@ -123,6 +125,10 @@ difference is fee revenue that has not yet been swept to the operating
 account (1020). After E18 the check is 1,402.20 ≥ 1,398.80, a difference of
 3.40, which equals the fee revenue earned. This becomes an invariant in step
 1.03 and an automated check in step 1.13.
+
+9040 (unexplained bank debits) is not cash and never backs anything. While a
+9040 item is open, 1010 is lower by its amount, so the check shows the
+shortfall until the item is explained (ADR-0020).
 
 ## Open questions
 

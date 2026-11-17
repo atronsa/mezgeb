@@ -132,8 +132,8 @@ code = 5020
 name = "Bank charges"
 type = "expense"
 kind = "system"
-status = "reserved"
-description = "Fees the partner bank charges for transfers and returns. Unused: no bank charges yet (ADR-0014)."
+status = "active"
+description = "Fees the partner bank charges for transfers and returns. Booked when reconciliation finds a charge on the bank statement (ADR-0020, E33)."
 
 [[accounts]]
 code = 5030
@@ -170,3 +170,12 @@ kind = "control"
 prefix = "wdt"
 status = "active"
 description = "Customer payouts submitted to the bank and not yet confirmed or rejected, one sub-account per withdrawal. Each sub-account returns to zero."
+
+[[accounts]]
+code = 9040
+name = "Suspense: unexplained bank debits"
+type = "asset"
+kind = "control"
+prefix = "sbd"
+status = "active"
+description = "Money the ledger shows in the customer funds account (1010) that the bank statement does not, parked by reconciliation until it is explained, one sub-account per item (ADR-0020). Each sub-account returns to zero."
