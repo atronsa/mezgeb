@@ -13,7 +13,9 @@ mod common;
 
 use std::collections::BTreeMap;
 
-use common::{CHART, Fixture, fixtures, offline_state_fixtures, trial_balance};
+use common::{
+    CHART, Fixture, fixtures, offline_state_fixtures, reconciliation_fixtures, trial_balance,
+};
 use mezgeb_core::{
     AccountId, AccountStatus, Chart, Currency, EntryDraft, EntryId, LineDraft, MemLedger, Money,
     PostingError, Side, check_invariants, validate,
@@ -214,7 +216,22 @@ fn every_offline_state_example_balances() -> TestResult {
     // E25–E31: standalone examples, outside the running story.
     let fixtures = offline_state_fixtures()?;
     assert_eq!(fixtures.len(), 7, "offline state tables found in the docs");
-    for fixture in &fixtures {
+    assert_standalone_examples_balance(&fixtures);
+    Ok(())
+}
+
+#[test]
+fn every_reconciliation_example_balances() -> TestResult {
+    // E32–E35: standalone examples, outside the running story.
+    let fixtures = reconciliation_fixtures()?;
+    let labels: Vec<&str> = fixtures.iter().map(|f| f.label.as_str()).collect();
+    assert_eq!(labels, ["E32 #1", "E33 #1", "E34 #1", "E35 #1"]);
+    assert_standalone_examples_balance(&fixtures);
+    Ok(())
+}
+
+fn assert_standalone_examples_balance(fixtures: &[Fixture]) {
+    for fixture in fixtures {
         let sum = |side: Side| -> i64 {
             fixture
                 .lines
@@ -236,5 +253,4 @@ fn every_offline_state_example_balances() -> TestResult {
             fixture.label
         );
     }
-    Ok(())
 }
