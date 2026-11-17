@@ -2,7 +2,7 @@
 
 [Accounting model](../README.md) · [Chart of accounts](../chart-of-accounts.md)
 
-Each entry is booked from the **platform's** point of view. IDs (E01–E31) are
+Each entry is booked from the **platform's** point of view. IDs (E01–E35) are
 stable and are referenced from code and tests in later steps.
 
 The entries form one continuous story. Read them in order: each one starts
@@ -69,6 +69,10 @@ apart means customer money can never pay the platform's bills.
 | E29 | [A late receipt, partly from the loss account](offline-escrow.md#e29-a-late-receipt-partly-from-the-loss-account) |
 | E30 | [The payer repays a shortfall](offline-escrow.md#e30-the-payer-repays-a-shortfall) |
 | E31 | [A cloned device's second receipt](offline-escrow.md#e31-a-cloned-devices-second-receipt) |
+| E32 | [A bank charge nobody booked](reconciliation.md#e32-a-bank-charge-nobody-booked) |
+| E33 | [The suspense item is a bank charge](reconciliation.md#e33-the-suspense-item-is-a-bank-charge) |
+| E34 | [A deposit booked twice](reconciliation.md#e34-a-deposit-booked-twice) |
+| E35 | [The duplicate is taken back from the wallet](reconciliation.md#e35-the-duplicate-is-taken-back-from-the-wallet) |
 
 ## Entry template
 
