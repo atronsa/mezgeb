@@ -362,9 +362,11 @@ async fn insert_receipt(
     sqlx::query(
         "INSERT INTO offline_receipts
              (device_id, counter, voucher_id, digest, prev_digest, body, signature,
-              payee_account_id, currency, amount_minor, event_time, outcome, uploaded_by)
+              payee_account_id, currency, amount_minor, event_time, outcome, uploaded_by,
+              received_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                 timestamptz 'epoch' + $11::bigint * interval '1 microsecond', $12, $13)",
+                 timestamptz 'epoch' + $11::bigint * interval '1 microsecond', $12, $13,
+                 timestamptz 'epoch' + $14::bigint * interval '1 microsecond')",
     )
     .bind(receipt.device_id.as_uuid())
     .bind(i64::try_from(receipt.counter).map_err(storage)?)
@@ -379,6 +381,9 @@ async fn insert_receipt(
     .bind(receipt.event_time.as_micros())
     .bind(db_outcome(outcome))
     .bind(upload.client.as_uuid())
+    // Ledger time, as every other offline deadline: the gap timeout is
+    // measured from it (protocol §11).
+    .bind(upload.now.as_micros())
     .execute(&mut *conn)
     .await
     .map_err(sql)?;
@@ -1104,8 +1109,9 @@ async fn ingest_in<B: OfflineBooks + ?Sized>(
         }
         sqlx::query(
             "INSERT INTO offline_receipt_conflicts
-                 (device_id, counter, digest, body, signature, uploaded_by)
-             VALUES ($1, $2, $3, $4, $5, $6)
+                 (device_id, counter, digest, body, signature, uploaded_by, received_at)
+             VALUES ($1, $2, $3, $4, $5, $6,
+                     timestamptz 'epoch' + $7::bigint * interval '1 microsecond')
              ON CONFLICT (device_id, counter, digest) DO NOTHING",
         )
         .bind(receipt.device_id.as_uuid())
@@ -1114,6 +1120,7 @@ async fn ingest_in<B: OfflineBooks + ?Sized>(
         .bind(upload.body)
         .bind(upload.signature)
         .bind(upload.client.as_uuid())
+        .bind(upload.now.as_micros())
         .execute(&mut *conn)
         .await
         .map_err(sql)?;
