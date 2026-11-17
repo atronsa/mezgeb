@@ -121,6 +121,9 @@ async fn run(lane: &mut Lane<'_>, e: &Epoch, op: &Op) -> Result<(Answer, bool, b
     let mut lost_response = false;
     let mut any = false;
     let mut first = true;
+    // The dispute, found once: after a lost response it is resolved, and a
+    // retry must resolve the same one again, not look for an open one.
+    let mut dispute_id: Option<Option<uuid::Uuid>> = None;
     loop {
         let (options, fault) = lane.options();
         let entry_for = |entry: mezgeb_core::EntryId, lane: &mut Lane<'_>| {
@@ -293,16 +296,24 @@ async fn run(lane: &mut Lane<'_>, e: &Epoch, op: &Op) -> Result<(Answer, bool, b
                     .get(*dispute)
                     .ok_or("no such dispute in the model")?
                     .voucher;
-                let found = disputes(conn, Some(client), true)
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .into_iter()
-                    .find(|d| d.voucher == voucher);
+                let found = match dispute_id {
+                    Some(found) => found,
+                    None => {
+                        let found = disputes(conn, Some(client), true)
+                            .await
+                            .map_err(|e| e.to_string())?
+                            .into_iter()
+                            .find(|d| d.voucher == voucher)
+                            .map(|d| d.id);
+                        dispute_id = Some(found);
+                        found
+                    }
+                };
                 match found {
                     None => Ok(Answer::Done(Err("DisputeNotFound".into()))),
-                    Some(d) => match resolve_dispute(
+                    Some(id) => match resolve_dispute(
                         conn,
-                        d.id,
+                        id,
                         *resolution,
                         "sim:operator",
                         Timestamp::from_micros(*now),
