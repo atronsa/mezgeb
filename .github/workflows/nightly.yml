@@ -1,0 +1,107 @@
+# The nightly simulation (step 2.14): the offline fleet at scale against
+# its reference model and against PostgreSQL with crashes, the online
+# workload, and the planted bugs, which must be caught.
+#
+# Each night has a new seed, the date, printed in the log and the summary.
+# A failure prints the command that replays it, on any machine. Step 2.14
+# is accepted after 14 consecutive clean nights.
+name: nightly
+on:
+  schedule:
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed (empty for today's date)
+        default: ""
+      ops:
+        description: Offline operations against the reference model
+        default: "10000000"
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  offline-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p mezgeb-sim
+      - name: 10 million operations, 4,096 devices
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          OPS="${{ inputs.ops }}"; OPS="${OPS:-10000000}"
+          target/release/mezgeb-sim --workload offline --seed "$SEED" --ops "$OPS" \
+            --lanes 16 --devices 256 --epoch 50000 2>&1 | tee run.txt
+          { echo "## Offline, reference model (seed $SEED)"; echo '```'; cat run.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  offline-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Create database roles
+        run: |
+          for file in db/init/*.sql; do
+            psql "$URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - run: cargo build --release -p mezgeb-sim
+      - name: The offline fleet against PostgreSQL, 10% of attempts crashed
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          target/release/mezgeb-sim --workload offline --seed "$SEED" --ops 200000 \
+            --lanes 8 --devices 64 --epoch 25000 --faults 100 --database-url "$URL" 2>&1 | tee run.txt
+          { echo "## Offline, PostgreSQL (seed $SEED)"; echo '```'; cat run.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - name: The online workload against PostgreSQL
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          target/release/mezgeb-sim --seed "$SEED" --ops 1000000 --lanes 16 2>&1 | tee online.txt
+          target/release/mezgeb-sim --seed "$SEED" --ops 100000 --lanes 16 --faults 100 \
+            --database-url "$URL" 2>&1 | tee -a online.txt
+          { echo "## Online (seed $SEED)"; echo '```'; cat online.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  planted-bugs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p mezgeb-sim
+      # Each planted bug must fail the run, and the same seed must fail at
+      # the same step the second time.
+      - name: Every planted bug is caught, at the same step twice
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          { echo "## Planted bugs (seed $SEED)"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          for bug in skip-counter-check skip-chain-check; do
+            for run in 1 2; do
+              if target/release/mezgeb-sim --workload offline --seed "$SEED" --ops 1000000 \
+                  --lanes 8 --devices 64 --epoch 20000 --plant "$bug" 2> "$bug.$run.txt"; then
+                echo "$bug was not caught"; exit 1
+              fi
+              grep '^FAIL' "$bug.$run.txt" || { cat "$bug.$run.txt"; exit 1; }
+            done
+            diff "$bug.1.txt" "$bug.2.txt"
+            grep '^FAIL' "$bug.1.txt" >> "$GITHUB_STEP_SUMMARY"
+          done
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
