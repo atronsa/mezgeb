@@ -557,3 +557,138 @@ async fn a_new_voucher_starts_after_the_last_counter() -> TestResult {
     w.db.drop().await?;
     Ok(())
 }
+
+async fn resolve_open(
+    w: &World,
+    conn: &mut sqlx::PgConnection,
+    voucher: mezgeb_core::VoucherId,
+    now: i64,
+) -> TestResult {
+    let dispute = disputes(conn, Some(w.client), true)
+        .await?
+        .into_iter()
+        .find(|d| d.voucher == voucher)
+        .ok_or("no open dispute for the voucher")?;
+    resolve_dispute(
+        conn,
+        dispute.id,
+        DisputeResolution::Paid,
+        "operator:review",
+        mezgeb_core::Timestamp::from_micros(now),
+        accounts(),
+        &TestBooks,
+        &PostOptions::default(),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Found by the simulator: a dispute on a voucher that has already
+/// returned leaves it returned, with its return time, so its late deadline
+/// does not move; and on a voucher that has ended, it pays nothing that
+/// arrived after the end, and the voucher stays ended.
+#[tokio::test]
+async fn a_dispute_never_reopens_a_returned_or_ended_voucher() -> TestResult {
+    let Some(w) = world(10_000, 0).await? else {
+        return Ok(());
+    };
+    let mut conn = w.db.app().await?;
+    let chain = w.chain(&[(COFFEE, 1_000), (COFFEE, 1_000)])?;
+    w.upload(&mut conn, &chain[0]).await?;
+    w.tick(&mut conn, NOW + 7 * DAY).await?;
+    w.tick(&mut conn, RETURN_AT).await?;
+    let voucher = w.voucher.voucher.voucher_id;
+
+    // A clone's copy of counter 1 arrives after the return.
+    let mut copy = Receipt::decode(&chain[0].0)?;
+    copy.payee_account_id = id(STALL)?;
+    let copy = w.signed(&copy);
+    assert_eq!(
+        w.upload_at(&mut conn, &copy, RETURN_AT + DAY)
+            .await?
+            .outcome,
+        Outcome::Conflict
+    );
+    resolve_open(&w, &mut conn, voucher, RETURN_AT + 30 * DAY).await?;
+    assert_eq!(balance(&mut conn, id(STALL)?).await?, 1_000);
+    assert_eq!(
+        get_voucher(&mut conn, w.client, voucher).await?.status,
+        mezgeb_engine::VoucherStatus::Returned
+    );
+    // It ends 90 days after its return, not after the dispute.
+    let report = w.tick(&mut conn, RETURN_AT + 91 * DAY).await?;
+    assert_eq!(report.ended, vec![voucher]);
+
+    // Another copy, after the end: the dispute pays nothing, the voucher
+    // stays ended.
+    let mut late = Receipt::decode(&chain[0].0)?;
+    late.amount = etb(2_000);
+    let late = w.signed(&late);
+    assert_eq!(
+        w.upload_at(&mut conn, &late, RETURN_AT + 92 * DAY)
+            .await?
+            .outcome,
+        Outcome::Conflict
+    );
+    resolve_open(&w, &mut conn, voucher, RETURN_AT + 93 * DAY).await?;
+    assert_eq!(balance(&mut conn, id(COFFEE)?).await?, 1_000);
+    assert_eq!(
+        get_voucher(&mut conn, w.client, voucher).await?.status,
+        mezgeb_engine::VoucherStatus::Ended
+    );
+    drop(conn);
+    w.db.drop().await?;
+    Ok(())
+}
+
+/// Found by the simulator: a conflict on a device's new voucher freezes
+/// the device, so a late receipt of its old voucher is kept `FROZEN`. When
+/// the dispute ends, that receipt is decided, here paid late, instead of
+/// staying frozen for ever.
+#[tokio::test]
+async fn frozen_receipts_of_other_vouchers_are_decided_when_the_dispute_ends() -> TestResult {
+    let Some(w) = world(10_000, 0).await? else {
+        return Ok(());
+    };
+    let mut conn = w.db.app().await?;
+    let chain = w.chain(&[(COFFEE, 1_000), (COFFEE, 1_000), (STALL, 1_000)])?;
+    for r in &chain[..2] {
+        w.upload(&mut conn, r).await?;
+    }
+    w.tick(&mut conn, NOW + 7 * DAY).await?;
+    w.tick(&mut conn, RETURN_AT).await?;
+    let second = w
+        .issue_after(&mut conn, 2, 1_000, RETURN_AT + DAY, 3)
+        .await??;
+    let coffee: mezgeb_core::AccountId = id(COFFEE)?;
+    let receipt = |amount: i64| Receipt {
+        device_id: w.device,
+        voucher_id: second.voucher.voucher_id,
+        counter: 4,
+        prev_digest: second.voucher.digest(),
+        payee_account_id: coffee,
+        payee_device_id: None,
+        amount: etb(amount),
+        event_time: mezgeb_core::Timestamp::from_micros(RETURN_AT + DAY),
+        payee_challenge: [4; 16],
+    };
+    let at = RETURN_AT + DAY + HOUR;
+    w.upload_at(&mut conn, &w.signed(&receipt(300)), at).await?;
+    assert_eq!(
+        w.upload_at(&mut conn, &w.signed(&receipt(400)), at)
+            .await?
+            .outcome,
+        Outcome::Conflict
+    );
+    // The old voucher's counter 3 arrives while the device is frozen.
+    assert_eq!(
+        w.upload_at(&mut conn, &chain[2], at).await?.outcome,
+        Outcome::Frozen
+    );
+    resolve_open(&w, &mut conn, second.voucher.voucher_id, at + HOUR).await?;
+    assert_eq!(outcome_of(&w, &mut conn, 3).await?, Outcome::SettledLate);
+    assert_eq!(balance(&mut conn, id(STALL)?).await?, 1_000);
+    drop(conn);
+    w.db.drop().await?;
+    Ok(())
+}

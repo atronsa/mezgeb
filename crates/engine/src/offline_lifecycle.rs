@@ -38,7 +38,7 @@ use crate::offline::{IssuedVoucher, OfflineError, VoucherStatus, load_device, sq
 use crate::offline_receipts::{
     Ctx, OfflineAccounts, OfflineBooks, Parts, RepayRequest, ReturnRequest, Settled, ToPay,
     balance_of, db_outcome, has_lines, load_stored, lock_voucher, names, pay_receipt, post_offline,
-    record_paid, settle_waiting,
+    record_paid, set_outcome, settle_waiting,
 };
 use crate::rows::{account_id, db, entry_id, storage};
 
@@ -581,6 +581,8 @@ struct Unpaid {
     payee: AccountId,
     amount: Money,
     event_time: Timestamp,
+    /// When it reached the ledger, in µs of ledger time.
+    received_at: i64,
     /// The conflicting copy's ID and digest, or `None` for the recorded
     /// receipt.
     copy: Option<(i64, [u8; 32])>,
@@ -592,8 +594,9 @@ async fn unpaid(
 ) -> Result<Vec<Unpaid>, OfflineError> {
     let device = voucher.voucher.device_id;
     let mut out = Vec::new();
-    let counters: Vec<i64> = sqlx::query_scalar(
-        "SELECT counter FROM offline_receipts
+    let counters: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT counter, (extract(epoch FROM received_at) * 1000000)::bigint
+           FROM offline_receipts
           WHERE voucher_id = $1
             AND outcome IN ('frozen', 'over_limit', 'conflict', 'waiting_for_gap')
           ORDER BY counter",
@@ -602,7 +605,7 @@ async fn unpaid(
     .fetch_all(&mut *conn)
     .await
     .map_err(sql)?;
-    for counter in counters {
+    for (counter, received_at) in counters {
         let counter = u64::try_from(counter).map_err(storage)?;
         let stored = load_stored(conn, device, counter)
             .await?
@@ -612,11 +615,14 @@ async fn unpaid(
             payee: stored.payee,
             amount: stored.amount,
             event_time: stored.event_time,
+            received_at,
             copy: None,
         });
     }
     let copies = sqlx::query(
-        "SELECT c.id, c.body, c.digest FROM offline_receipt_conflicts c
+        "SELECT c.id, c.body, c.digest,
+                (extract(epoch FROM c.received_at) * 1000000)::bigint AS received
+           FROM offline_receipt_conflicts c
           WHERE c.device_id = $1
             AND NOT EXISTS (SELECT 1 FROM offline_dispute_payments p WHERE p.conflict_id = c.id)
           ORDER BY c.counter, c.id",
@@ -637,6 +643,7 @@ async fn unpaid(
             payee: receipt.payee_account_id,
             amount: receipt.amount,
             event_time: receipt.event_time,
+            received_at: row.try_get("received").map_err(db)?,
             copy: Some((
                 row.try_get("id").map_err(db)?,
                 digest
@@ -650,11 +657,74 @@ async fn unpaid(
     Ok(out)
 }
 
+/// When the voucher ended, in µs of ledger time, if it has.
+async fn ended_at(
+    conn: &mut PgConnection,
+    voucher: VoucherId,
+) -> Result<Option<i64>, OfflineError> {
+    sqlx::query_scalar(
+        "SELECT (extract(epoch FROM ended_at) * 1000000)::bigint FROM vouchers WHERE id = $1",
+    )
+    .bind(voucher.as_uuid())
+    .fetch_one(&mut *conn)
+    .await
+    .map_err(sql)
+}
+
+/// Once a dispute ends, the receipts of the device's other vouchers that
+/// were kept `FROZEN` only because the device was frozen are decided:
+/// `EXPIRED` if their voucher has ended, otherwise in counter order, as if
+/// they had just arrived.
+async fn unfreeze_others<B: OfflineBooks + ?Sized>(
+    conn: &mut PgConnection,
+    ctx: &Ctx<'_, B>,
+    device: DeviceId,
+    disputed: VoucherId,
+) -> Result<(), OfflineError> {
+    let others: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT v.id FROM vouchers v JOIN offline_receipts r ON r.voucher_id = v.id
+          WHERE v.device_id = $1 AND v.id <> $2 AND v.status <> 'frozen'
+            AND r.outcome = 'frozen'
+          ORDER BY v.id",
+    )
+    .bind(device.as_uuid())
+    .bind(disputed.as_uuid())
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(sql)?;
+    for id in others {
+        let id = VoucherId::from_uuid(id).map_err(storage)?;
+        let voucher = lock_voucher(conn, device, id)
+            .await?
+            .ok_or(OfflineError::VoucherNotFound)?;
+        let to = if voucher.status == VoucherStatus::Ended {
+            Outcome::Expired
+        } else {
+            Outcome::WaitingForGap
+        };
+        sqlx::query(
+            "UPDATE offline_receipts SET outcome = $2 WHERE voucher_id = $1 AND outcome = 'frozen'",
+        )
+        .bind(id.as_uuid())
+        .bind(db_outcome(to))
+        .execute(&mut *conn)
+        .await
+        .map_err(sql)?;
+        if to == Outcome::WaitingForGap {
+            settle_waiting(conn, ctx, &voucher, false).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Ends a dispute (protocol §14). `paid` pays every valid receipt of the
 /// voucher in counter order, from the escrow left, then the payer's
-/// wallet, then 5030, recording any shortfall; `refused` pays none. Then
-/// the escrow left returns (E27), the voucher is `RETURNED` and the device
-/// revoked. Resolving it again the same way returns it unchanged.
+/// wallet, then 5030, recording any shortfall; `refused` pays none. What
+/// arrived after the voucher ended is never paid: a recorded receipt
+/// becomes `EXPIRED`. Then the escrow left of an open voucher returns
+/// (E27) and it is `RETURNED`; the device is revoked; and the device's
+/// other receipts kept frozen are decided. Resolving it again the same way
+/// returns it unchanged.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 pub async fn resolve_dispute<B: OfflineBooks + ?Sized>(
     conn: &mut PgConnection,
@@ -696,9 +766,19 @@ pub async fn resolve_dispute<B: OfflineBooks + ?Sized>(
         }
         let device = voucher.voucher.device_id;
         let mut paid = 0usize;
+        // What arrived after the voucher ended is past its late deadline:
+        // never paid, its payee bears it (protocol §12).
+        let ended = ended_at(&mut tx, voucher.voucher.voucher_id).await?;
+        let too_late = |received_at: i64| ended.is_some_and(|e| received_at >= e);
         match resolution {
             DisputeResolution::Paid => {
                 for item in unpaid(&mut tx, &voucher).await? {
+                    if too_late(item.received_at) {
+                        if item.copy.is_none() {
+                            set_outcome(&mut tx, device, item.counter, Outcome::Expired).await?;
+                        }
+                        continue;
+                    }
                     let key = match item.copy {
                         None => format!("offline:{device}:{}", item.counter),
                         Some((_, digest)) => format!(
@@ -763,9 +843,13 @@ pub async fn resolve_dispute<B: OfflineBooks + ?Sized>(
                 .map_err(sql)?;
             }
         }
-        // The escrow left goes back, and the device is retired.
+        // The escrow left goes back, and the device is retired. A voucher
+        // already returned or ended keeps its state and its return time, so
+        // its late deadline does not move.
         let voucher = reload(&mut tx, &voucher).await?;
-        return_escrow(&mut tx, &ctx, &voucher, "dispute").await?;
+        if voucher.status.is_open() {
+            return_escrow(&mut tx, &ctx, &voucher, "dispute").await?;
+        }
         sqlx::query(
             "UPDATE devices SET status = 'revoked', status_reason = $2,
                     status_changed_at = clock_timestamp()
@@ -776,6 +860,7 @@ pub async fn resolve_dispute<B: OfflineBooks + ?Sized>(
         .execute(&mut *tx)
         .await
         .map_err(sql)?;
+        unfreeze_others(&mut tx, &ctx, device, voucher.voucher.voucher_id).await?;
         sqlx::query(
             "UPDATE offline_disputes
                 SET status = 'resolved', resolution = $2, resolved_by = $3,
