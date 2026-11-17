@@ -1388,8 +1388,10 @@ dependencies = [
  "mezgeb-core",
  "mezgeb-engine",
  "mezgeb-offline",
+ "sha2 0.11.1",
  "sqlx",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

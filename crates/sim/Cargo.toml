@@ -15,6 +15,8 @@ mezgeb-offline.workspace = true
 mezgeb-engine = { workspace = true, features = ["test-hooks"] }
 sqlx.workspace = true
 tokio.workspace = true
+sha2.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

@@ -32,7 +32,18 @@
 //! **Deterministic.** The same seed, ops, lanes and fault rate give the same
 //! operations, the same faults and the same results, so a failure prints
 //! what is needed to replay it.
+//!
+//! **Offline workload** (v2, step 2.14): `--workload offline` simulates
+//! fleets of devices paying offline instead ([`offline`]): `--devices` per
+//! lane, epochs of `--epoch` operations per lane, and `--plant` to plant a
+//! bug (`skip-counter-check`, `skip-chain-check`) the checks must catch.
+//!
+//! ```sh
+//! cargo run --release -p mezgeb-sim -- --workload offline --seed 42 --ops 1000000 \
+//!     --lanes 16 --devices 256
+//! ```
 
+mod offline;
 mod pg;
 mod rng;
 mod workload;
@@ -53,6 +64,12 @@ use crate::workload::{Error, Lane, Op, Outcome};
 /// compares its accounts with the database.
 const CHECK_EVERY: u64 = 2_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Workload {
+    Online,
+    Offline,
+}
+
 #[derive(Debug, Clone)]
 struct Config {
     seed: u64,
@@ -60,6 +77,10 @@ struct Config {
     lanes: u64,
     faults: u64,
     database_url: Option<String>,
+    workload: Workload,
+    devices: u64,
+    epoch: u64,
+    plant: Option<offline::model::Bug>,
 }
 
 fn parse(args: &[String]) -> Result<Config, Error> {
@@ -69,6 +90,10 @@ fn parse(args: &[String]) -> Result<Config, Error> {
         lanes: 8,
         faults: 100,
         database_url: None,
+        workload: Workload::Online,
+        devices: 64,
+        epoch: 20_000,
+        plant: None,
     };
     let mut args = args.iter().skip(1);
     while let Some(flag) = args.next() {
@@ -79,13 +104,97 @@ fn parse(args: &[String]) -> Result<Config, Error> {
             "--lanes" => config.lanes = value.parse()?,
             "--faults" => config.faults = value.parse()?,
             "--database-url" => config.database_url = Some(value.clone()),
+            "--workload" => {
+                config.workload = match value.as_str() {
+                    "online" => Workload::Online,
+                    "offline" => Workload::Offline,
+                    other => return Err(format!("unknown workload {other}").into()),
+                }
+            }
+            "--devices" => config.devices = value.parse()?,
+            "--epoch" => config.epoch = value.parse()?,
+            "--plant" => {
+                config.plant =
+                    Some(offline::model::Bug::parse(value).ok_or(format!("unknown bug {value}"))?);
+            }
             other => return Err(format!("unknown option {other}").into()),
         }
     }
     if config.lanes == 0 || config.lanes > 255 || config.faults > 1_000 {
         return Err("--lanes must be 1 to 255 and --faults 0 to 1000".into());
     }
+    if !(2..=100_000).contains(&config.devices) || !(1..=1_000_000).contains(&config.epoch) {
+        return Err("--devices must be 2 to 100000 and --epoch 1 to 1000000".into());
+    }
+    if config.ops.div_ceil(config.lanes).div_ceil(config.epoch) > 4_096 {
+        return Err("more than 4096 epochs per lane: raise --epoch".into());
+    }
+    if config.plant.is_some() && config.workload != Workload::Offline {
+        return Err("--plant needs --workload offline".into());
+    }
     Ok(config)
+}
+
+impl Config {
+    fn offline(&self) -> offline::Config {
+        offline::Config {
+            seed: self.seed,
+            ops: self.ops,
+            lanes: self.lanes,
+            devices: self.devices,
+            epoch: self.epoch,
+            bug: self.plant,
+        }
+    }
+
+    /// The command that runs this again.
+    fn replay(&self) -> String {
+        let mut line = format!(
+            "cargo run --release -p mezgeb-sim -- --seed {} --ops {} --lanes {}",
+            self.seed, self.ops, self.lanes
+        );
+        if self.workload == Workload::Offline {
+            line += &format!(
+                " --workload offline --devices {} --epoch {}",
+                self.devices, self.epoch
+            );
+        }
+        if let Some(bug) = self.plant {
+            line += &format!(" --plant {}", bug.name());
+        }
+        if self.database_url.is_some() {
+            line += &format!(" --faults {} --database-url <url>", self.faults);
+        }
+        line
+    }
+}
+
+fn print_offline(config: &Config, report: &offline::Report, elapsed: Duration) {
+    println!(
+        "seed {} · offline · {} operations ({} steps with setup and drains) in {} lanes, \
+         {} epochs, {} devices · {:.1} s ({:.0} steps/s)",
+        config.seed,
+        config.ops,
+        report.steps,
+        config.lanes,
+        report.epochs,
+        report.devices,
+        elapsed.as_secs_f64(),
+        report.steps as f64 / elapsed.as_secs_f64().max(0.001)
+    );
+    let list = |m: &BTreeMap<&'static str, u64>| {
+        m.iter()
+            .map(|(k, n)| format!("{k} {n}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    println!("  operations: {}", list(&report.ops));
+    println!("  outcomes: {}", list(&report.outcomes));
+    println!(
+        "  offline invariants checked after every step; the reference ledger's checker {} times",
+        report.full_checks
+    );
+    println!("  digest {}", report.digest_hex());
 }
 
 /// What one lane did.
@@ -362,6 +471,35 @@ async fn main() -> ExitCode {
         }
     };
     let started = Instant::now();
+    if config.workload == Workload::Offline {
+        let result = match &config.database_url {
+            None => offline::run_reference(&config.offline()).map(|r| (r, None)),
+            Some(url) => offline::pg::run_database(&config.offline(), config.faults, url)
+                .await
+                .map(|(r, f)| (r, Some(f))),
+        };
+        return match result {
+            Ok((report, faults)) => {
+                print_offline(&config, &report, started.elapsed());
+                if let Some(f) = faults {
+                    let [lock, lines, commit, after] = f.fired;
+                    println!(
+                        "  against PostgreSQL: every answer equal to the model's; faults injected: {} \
+                         (before lock {lock}, after lines {lines}, before commit {commit}, \
+                         after commit {after}), each retried",
+                        f.total()
+                    );
+                }
+                println!("PASS");
+                ExitCode::SUCCESS
+            }
+            Err(failure) => {
+                eprintln!("FAIL (seed {}): {failure}", config.seed);
+                eprintln!("replay: {}", config.replay());
+                ExitCode::from(1)
+            }
+        };
+    }
     let result = match &config.database_url {
         None => run_reference(&config),
         Some(url) => run_database(&config, url).await,
@@ -395,6 +533,10 @@ mod tests {
             lanes: 3,
             faults: 0,
             database_url: None,
+            workload: Workload::Online,
+            devices: 64,
+            epoch: 20_000,
+            plant: None,
         };
         let first = run_reference(&config)?;
         let second = run_reference(&config)?;
