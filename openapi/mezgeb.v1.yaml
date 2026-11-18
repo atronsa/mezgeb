@@ -4385,6 +4385,341 @@ paths:
               example:
                 error: "temporarily_unavailable"
                 error_description: "The token could not be issued; retry."
+  /v1/reconciliation/balances:
+    post:
+      operationId: "compareCachedBalances"
+      tags:
+        - "Reconciliation"
+      summary: "Compare cached balances"
+      description: "Compares up to 1,000 of the caller's cached balances with the ledger's (ADR-0002: the ledger is the system of record; ADR-0020). Each balance may name the posting sequence the cache reflects, so that an entry posted while the cache was read is not a disagreement; without it, the balance now is compared. A disagreement is a `stale_cache` break, and the answer carries the ledger's balance: the ledger wins, and the client refreshes its cache from it, never the other way. A later call that agrees clears the break. Only the caller's own accounts: any other is `404`."
+      security:
+        - oauth2:
+            - "reconciliation:write"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CachedBalancesRequest"
+            example:
+              balances:
+                - account: "2010:cust-abebe"
+                  balance:
+                    amount: "830.00"
+                    currency: "ETB"
+                  as_of_sequence: 1042
+      responses:
+        "200":
+          description: "Each balance compared"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CachedBalancesResult"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/reconciliation/breaks:
+    get:
+      operationId: "listReconciliationBreaks"
+      tags:
+        - "Reconciliation"
+      summary: "List reconciliation breaks"
+      description: "Disagreements found by reconciliation, oldest first (ADR-0020): the bank statement against an account such as 1010, clients' caches, and offline devices and escrows. Open ones unless `status` says otherwise. Pages continue with `after`."
+      security:
+        - oauth2:
+            - "reconciliation:read"
+      parameters:
+        - name: "status"
+          in: "query"
+          required: false
+          description: "Open (the default), cleared, resolved, explained, or all."
+          schema:
+            type: "string"
+            enum:
+              - "open"
+              - "cleared"
+              - "resolved"
+              - "explained"
+              - "all"
+        - name: "kind"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/BreakKind"
+        - name: "account"
+          in: "query"
+          required: false
+          description: "Breaks about this account, by ID or reference."
+          schema:
+            type: "string"
+        - name: "after"
+          in: "query"
+          required: false
+          description: "The `next_after` of the previous page."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+        - name: "limit"
+          in: "query"
+          required: false
+          description: "1 to 1,000; 100 by default."
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 1000
+      responses:
+        "200":
+          description: "The breaks"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconBreakList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/reconciliation/breaks/{break_id}:
+    get:
+      operationId: "getReconciliationBreak"
+      tags:
+        - "Reconciliation"
+      summary: "Get a reconciliation break"
+      description: "One break, with how it closed, if it has."
+      security:
+        - oauth2:
+            - "reconciliation:read"
+      parameters:
+        - name: "break_id"
+          in: "path"
+          required: true
+          description: "The break."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      responses:
+        "200":
+          description: "The break"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconBreak"
+              example:
+                id: "0192f3c4-0000-7000-8000-00000000b001"
+                run: "0192f3c4-0000-7000-8000-00000000a001"
+                kind: "amount_mismatch"
+                status: "open"
+                subject: "item:0192f3c4-0000-7000-8000-00000000c001"
+                account: "0192f3c4-0000-7000-8000-000000001010"
+                client: null
+                statement_line: "0192f3c4-0000-7000-8000-00000000c001"
+                ledger_line:
+                  entry: "0192f3c4-0000-7000-8000-000000000e03"
+                  line: 0
+                device: null
+                voucher: null
+                other:
+                  amount: "190.00"
+                  currency: "ETB"
+                ledger:
+                  amount: "200.00"
+                  currency: "ETB"
+                difference:
+                  amount: "-10.00"
+                  currency: "ETB"
+                detail: "the bank's line B3 and the ledger line with its bank_ref differ"
+                found_at: "2026-11-17T06:00:00Z"
+                cleared_by_run: null
+                resolution: null
+                note: null
+                closed_by: null
+                closed_at: null
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /v1/reconciliation/breaks/{break_id}/resolve:
+    post:
+      operationId: "resolveReconciliationBreak"
+      tags:
+        - "Reconciliation"
+      summary: "Resolve a break"
+      description: "Resolves a money break (`missing_in_ledger`, `missing_in_statement`, `amount_mismatch`, `duplicate_statement_line`) with the entry that made the account equal the bank again (ADR-0020 decision 7): one booked by `deposit_unmatched.v1` (the bank has more) or `bank_debit_unmatched.v1` (the bank has less), whose one line in the account equals the break's difference, and that has resolved no other break. The difference then waits in its suspense item, visible in ageing, until its cause is booked. For the operator's staff."
+      security:
+        - oauth2:
+            - "reconciliation:resolve"
+      parameters:
+        - name: "break_id"
+          in: "path"
+          required: true
+          description: "The break."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveBreakRequest"
+            example:
+              entry_id: "0192f3c4-0000-7000-8000-000000000e09"
+      responses:
+        "200":
+          description: "The resolved break"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconBreak"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "The break cannot close this way"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                break_closed:
+                  $ref: "#/components/examples/error-break_closed"
+                break_not_closable:
+                  $ref: "#/components/examples/error-break_not_closable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/reconciliation/breaks/{break_id}/explain:
+    post:
+      operationId: "explainReconciliationBreak"
+      tags:
+        - "Reconciliation"
+      summary: "Explain a break"
+      description: "Closes a break that is not about money in an account (`statement_conflict`, `stale_cache`, and the offline kinds) with the operator's reason (ADR-0020 decision 8). A money break is refused: it closes only when a later run matches it or a suspense entry resolves it. For the operator's staff."
+      security:
+        - oauth2:
+            - "reconciliation:resolve"
+      parameters:
+        - name: "break_id"
+          in: "path"
+          required: true
+          description: "The break."
+          schema:
+            $ref: "#/components/schemas/Uuid7"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExplainBreakRequest"
+            example:
+              reason: "The bank corrected its export; the first copy is right."
+      responses:
+        "200":
+          description: "The explained break"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconBreak"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: "The break cannot close this way"
+          content:
+            "application/problem+json":
+              schema:
+                $ref: "#/components/schemas/Problem"
+              examples:
+                break_closed:
+                  $ref: "#/components/examples/error-break_closed"
+                break_not_closable:
+                  $ref: "#/components/examples/error-break_not_closable"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/Unavailable"
+  /v1/reconciliation/runs:
+    get:
+      operationId: "listReconciliationRuns"
+      tags:
+        - "Reconciliation"
+      summary: "List reconciliation runs"
+      description: "The latest statement imports and reconciliation runs, newest first, with what each found and how long it took."
+      security:
+        - oauth2:
+            - "reconciliation:read"
+      parameters:
+        - name: "kind"
+          in: "query"
+          required: false
+          schema:
+            type: "string"
+            enum:
+              - "import"
+              - "external"
+              - "internal"
+              - "offline"
+        - name: "limit"
+          in: "query"
+          required: false
+          description: "1 to 1,000; 50 by default."
+          schema:
+            type: "integer"
+            minimum: 1
+            maximum: 1000
+      responses:
+        "200":
+          description: "The runs"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReconRunList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     clientSecretBasic:
@@ -4415,6 +4750,9 @@ components:
             "audit:read": "Read the audit events of every client (auditor)"
             "offline:write": "Offline devices, vouchers and receipts"
             "offline:resolve": "Resolve offline disputes (operators)"
+            "reconciliation:write": "Compare the client's cached balances with the ledger"
+            "reconciliation:read": "Read reconciliation runs and breaks (operators, auditors)"
+            "reconciliation:resolve": "Resolve and explain reconciliation breaks (operators)"
   parameters:
     IdempotencyKey:
       name: "Idempotency-Key"
@@ -6104,6 +6442,308 @@ components:
           enum:
             - "paid"
             - "refused"
+    BreakKind:
+      type: "string"
+      enum:
+        - "missing_in_ledger"
+        - "missing_in_statement"
+        - "amount_mismatch"
+        - "duplicate_statement_line"
+        - "statement_conflict"
+        - "stale_cache"
+        - "missing_receipts"
+        - "counter_behind"
+        - "receipt_entry_mismatch"
+        - "escrow_mismatch"
+      description: "What a break is about (ADR-0020 decision 6)."
+    LineRef:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "entry"
+        - "line"
+      properties:
+        entry:
+          $ref: "#/components/schemas/EntryId"
+        line:
+          type: "integer"
+          minimum: 0
+          maximum: 99
+    ReconBreak:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "run"
+        - "kind"
+        - "status"
+        - "subject"
+        - "account"
+        - "client"
+        - "statement_line"
+        - "ledger_line"
+        - "device"
+        - "voucher"
+        - "other"
+        - "ledger"
+        - "difference"
+        - "detail"
+        - "found_at"
+        - "cleared_by_run"
+        - "resolution"
+        - "note"
+        - "closed_by"
+        - "closed_at"
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid7"
+        run:
+          $ref: "#/components/schemas/Uuid7"
+        kind:
+          $ref: "#/components/schemas/BreakKind"
+        status:
+          type: "string"
+          enum:
+            - "open"
+            - "cleared"
+            - "resolved"
+            - "explained"
+          description: "`cleared`: a later run matched it; `resolved`: a suspense entry; `explained`: an operator's reason."
+        subject:
+          type: "string"
+          description: "What it is about, stable across runs: one break is open per subject."
+        account:
+          oneOf:
+            - $ref: "#/components/schemas/AccountId"
+            - type: "null"
+        client:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+        statement_line:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+        ledger_line:
+          oneOf:
+            - $ref: "#/components/schemas/LineRef"
+            - type: "null"
+        device:
+          oneOf:
+            - $ref: "#/components/schemas/DeviceId"
+            - type: "null"
+        voucher:
+          oneOf:
+            - $ref: "#/components/schemas/VoucherId"
+            - type: "null"
+        other:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        ledger:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        difference:
+          oneOf:
+            - $ref: "#/components/schemas/Money"
+            - type: "null"
+        detail:
+          type: "string"
+        found_at:
+          type: "string"
+          format: "date-time"
+        cleared_by_run:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+        resolution:
+          oneOf:
+            - $ref: "#/components/schemas/LineRef"
+            - type: "null"
+        note:
+          oneOf:
+            - type: "string"
+            - type: "null"
+        closed_by:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+        closed_at:
+          oneOf:
+            - type: "string"
+              format: "date-time"
+            - type: "null"
+    ReconBreakList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+        - "next_after"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ReconBreak"
+        next_after:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+    ReconRun:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "id"
+        - "kind"
+        - "account"
+        - "client"
+        - "source"
+        - "as_of"
+        - "items"
+        - "matched"
+        - "pending"
+        - "breaks_new"
+        - "breaks_cleared"
+        - "breaks_open"
+        - "runtime_ms"
+        - "recorded_at"
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid7"
+        kind:
+          type: "string"
+          enum:
+            - "import"
+            - "external"
+            - "internal"
+            - "offline"
+        account:
+          oneOf:
+            - $ref: "#/components/schemas/AccountId"
+            - type: "null"
+        client:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid7"
+            - type: "null"
+        source:
+          type: "string"
+        as_of:
+          type: "string"
+          format: "date-time"
+        items:
+          type: "integer"
+          minimum: 0
+        matched:
+          type: "integer"
+          minimum: 0
+        pending:
+          type: "integer"
+          minimum: 0
+        breaks_new:
+          type: "integer"
+          minimum: 0
+        breaks_cleared:
+          type: "integer"
+          minimum: 0
+        breaks_open:
+          type: "integer"
+          minimum: 0
+        runtime_ms:
+          type: "integer"
+          minimum: 0
+        recorded_at:
+          type: "string"
+          format: "date-time"
+    ReconRunList:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "items"
+      properties:
+        items:
+          type: "array"
+          items:
+            $ref: "#/components/schemas/ReconRun"
+    CachedBalancesRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "balances"
+      properties:
+        balances:
+          type: "array"
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: "object"
+            additionalProperties: false
+            required:
+              - "account"
+              - "balance"
+            properties:
+              account:
+                type: "string"
+                description: "An account the caller opened, by ID or reference."
+              balance:
+                allOf:
+                  - $ref: "#/components/schemas/Money"
+                description: "The cached balance, on the account's normal side."
+              as_of_sequence:
+                type: "integer"
+                minimum: 0
+                description: "The posting sequence the cache reflects. Without it, the balance now is compared."
+    CachedBalancesResult:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "run"
+        - "results"
+      properties:
+        run:
+          $ref: "#/components/schemas/ReconRun"
+        results:
+          type: "array"
+          items:
+            type: "object"
+            additionalProperties: false
+            required:
+              - "account"
+              - "cached"
+              - "ledger"
+              - "as_of_sequence"
+              - "agrees"
+            properties:
+              account:
+                $ref: "#/components/schemas/AccountId"
+              cached:
+                $ref: "#/components/schemas/Money"
+              ledger:
+                allOf:
+                  - $ref: "#/components/schemas/Money"
+                description: "The ledger's balance at `as_of_sequence`: refresh the cache from it."
+              as_of_sequence:
+                type: "integer"
+                minimum: 0
+              agrees:
+                type: "boolean"
+    ResolveBreakRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "entry_id"
+      properties:
+        entry_id:
+          $ref: "#/components/schemas/EntryId"
+    ExplainBreakRequest:
+      type: "object"
+      additionalProperties: false
+      required:
+        - "reason"
+      properties:
+        reason:
+          type: "string"
+          minLength: 1
+          maxLength: 1000
     ErrorCode:
       type: "string"
       enum:
@@ -6187,6 +6827,8 @@ components:
         - "over_customer_cap"
         - "shortfall_unpaid"
         - "dispute_resolved"
+        - "break_closed"
+        - "break_not_closable"
       description: "A stable error code. Never renumbered or reused; see docs/api/errors.md."
     Problem:
       type: "object"
@@ -7637,4 +8279,22 @@ components:
         status: 409
         code: "dispute_resolved"
         detail: "the dispute is already resolved as paid"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-break_closed:
+      summary: "break_closed"
+      value:
+        type: "urn:mezgeb:problem:break_closed"
+        title: "The break is already closed"
+        status: 409
+        code: "break_closed"
+        detail: "the break is already resolved"
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-break_not_closable:
+      summary: "break_not_closable"
+      value:
+        type: "urn:mezgeb:problem:break_not_closable"
+        title: "The break cannot be closed this way"
+        status: 409
+        code: "break_not_closable"
+        detail: "conflict: the entry moves -1000 in the account; the break's difference is -30000"
         instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
