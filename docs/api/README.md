@@ -121,7 +121,8 @@ Or from a checkout, against the compose PostgreSQL:
 cargo run -p mezgeb-cli -- migrate     --database-url postgres://mezgeb_owner:mezgeb_owner@localhost:55432/mezgeb
 cargo run -p mezgeb-cli -- client seed deploy/clients.dev.toml     --database-url postgres://mezgeb_admin:mezgeb_admin@localhost:55432/mezgeb
 MEZGEB_DATABASE_URL=postgres://mezgeb_app:mezgeb_app@localhost:55432/mezgeb \
-MEZGEB_SIGNING_KEY_FILE=deploy/signing.dev.hex cargo run -p mezgeb-api
+MEZGEB_SIGNING_KEY_FILE=deploy/signing.dev.hex MEZGEB_ALLOW_DEVELOPMENT_KEY=true \
+cargo run -p mezgeb-api
 ```
 
 The configuration is read from the environment; every variable is listed in

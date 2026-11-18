@@ -13,6 +13,7 @@
 //! | `MEZGEB_BODY_LIMIT_BYTES` | `65536` | The largest request body accepted |
 //! | `MEZGEB_DB_POOL` | `16` | Database connections |
 //! | `MEZGEB_ADDRESS_FAILURE_LIMIT` | `0` | Failed logins and refused tokens per second per source address, in bursts of ten times that; `0` turns the limit off (ADR-0021) |
+//! | `MEZGEB_ALLOW_DEVELOPMENT_KEY` | unset | `true` lets the service start with the published development signing key, `deploy/signing.dev.hex`; otherwise it refuses it |
 //! | `MEZGEB_CLIENT_ADDRESS` | `peer` | Where the source address comes from: `peer` (the TCP connection) or `x-forwarded-for` (the last entry, added by the operator's own proxy; only when the service is reachable through it alone) |
 //! | `MEZGEB_LOG` | `info` | Log filter (`tracing` syntax) |
 
@@ -80,6 +81,27 @@ impl Config {
     }
 }
 
+/// The key ID of `deploy/signing.dev.hex`, the development signing key
+/// published in the repository. Receipts and checkpoints signed with it can
+/// be forged by anyone, so the service refuses it unless
+/// `MEZGEB_ALLOW_DEVELOPMENT_KEY=true` says this is a development run
+/// (step 2.16, TM-11).
+pub const DEVELOPMENT_KEY_ID: &str = "d38f7234d5cb807e";
+
+/// Refuses the published development signing key, unless allowed.
+pub fn check_signing_key(key_id: &str) -> Result<(), String> {
+    let allowed = var("MEZGEB_ALLOW_DEVELOPMENT_KEY").as_deref() == Some("true");
+    if key_id == DEVELOPMENT_KEY_ID && !allowed {
+        return Err(format!(
+            "MEZGEB_SIGNING_KEY_FILE holds the development key {key_id}, which is published: \
+             anyone could forge receipts and checkpoints. Generate a key with \
+             `mezgeb-cli key generate`, or set MEZGEB_ALLOW_DEVELOPMENT_KEY=true on a \
+             development machine."
+        ));
+    }
+    Ok(())
+}
+
 fn address_source(value: Option<&str>) -> Result<AddressSource, String> {
     match value {
         None | Some("peer") => Ok(AddressSource::Peer),
@@ -103,5 +125,20 @@ mod tests {
             Ok(AddressSource::ForwardedFor)
         );
         assert!(address_source(Some("X-Real-IP")).is_err());
+    }
+
+    #[test]
+    fn the_development_key_id_is_the_published_keys() -> Result<(), String> {
+        let signer =
+            mezgeb_engine::Signer::from_hex(include_str!("../../../deploy/signing.dev.hex"))?;
+        assert_eq!(signer.key_id(), DEVELOPMENT_KEY_ID);
+        Ok(())
+    }
+
+    #[test]
+    fn the_development_key_is_refused_and_others_are_not() {
+        // MEZGEB_ALLOW_DEVELOPMENT_KEY is not set in the tests.
+        assert!(check_signing_key(DEVELOPMENT_KEY_ID).is_err());
+        assert!(check_signing_key("0123456789abcdef").is_ok());
     }
 }
