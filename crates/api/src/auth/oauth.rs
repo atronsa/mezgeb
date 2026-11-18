@@ -7,6 +7,10 @@
 //! checked against a dummy hash, so it takes as long to refuse as a wrong
 //! secret and does not reveal which IDs exist.
 //!
+//! Failed logins are limited per credential, in the whole service and, if
+//! the operator turns it on, per address (ADR-0021): over any of them the
+//! endpoint answers `429 slow_down` before looking anything up or hashing.
+//!
 //! The answer is a random token that lives `MEZGEB_TOKEN_TTL_SECONDS`
 //! (15 minutes by default), with the scopes the credential's roles grant,
 //! or the subset asked for with `scope`. Errors follow RFC 6749 §5.2
@@ -14,6 +18,7 @@
 //! expect them.
 
 use std::collections::BTreeSet;
+use std::net::IpAddr;
 use std::sync::OnceLock;
 
 use axum::http::{HeaderValue, StatusCode, header};
@@ -59,6 +64,10 @@ impl OAuthError {
 
     pub fn error(&self) -> &'static str {
         self.error
+    }
+
+    fn slow_down(description: &str) -> OAuthError {
+        OAuthError::new(StatusCode::TOO_MANY_REQUESTS, "slow_down", description)
     }
 
     fn server(description: impl std::fmt::Display) -> OAuthError {
@@ -184,10 +193,11 @@ fn dummy_hash() -> &'static str {
     })
 }
 
-/// Handles a token request.
+/// Handles a token request from `address`.
 pub async fn issue(
     state: &AppState,
     authorization: Option<&str>,
+    address: Option<IpAddr>,
     request: TokenRequest,
 ) -> Result<TokenResponse, OAuthError> {
     if request.client_id.is_some() || request.client_secret.is_some() {
@@ -203,10 +213,16 @@ pub async fn issue(
         .logins
         .take(id, super::rate::TOKEN_RATE, super::rate::TOKEN_BURST)
     {
-        return Err(OAuthError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "slow_down",
+        return Err(OAuthError::slow_down(
             "Too many token requests for this credential; retry after Retry-After seconds.",
+        ));
+    }
+    // A caller inventing a new ID each time passes the limit above; the
+    // failed logins of the whole service, and of its address, bound it.
+    // One is reserved now and given back if the secret is right.
+    if !state.limits.reserve_login(address) {
+        return Err(OAuthError::slow_down(
+            "Too many failed token requests; retry after Retry-After seconds.",
         ));
     }
     match request.grant_type.as_deref() {
@@ -235,6 +251,7 @@ pub async fn issue(
         tracing::warn!(credential = %id, "token refused: unknown credential or wrong secret");
         return Err(OAuthError::invalid_client());
     };
+    state.limits.release_login(address);
     let allowed = state.permissions.scopes(&credential.roles);
     let scopes = granted_scopes(&allowed, request.scope.as_deref())?;
     let scopes: Vec<String> = scopes.into_iter().collect();

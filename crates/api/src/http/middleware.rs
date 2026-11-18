@@ -1,18 +1,58 @@
-//! What every request goes through: a request ID, the timeout, one access
-//! log line (see the crate documentation), and, for every change, refusal
-//! and read across clients, an audit event (ADR-0018).
+//! What every request goes through: a request ID, the caller's address,
+//! the timeout, one access log line (see the crate documentation), and, for
+//! every change, refusal and read across clients, an audit event
+//! (ADR-0018). Refusals of callers who have not authenticated are audited in
+//! summary ([`super::refusals`], ADR-0021).
 
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use axum::extract::{MatchedPath, Request, State};
+use axum::extract::{ConnectInfo, MatchedPath, Request, State};
 use axum::http::HeaderValue;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use mezgeb_core::ClientId;
 
 use crate::AppState;
+use crate::auth::rate::AddressSource;
 use crate::problem::{ApiError, REQUEST_ID};
+
+/// The caller's address, for the limit per address (ADR-0021); `None` when
+/// it is not known.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ClientAddress(pub Option<IpAddr>);
+
+/// The caller's address: the TCP peer, or the last `X-Forwarded-For` entry
+/// when the operator says its proxy adds one.
+fn client_address(request: &Request, source: AddressSource) -> Option<IpAddr> {
+    let peer = || {
+        request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|c| c.0.ip())
+    };
+    match source {
+        AddressSource::Peer => peer(),
+        AddressSource::ForwardedFor => forwarded_for(request.headers()).or_else(peer),
+    }
+}
+
+/// The last address in the last `X-Forwarded-For` header: the one the
+/// nearest proxy added. Earlier entries are whatever the caller sent.
+fn forwarded_for(headers: &axum::http::HeaderMap) -> Option<IpAddr> {
+    headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .next_back()?
+        .to_str()
+        .ok()?
+        .rsplit(',')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
+}
 
 /// Who made a request, filled in by authentication, for the access log
 /// and the audit log.
@@ -77,6 +117,8 @@ pub(crate) async fn request_context(
         .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
     let logged = LoggedClient::default();
     request.extensions_mut().insert(logged.clone());
+    let address = client_address(&request, state.limits.address.source);
+    request.extensions_mut().insert(ClientAddress(address));
     let method = request.method().clone();
     let matched = request
         .extensions()
@@ -119,7 +161,18 @@ pub(crate) async fn request_context(
     // scope, every read across clients.
     let reads = matches!(method, axum::http::Method::GET | axum::http::Method::HEAD);
     let across = caller.as_ref().is_some_and(|c| c.sees_all);
-    if !reads || status == 401 || status == 403 || across {
+    // A refusal of a caller who has not authenticated is written only if
+    // it is the first of its kind in the minute; the rest are counted.
+    let unauthenticated_refusal = caller.is_none() && (400..500).contains(&status);
+    let tried = response
+        .extensions()
+        .get::<AuditActor>()
+        .map(|a| a.0.clone());
+    let summarised = unauthenticated_refusal
+        && !state
+            .refusals
+            .admit(tried.as_deref().unwrap_or("anonymous"), outcome(status));
+    if (!reads || status == 401 || status == 403 || across) && !summarised {
         let mut details = serde_json::Map::new();
         details.insert("status".into(), status.into());
         if let Some(ProblemCode(code)) = response.extensions().get::<ProblemCode>() {
@@ -128,12 +181,7 @@ pub(crate) async fn request_context(
         if let Some(AuditDetails(more)) = response.extensions().get::<AuditDetails>() {
             details.extend(more.clone());
         }
-        let actor = caller.as_ref().map(|c| c.actor.clone()).or_else(|| {
-            response
-                .extensions()
-                .get::<AuditActor>()
-                .map(|a| a.0.clone())
-        });
+        let actor = caller.as_ref().map(|c| c.actor.clone()).or(tried);
         let event = mezgeb_engine::NewAuditEvent {
             client: caller.as_ref().map(|c| c.client),
             actor,
@@ -175,5 +223,21 @@ mod tests {
         assert_eq!(id("abc"), None);
         assert_eq!(id("0192f3c4-0000-7000-8000-00000000abcd\nforged"), None);
         assert_eq!(id(""), None);
+    }
+
+    #[test]
+    fn only_the_nearest_forwarded_address_is_trusted() {
+        let mut headers = axum::http::HeaderMap::new();
+        assert_eq!(forwarded_for(&headers), None);
+        // The caller wrote the first entry; the proxy added the last.
+        headers.append(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.9, 198.51.100.4"),
+        );
+        assert_eq!(forwarded_for(&headers), "198.51.100.4".parse().ok());
+        headers.append("x-forwarded-for", HeaderValue::from_static("2001:db8::1"));
+        assert_eq!(forwarded_for(&headers), "2001:db8::1".parse().ok());
+        headers.append("x-forwarded-for", HeaderValue::from_static("not-an-ip"));
+        assert_eq!(forwarded_for(&headers), None);
     }
 }

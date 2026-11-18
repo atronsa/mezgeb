@@ -161,6 +161,23 @@ supported.
   account `2060 Disputed merchant funds`. ADR-0015 and the refund and
   dispute policy (`docs/accounting/refunds-and-disputes.md`, review pending).
 
+### Security
+
+- **Callers who have not authenticated cost bounded work** (ADR-0021,
+  step 2.16). The security review found that a caller inventing a new
+  credential ID for each token request passed the per-credential limit, and
+  cost an Argon2 hash and an audit event every time. Now:
+  - failed logins share one bucket for the service (20 a second, bursts
+    of 100), reserved before any lookup or hash and given back on success;
+    over it, the token endpoint answers `429 slow_down`;
+  - an optional limit per source address (`MEZGEB_ADDRESS_FAILURE_LIMIT`,
+    `MEZGEB_CLIENT_ADDRESS`), off by default, covers failed logins and
+    refused bearer tokens together;
+  - refusals of unauthenticated callers are audit events of their own only
+    for the first per actor each minute, at most 60 a minute; the rest are
+    counted in a `refusals.suppressed` event, once a minute and at shutdown;
+  - a client over its own rate limit is audited under its own name.
+
 ### Changed
 
 - The interim token file (`MEZGEB_TOKENS`, `deploy/tokens.dev.toml`) is

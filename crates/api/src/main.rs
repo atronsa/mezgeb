@@ -6,6 +6,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use mezgeb_api::auth::Permissions;
+use mezgeb_api::auth::rate::Limits;
 use mezgeb_api::config::Config;
 use mezgeb_api::{AppState, serve};
 use mezgeb_core::Chart;
@@ -80,7 +81,8 @@ async fn run() -> Result<(), String> {
         chart: Arc::new(chart),
         permissions: Arc::new(permissions),
         token_ttl: config.token_ttl,
-        limits: Arc::default(),
+        limits: Arc::new(Limits::with_address_limit(config.address_limit)),
+        refusals: Arc::default(),
         registry: Arc::new(TemplateRegistry::standard()),
         options: PostOptions {
             signer: Some(Arc::new(signer)),

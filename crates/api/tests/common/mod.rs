@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mezgeb_api::auth::Permissions;
+use mezgeb_api::auth::rate::Limits;
 use mezgeb_api::{AppState, serve};
 use mezgeb_core::{ActorId, Chart, Timestamp};
 use mezgeb_engine::PostOptions;
@@ -206,6 +207,29 @@ impl TestServer {
         db: support::TestDb,
         timeout: Duration,
     ) -> Result<TestServer, Box<dyn std::error::Error>> {
+        TestServer::with_limits(db, timeout, Limits::default()).await
+    }
+
+    /// A server on a fresh, migrated database, with these limits (such as
+    /// the limit per address, off by default), or `None` without a test
+    /// database.
+    pub async fn start_with_limits(
+        timeout: Duration,
+        limits: Limits,
+    ) -> Result<Option<TestServer>, Box<dyn std::error::Error>> {
+        let Some(server) = support::Server::from_env()? else {
+            return Ok(None);
+        };
+        let db = server.migrated().await?;
+        Ok(Some(TestServer::with_limits(db, timeout, limits).await?))
+    }
+
+    /// A server on an existing database, with these limits.
+    pub async fn with_limits(
+        db: support::TestDb,
+        timeout: Duration,
+        limits: Limits,
+    ) -> Result<TestServer, Box<dyn std::error::Error>> {
         let chart = Chart::from_toml(include_str!("../../../../charts/wallet-provider.toml"))?;
         let permissions = Permissions::built_in()?;
         seed(&db, &permissions).await?;
@@ -216,7 +240,8 @@ impl TestServer {
             chart: Arc::new(chart),
             permissions: Arc::new(permissions),
             token_ttl: Duration::from_secs(900),
-            limits: Arc::default(),
+            limits: Arc::new(limits),
+            refusals: Arc::default(),
             registry: Arc::new(TemplateRegistry::standard()),
             options: PostOptions {
                 lock_timeout: Duration::from_secs(20),

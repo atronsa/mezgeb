@@ -18,6 +18,7 @@ pub(super) fn router() -> Router<AppState> {
 
 async fn token(
     State(state): State<AppState>,
+    extensions: axum::http::Extensions,
     headers: HeaderMap,
     form: Result<Form<TokenRequest>, FormRejection>,
 ) -> Response {
@@ -32,7 +33,10 @@ async fn token(
         .and_then(|v| v.to_str().ok());
     // The audit log names the credential tried, never its secret.
     let tried = basic_credentials(authorization).map(|(id, _)| format!("credential:{id}"));
-    let mut response = match issue(&state, authorization, request).await {
+    let address = extensions
+        .get::<crate::http::middleware::ClientAddress>()
+        .and_then(|a| a.0);
+    let mut response = match issue(&state, authorization, address, request).await {
         Ok(token) => token.into_response(),
         Err(error) => error.into_response(),
     };

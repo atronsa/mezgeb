@@ -48,6 +48,8 @@ use crate::auth::rate::Limits;
 use crate::http::middleware::request_context;
 use crate::problem::{ApiError, REQUEST_ID};
 
+pub use crate::http::refusals::{self, Refusals};
+
 /// Everything a handler needs.
 #[derive(Clone)]
 pub struct AppState {
@@ -59,6 +61,9 @@ pub struct AppState {
     pub token_ttl: Duration,
     /// The rate limits' buckets.
     pub limits: Arc<Limits>,
+    /// Which refusals of unauthenticated callers are audited one by one
+    /// (ADR-0021).
+    pub refusals: Arc<Refusals>,
     pub registry: Arc<TemplateRegistry>,
     pub options: PostOptions,
     /// The P-256 key that signs device certificates and vouchers; without
@@ -98,17 +103,25 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Serves until `shutdown` completes, then stops taking new connections,
-/// finishes the requests under way, and waits for every write task.
+/// finishes the requests under way, and waits for every write task. Once a
+/// minute, and at the end, the refusals counted but not audited one by one
+/// are recorded as one audit event (ADR-0021).
 pub async fn serve(
     listener: tokio::net::TcpListener,
     state: AppState,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> std::io::Result<()> {
     let tasks = state.tasks.clone();
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown)
-        .await?;
+    let summaries = tokio::spawn(http::refusals::summarise(state.clone()));
+    let served = axum::serve(
+        listener,
+        router(state.clone()).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await;
+    summaries.abort();
     tasks.close();
     tasks.wait().await;
-    Ok(())
+    http::refusals::write_summary(&state).await;
+    served
 }

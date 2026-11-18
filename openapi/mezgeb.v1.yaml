@@ -5083,7 +5083,7 @@ components:
             - "null"
         action:
           type: "string"
-          description: "`METHOD /route/{pattern}` for an API request, or a named action such as `token.issue` or `credential.revoke`."
+          description: "`METHOD /route/{pattern}` for an API request, or a named action such as `token.issue`, `credential.revoke` or `refusals.suppressed` (the refusals of unauthenticated callers counted, not recorded one by one, since the last summary; ADR-0021)."
         target:
           type:
             - "string"
@@ -5094,7 +5094,7 @@ components:
             - "null"
         outcome:
           type: "string"
-          description: "`ok`, or why not: `refused`, `forbidden`, `unauthenticated`, `failed`."
+          description: "`ok`, or why not: `refused`, `forbidden`, `unauthenticated`, `not_found`, `rate_limited`, `failed`; `suppressed` for a `refusals.suppressed` summary (ADR-0021)."
         details:
           type: "object"
           description: "The status and code of a request; before and after for a change of configuration. Never bodies or secrets."
