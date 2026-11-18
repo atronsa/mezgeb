@@ -14,10 +14,12 @@ that it is never invisible and never counted twice.
 | `2020:wd-…` Pending withdrawals | Liability | A withdrawal the customer asked for, not yet sent to the bank | Sent (to 9030) |
 | `9030:wdt-…` Clearing: withdrawals in transit | Liability | A payout submitted to the bank, not yet confirmed or rejected | Confirmed (to 1010) or rejected (back to 2010) |
 | `9010:sus-…` Suspense: unidentified funds | Liability | Money in the bank whose owner is not known yet | Resolved to its owner (2010 or 2030) |
+| `9040:sbd-…` Suspense: unexplained bank debits | Asset | Money the ledger shows in 1010 that the bank does not, parked by reconciliation (step 2.15) | Explained: back to 1010, to a wallet or merchant balance, or to 5020 |
 | 9020 Clearing: deposits in transit | Asset | Reserved, unused | |
 
-All three are **control accounts with one sub-account per item**: one per
-withdrawal, one per payout in transit, one per unidentified payment. The
+All four are **control accounts with one sub-account per item**: one per
+withdrawal, one per payout in transit, one per unidentified payment, one
+per unexplained bank debit. The
 client application chooses the sub-account ID (for example, the withdrawal's
 own ID), opens it, and passes it to the template.
 
@@ -83,6 +85,21 @@ payout may already be at the bank: the customer would be paid twice.
 Instead, a withdrawal that stays pending or in transit too long shows up in
 the ageing report, and a person decides.
 
+**Reconciliation** (step 2.15, [ADR-0020](../adr/0020-reconciliation.md))
+
+When the bank statement and 1010 disagree, the first entry makes 1010 equal
+the bank again and parks the difference; the second closes it once the
+cause is found ([E32–E35](entries/reconciliation.md)).
+
+| Event | Template | Lines | Entry |
+|---|---|---|---|
+| The bank shows more than the ledger | `deposit_unmatched.v1` | Dr 1010 / Cr `9010:sus-…` (new) | E19 |
+| The bank shows less than the ledger | `bank_debit_unmatched.v1` | Dr `9040:sbd-…` (new) / Cr 1010 | E32, E34 |
+| The cause of a bank debit is found | `bank_debit_resolve.v1` | Dr 1010, `2010:cust-…`, `2030:merch-…` or 5020 / Cr `9040:sbd-…`, the whole balance | E33, E35 |
+
+9040 is an asset, but not cash: it never backs customer money. While an
+item is open, the safeguarding check shows the shortfall in 1010.
+
 **Clearing nets to zero.** At any time, the balance of 9030 is the sum of
 the payouts submitted and not yet confirmed or rejected, and 2020 the sum of
 the withdrawals requested and not yet sent. Each finished lifecycle leaves
@@ -90,16 +107,16 @@ both at zero.
 
 ## Ageing
 
-The ageing report lists every open item in 2020, 9030 and 9010, oldest
-first, with its balance and how long it has been open (since its first
-posting):
+The ageing report lists every open item in 2020, 9030, 9010 and 9040 (and
+2060, disputed merchant funds, step 2.04), oldest first, with its balance
+and how long it has been open (since its first posting):
 
-| Bucket | Pending withdrawal (2020) | In transit (9030) | Suspense (9010) |
-|---|---|---|---|
-| Under 1 day | Normal: waits for the next batch | Normal: waits for the bank | Normal: being matched |
-| 1 to 3 days | Late: the batch missed it | Late: chase the bank | Investigate |
-| 3 to 7 days | Alert | Alert | Alert |
-| 7 days and over | Escalate | Escalate | Escalate; consider returning to the sender |
+| Bucket | Pending withdrawal (2020) | In transit (9030) | Suspense (9010) | Bank debit (9040) |
+|---|---|---|---|---|
+| Under 1 day | Normal: waits for the next batch | Normal: waits for the bank | Normal: being matched | Normal: being explained |
+| 1 to 3 days | Late: the batch missed it | Late: chase the bank | Investigate | Chase the bank or the client |
+| 3 to 7 days | Alert | Alert | Alert | Alert |
+| 7 days and over | Escalate | Escalate | Escalate; consider returning to the sender | Escalate; report the shortfall |
 
 The query is `mezgeb_engine::ageing`, called with the account codes in
 `mezgeb_ops::AGED_ACCOUNTS`. The engine does not know what the codes mean;
@@ -107,9 +124,11 @@ this page does.
 
 ## Not decided yet
 
-- **Fees** on deposits, withdrawals and returns (4020, 5020): none in this
+- **Fees** on deposits, withdrawals and returns (4020): none in this
   version ([ADR-0014](../adr/0014-payment-channels-and-fees.md)). A fee will
-  be a new template version with a fee line.
+  be a new template version with a fee line. A charge the bank takes from
+  1010 is found by reconciliation and booked to 5020 through 9040 (E32,
+  E33).
 - **Cancelling a withdrawal before it is sent** (Dr 2020 / Cr 2010) and
   **returning unmatched money to the sender** (Dr 9010 / Cr 1010): no
   template yet.
