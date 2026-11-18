@@ -1,15 +1,24 @@
-# Dependency checks (cargo-deny, configured in deny.toml): known
-# vulnerabilities, licences and sources. Runs when dependencies change, and
-# weekly, because new advisories appear for code that has not changed.
+# Dependency checks (step 2.16, TM-06):
+#
+# - cargo-deny (deny.toml): known vulnerabilities, unmaintained and unsound
+#   crates, licences and sources;
+# - cargo-audit: the RustSec advisory database again, through RustSec's own
+#   tool, so a finding does not depend on one tool's reading of it.
+#
+# On every push and pull request, so no change merges past a known
+# advisory, and every day, because new advisories appear for code that has
+# not changed. An advisory accepted with a reason goes in deny.toml
+# `[advisories] ignore` and in .cargo/audit.toml `[advisories] ignore`, both.
+# cargo-audit reads all of Cargo.lock, including optional crates nothing
+# compiles; an advisory in one of those goes in .cargo/audit.toml alone,
+# with the proof that it is never built (see that file).
 name: deps
 on:
   push:
     branches: [main]
-    paths: [Cargo.lock, "**/Cargo.toml", deny.toml]
   pull_request:
-    paths: [Cargo.lock, "**/Cargo.toml", deny.toml]
   schedule:
-    - cron: "0 6 * * 1"
+    - cron: "0 6 * * *"
   workflow_dispatch:
 jobs:
   deny:
@@ -17,3 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # Warnings (unmaintained, unsound, yanked) fail too, as in deny.toml.
+      - run: cargo audit --deny warnings

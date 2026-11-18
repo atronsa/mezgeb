@@ -1,0 +1,23 @@
+# cargo-audit's configuration, read by the `deps` workflow (step 2.16).
+#
+# cargo-audit reads every package in Cargo.lock. Cargo writes the optional
+# dependencies of our dependencies into the lockfile whether or not
+# anything enables them, so cargo-audit also reports crates that are never
+# compiled. cargo-deny (deny.toml) checks the dependency graph as built,
+# with every feature on, and still fails on an advisory in anything we
+# compile. An advisory ignored here must say why it cannot reach a build,
+# and when the ignore comes out.
+
+[advisories]
+ignore = [
+    # RUSTSEC-2026-0459, libsqlite3-sys 0.37.0 (C SQLite CVE-2026-119375,
+    # medium). It is in Cargo.lock only as a dependency of sqlx-sqlite, an
+    # optional part of sqlx that no Mezgeb crate enables: Mezgeb uses
+    # PostgreSQL alone (`sqlx` with default-features = false). Checked
+    # 2026-11-18: `cargo tree -i libsqlite3-sys --workspace --all-features
+    # --target all` prints nothing, CI never compiles it, and cargo-deny
+    # passes. sqlx 0.9.1 still asks for libsqlite3-sys 0.37, so the lockfile
+    # cannot move to the patched 0.39. Remove this once a sqlx release takes
+    # libsqlite3-sys >= 0.39 and `cargo update -p sqlx` moves it.
+    "RUSTSEC-2026-0459",
+]
