@@ -1,0 +1,31 @@
+$kind: http-request
+description: "Compares up to 1,000 of the caller's cached balances with the ledger's (ADR-0002: the ledger is the system of record; ADR-0020). Each balance may name the posting sequence the cache reflects, so that an entry posted while the cache was read is not a disagreement; without it, the balance now is compared. A disagreement is a `stale_cache` break, and the answer carries the ledger's balance: the ledger wins, and the client refreshes its cache from it, never the other way. A later call that agrees clears the break. Only the caller's own accounts: any other is `404`."
+url: "{{baseUrl}}/v1/reconciliation/balances"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+body:
+  type: json
+  content: |-
+    {
+      "balances": [
+        {
+          "account": "2010:cust-abebe",
+          "balance": {
+            "amount": "830.00",
+            "currency": "ETB"
+          },
+          "as_of_sequence": 1042
+        }
+      ]
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read audit:read offline:write offline:resolve reconciliation:write reconciliation:read reconciliation:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Compare cached balances.resources/examples
+order: 3000

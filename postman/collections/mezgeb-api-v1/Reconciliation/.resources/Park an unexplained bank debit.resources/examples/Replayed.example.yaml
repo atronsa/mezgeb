@@ -1,0 +1,88 @@
+$kind: http-example
+request:
+  url: "{{baseUrl}}/v1/operations/bank_debit_unmatched.v1"
+  method: POST
+  headers:
+    - key: Authorization
+      value: <token>
+      description: "Added as a part of security scheme: oauth2"
+    - key: Idempotency-Key
+      value: pay-2026-11-14-0001
+      disabled: false
+      description: (Required) Makes a write safe to retry. The same key with the same request returns the original result; with a different request, `409 idempotency_key_reused`. Keys are per client and kept for at least 30 days (ADR-0008).
+    - key: Accept
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "accounts": {
+          "bank_debit_item": "9040:sbd-0001",
+          "customer_funds": "1010"
+        },
+        "amounts": {
+          "amount": {
+            "amount": "100.00",
+            "currency": "ETB"
+          }
+        }
+      }
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Idempotent-Replayed
+      value: "true"
+      disabled: false
+      description: "`true` when the response repeats an earlier request with the same key."
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "id": {
+          "value": "<Error: Too many levels of nesting to fake this schema>"
+        },
+        "sequence": 4987,
+        "kind": "refund",
+        "template": {
+          "value": "<Error: Too many levels of nesting to fake this schema>"
+        },
+        "period_id": 3479,
+        "recorded_at": "1978-05-01T00:54:10.213Z",
+        "event_time": "2013-12-09T02:36:44.298Z",
+        "lines": [
+          {
+            "value": "<Error: Too many levels of nesting to fake this schema>"
+          },
+          {
+            "value": "<Error: Too many levels of nesting to fake this schema>"
+          }
+        ],
+        "metadata": {
+          "key_0": "string",
+          "key_1": "string"
+        },
+        "reverses": {
+          "value": "<Error: Too many levels of nesting to fake this schema>"
+        },
+        "refunds": {
+          "value": "<Error: Too many levels of nesting to fake this schema>"
+        },
+        "authorization": {
+          "reason": {
+            "value": "<Error: Too many levels of nesting to fake this schema>"
+          },
+          "requested_by": {
+            "value": "<Error: Too many levels of nesting to fake this schema>"
+          },
+          "approved_by": {
+            "value": "<Error: Too many levels of nesting to fake this schema>"
+          }
+        },
+        "receipt": {
+          "value": "<Error: Too many levels of nesting to fake this schema>"
+        }
+      }
+order: 1000

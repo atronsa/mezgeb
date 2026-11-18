@@ -1,0 +1,35 @@
+$kind: http-request
+description: "Disagreements found by reconciliation, oldest first (ADR-0020): the bank statement against an account such as 1010, clients' caches, and offline devices and escrows. Open ones unless `status` says otherwise. Pages continue with `after`."
+url: "{{baseUrl}}/v1/reconciliation/breaks?status=open&account=1010"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: status
+    value: open
+    disabled: false
+    description: Open (the default), cleared, resolved, explained, or all.
+  - key: kind
+    value: amount_mismatch
+    disabled: true
+  - key: account
+    value: "1010"
+    disabled: false
+    description: Breaks about this account, by ID or reference.
+  - key: after
+    value: 0192f3c4-0000-7000-8000-00000000b001
+    disabled: true
+    description: The `next_after` of the previous page.
+  - key: limit
+    value: "100"
+    disabled: true
+    description: 1 to 1,000; 100 by default.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read audit:read offline:write offline:resolve reconciliation:write reconciliation:read reconciliation:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List reconciliation breaks.resources/examples
+order: 4000
