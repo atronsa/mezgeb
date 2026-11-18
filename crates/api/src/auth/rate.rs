@@ -1,5 +1,7 @@
-//! Rate limits (ADR-0017, TM-03): a token bucket per client, and one per
-//! credential at the token endpoint.
+//! Rate limits (ADR-0017, ADR-0021, TM-03): a token bucket per client, one
+//! per credential at the token endpoint, one for every failed login in the
+//! service, and, if the operator turns it on, one per source address for
+//! failed logins and refused tokens.
 //!
 //! A bucket holds up to `burst` requests and refills at `rate` per second.
 //! A request that finds it empty is refused with `429` and `Retry-After`;
@@ -14,6 +16,7 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
+use std::net::IpAddr;
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -27,6 +30,13 @@ pub const MAX_BUCKETS: usize = 10_000;
 /// Argon2 hash, and a secret should not be guessable at speed.
 pub const TOKEN_RATE: u32 = 2;
 pub const TOKEN_BURST: u32 = 10;
+
+/// Failed logins in the whole service (ADR-0021): each costs an Argon2
+/// hash, and a caller who invents a new credential ID each time is not
+/// slowed by the limit per credential. While these are spent, the token
+/// endpoint refuses before looking anything up.
+pub const FAILED_LOGIN_RATE: u32 = 20;
+pub const FAILED_LOGIN_BURST: u32 = 100;
 
 #[derive(Debug, Clone, Copy)]
 struct Bucket {
@@ -58,17 +68,17 @@ impl<K: Eq + Hash + Copy> Buckets<K> {
             // an outage.
             return true;
         };
+        let level = |b: &Bucket| {
+            (b.tokens + now.saturating_duration_since(b.at).as_secs_f64() * rate).min(burst)
+        };
         if buckets.len() >= MAX_BUCKETS && !buckets.contains_key(&key) {
-            buckets.retain(|_, b| {
-                b.tokens + now.saturating_duration_since(b.at).as_secs_f64() * rate < burst
-            });
+            buckets.retain(|_, b| level(b) < burst);
         }
         let bucket = buckets.entry(key).or_insert(Bucket {
             tokens: burst,
             at: now,
         });
-        let refill = now.saturating_duration_since(bucket.at).as_secs_f64() * rate;
-        bucket.tokens = (bucket.tokens + refill).min(burst);
+        bucket.tokens = level(bucket);
         bucket.at = now;
         if bucket.tokens >= 1.0 {
             bucket.tokens -= 1.0;
@@ -82,9 +92,47 @@ impl<K: Eq + Hash + Copy> Buckets<K> {
         self.take_at(key, rate, burst, Instant::now())
     }
 
+    /// Gives back one request taken from `key`'s bucket, for work that
+    /// turned out not to count against it.
+    pub fn refund(&self, key: K, burst: u32) {
+        if let Ok(mut buckets) = self.buckets.lock()
+            && let Some(bucket) = buckets.get_mut(&key)
+        {
+            bucket.tokens = (bucket.tokens + 1.0).min(f64::from(burst.max(1)));
+        }
+    }
+
     #[cfg(test)]
     fn len(&self) -> usize {
         self.buckets.lock().map(|b| b.len()).unwrap_or_default()
+    }
+}
+
+/// Where a caller's address comes from, for the limit per address.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AddressSource {
+    /// The TCP peer: right when nothing stands in front of the service.
+    #[default]
+    Peer,
+    /// The last entry of `X-Forwarded-For`, the one the operator's own
+    /// proxy added; the peer if there is none. Only for a service that is
+    /// reachable through that proxy alone.
+    ForwardedFor,
+}
+
+/// The limit per source address on failed logins and refused tokens
+/// (ADR-0021): off unless the operator sets a rate.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AddressLimit {
+    /// Failures per second per address; `0` turns the limit off.
+    pub per_second: u32,
+    pub source: AddressSource,
+}
+
+impl AddressLimit {
+    /// The burst: ten seconds' worth.
+    pub fn burst(&self) -> u32 {
+        self.per_second.saturating_mul(10)
     }
 }
 
@@ -95,6 +143,63 @@ pub struct Limits {
     pub clients: Buckets<ClientId>,
     /// Per credential, at the token endpoint.
     pub logins: Buckets<Uuid>,
+    /// Failed logins in the whole service.
+    pub failed_logins: Buckets<()>,
+    /// Failures per source address, when [`Limits::address`] is on.
+    pub addresses: Buckets<IpAddr>,
+    pub address: AddressLimit,
+}
+
+impl Limits {
+    /// Limits with the per-address limit set as given.
+    pub fn with_address_limit(address: AddressLimit) -> Limits {
+        Limits {
+            address,
+            ..Limits::default()
+        }
+    }
+
+    // Each attempt reserves a failure before the work, and gives it back if
+    // it succeeds: checking first and counting after would let a burst of
+    // concurrent attempts all pass the check before the first one failed.
+
+    /// Reserves a failure for an attempt from `address`: `false` once its
+    /// failures are spent, if the limit per address is on.
+    pub fn reserve_address(&self, address: Option<IpAddr>) -> bool {
+        match (self.address.per_second, address) {
+            (0, _) | (_, None) => true,
+            (rate, Some(ip)) => self.addresses.take(ip, rate, self.address.burst()),
+        }
+    }
+
+    /// Gives back the failure reserved for `address`: the attempt succeeded.
+    pub fn release_address(&self, address: Option<IpAddr>) {
+        if let (1.., Some(ip)) = (self.address.per_second, address) {
+            self.addresses.refund(ip, self.address.burst());
+        }
+    }
+
+    /// Reserves a failed login before a secret is checked, in the whole
+    /// service and for `address`: `false` while either is spent.
+    pub fn reserve_login(&self, address: Option<IpAddr>) -> bool {
+        if !self
+            .failed_logins
+            .take((), FAILED_LOGIN_RATE, FAILED_LOGIN_BURST)
+        {
+            return false;
+        }
+        if !self.reserve_address(address) {
+            self.failed_logins.refund((), FAILED_LOGIN_BURST);
+            return false;
+        }
+        true
+    }
+
+    /// Gives back the failed login reserved: the secret was right.
+    pub fn release_login(&self, address: Option<IpAddr>) {
+        self.failed_logins.refund((), FAILED_LOGIN_BURST);
+        self.release_address(address);
+    }
 }
 
 #[cfg(test)]
@@ -123,6 +228,70 @@ mod tests {
             assert!(buckets.take_at(1u8, 2, 3, later));
         }
         assert!(!buckets.take_at(1u8, 2, 3, later));
+    }
+
+    #[test]
+    fn a_refund_gives_back_one_up_to_the_burst() {
+        let buckets = Buckets::default();
+        let start = Instant::now();
+        buckets.refund(1u8, 2);
+        assert_eq!(buckets.len(), 0, "nothing to give back to");
+        assert!(buckets.take_at(1u8, 1, 2, start));
+        assert!(buckets.take_at(1u8, 1, 2, start));
+        assert!(!buckets.take_at(1u8, 1, 2, start));
+        buckets.refund(1u8, 2);
+        assert!(buckets.take_at(1u8, 1, 2, start));
+        buckets.refund(1u8, 2);
+        buckets.refund(1u8, 2);
+        buckets.refund(1u8, 2);
+        assert!(buckets.take_at(1u8, 1, 2, start));
+        assert!(buckets.take_at(1u8, 1, 2, start));
+        assert!(!buckets.take_at(1u8, 1, 2, start), "never beyond the burst");
+    }
+
+    #[test]
+    fn failed_logins_are_limited_in_the_whole_service() {
+        let limits = Limits::default();
+        // Successful logins give their reservation back.
+        for _ in 0..1_000 {
+            assert!(limits.reserve_login(None));
+            limits.release_login(None);
+        }
+        for _ in 0..FAILED_LOGIN_BURST {
+            assert!(limits.reserve_login(None));
+        }
+        assert!(!limits.reserve_login(None), "the burst is spent");
+    }
+
+    #[test]
+    fn the_address_limit_is_off_unless_set() {
+        let ip: IpAddr = [192, 0, 2, 7].into();
+        let off = Limits::default();
+        for _ in 0..1_000 {
+            assert!(off.reserve_address(Some(ip)));
+        }
+
+        let on = Limits::with_address_limit(AddressLimit {
+            per_second: 1,
+            source: AddressSource::Peer,
+        });
+        for _ in 0..10 {
+            assert!(on.reserve_address(Some(ip)));
+        }
+        assert!(!on.reserve_address(Some(ip)), "ten failures, the burst");
+        on.release_address(Some(ip));
+        assert!(on.reserve_address(Some(ip)), "one given back");
+        assert!(
+            on.reserve_address(Some([192, 0, 2, 8].into())),
+            "another address"
+        );
+        assert!(on.reserve_address(None), "no address known");
+        // A login refused by the address does not spend the service's.
+        let before = (0..FAILED_LOGIN_BURST)
+            .take_while(|_| on.reserve_login(Some(ip)))
+            .count();
+        assert_eq!(before, 0);
+        assert!(on.reserve_login(None));
     }
 
     #[test]

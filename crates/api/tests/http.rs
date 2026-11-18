@@ -443,6 +443,187 @@ async fn clients_and_logins_are_rate_limited() -> Result<(), BoxError> {
     Ok(())
 }
 
+/// ADR-0021: a caller without a secret, inventing a new credential ID and
+/// a new token for every request, gets a bounded number of Argon2 hashes
+/// and a bounded number of audit events, and every one of its refusals is
+/// still counted in the audit chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_caller_without_a_secret_costs_bounded_work_and_audit_events() -> Result<(), BoxError> {
+    use mezgeb_api::auth::rate::{FAILED_LOGIN_BURST, FAILED_LOGIN_RATE};
+    use mezgeb_api::refusals::EVENTS_PER_MINUTE;
+
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+    let started = std::time::Instant::now();
+
+    // Logins with a new, unknown credential ID each time.
+    const LOGINS: usize = 400;
+    let logins = (0..LOGINS).map(|_| {
+        let api = api.clone();
+        async move {
+            let id = uuid::Uuid::now_v7().to_string();
+            api.token(Some((&id, "a-guess")), "grant_type=client_credentials")
+                .await
+        }
+    });
+    let replies = futures_join_all(logins).await?;
+    let elapsed = started.elapsed().as_secs_f64();
+    let hashed = replies.iter().filter(|r| r.status == 401).count();
+    let slowed = replies
+        .iter()
+        .filter(|r| r.status == 429 && r.body["error"] == "slow_down")
+        .count();
+    assert_eq!(hashed + slowed, LOGINS);
+    // The burst and what refilled while the test ran: each attempt reserves
+    // before it hashes, so concurrent attempts cannot all slip through.
+    let bound = f64::from(FAILED_LOGIN_BURST) + f64::from(FAILED_LOGIN_RATE) * elapsed + 1.0;
+    assert!(
+        (hashed as f64) <= bound,
+        "{hashed} secrets were checked in {elapsed:.1} s"
+    );
+    assert!(slowed > 0, "the failed logins were never limited");
+
+    // Bearer tokens nobody issued.
+    const TOKENS: usize = 200;
+    for n in 0..TOKENS {
+        let reply = api
+            .get("/v1/periods/current", &format!("forged-token-{n}"))
+            .await?;
+        assert_eq!(reply.code(), "unauthenticated", "{}", reply.body);
+    }
+    // A real client is not affected by either.
+    let real = api.get("/v1/periods/current", CLIENT).await?;
+    assert_eq!(real.status, 200, "{}", real.body);
+
+    // The summary is written at shutdown at the latest.
+    let db = server.into_db().await.map_err(|e| e.to_string())?;
+    let mut conn = db.verifier().await?;
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT action, outcome, details FROM audit_events
+          WHERE client_id IS NULL AND outcome <> 'ok' ORDER BY position",
+    )
+    .fetch_all(&mut conn)
+    .await?;
+    let mut written = 0u64;
+    let mut summarised = 0u64;
+    for (action, outcome, details) in &rows {
+        if action == "refusals.suppressed" {
+            assert_eq!(outcome, "suppressed");
+            let details: Value = serde_json::from_str(details)?;
+            summarised += details["total"].as_u64().ok_or("no total")?;
+        } else {
+            written += 1;
+        }
+    }
+    // One window, or two if the test crossed a minute.
+    assert!(
+        written <= 2 * EVENTS_PER_MINUTE as u64,
+        "{written} refusals were audited one by one"
+    );
+    assert_eq!(
+        written + summarised,
+        (LOGINS + TOKENS) as u64,
+        "every refusal is counted"
+    );
+    drop(conn);
+    db.drop().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// ADR-0021: with the limit per address on, an address sending tokens
+/// nobody issued and secrets nobody holds is refused before the lookup or
+/// the hash once its failures are spent, in one budget for both; its real
+/// requests do not spend it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_address_that_keeps_failing_is_refused_when_the_limit_is_on() -> Result<(), BoxError> {
+    use mezgeb_api::auth::rate::{AddressLimit, AddressSource, Limits};
+
+    let limit = AddressLimit {
+        per_second: 1,
+        source: AddressSource::Peer,
+    };
+    let Some(server) =
+        TestServer::start_with_limits(Duration::from_secs(30), Limits::with_address_limit(limit))
+            .await
+            .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+    let started = std::time::Instant::now();
+
+    // Real requests first: they give back what they reserve, so many more
+    // than the burst pass.
+    for _ in 0..3 * limit.burst() {
+        let reply = api.get("/v1/periods/current", CLIENT).await?;
+        assert_eq!(reply.status, 200, "{}", reply.body);
+    }
+
+    // Then forged tokens and invented credentials, all at once.
+    let bearers = (0..40).map(|n| {
+        let api = api.clone();
+        async move {
+            api.get("/v1/periods/current", &format!("forged-token-{n}"))
+                .await
+        }
+    });
+    let logins = (0..40).map(|_| {
+        let api = api.clone();
+        async move {
+            let id = uuid::Uuid::now_v7().to_string();
+            api.token(Some((&id, "a-guess")), "grant_type=client_credentials")
+                .await
+        }
+    });
+    let bearers = futures_join_all(bearers).await?;
+    let logins = futures_join_all(logins).await?;
+    let elapsed = started.elapsed().as_secs_f64();
+
+    let failed = bearers.iter().filter(|r| r.status == 401).count()
+        + logins.iter().filter(|r| r.status == 401).count();
+    let bound = f64::from(limit.burst()) + f64::from(limit.per_second) * elapsed + 1.0;
+    assert!(
+        (failed as f64) <= bound,
+        "{failed} failures from one address in {elapsed:.1} s"
+    );
+    assert!(
+        bearers
+            .iter()
+            .filter(|r| r.status == 429)
+            .all(|r| r.code() == "rate_limited" && r.headers.contains_key("retry-after"))
+    );
+    assert!(bearers.iter().any(|r| r.status == 429));
+    assert!(
+        logins
+            .iter()
+            .filter(|r| r.status == 429)
+            .all(|r| r.body["error"] == "slow_down")
+    );
+    assert!(logins.iter().any(|r| r.status == 429));
+    assert_eq!(
+        bearers
+            .iter()
+            .chain(&logins)
+            .filter(|r| r.status != 401 && r.status != 429)
+            .count(),
+        0
+    );
+
+    // Once it refills, the address's real requests go through again.
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    let again = api.get("/v1/periods/current", CLIENT).await?;
+    assert_eq!(again.status, 200, "{}", again.body);
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Runs the futures concurrently and collects their results in order.
 async fn futures_join_all<F, T>(futures: impl Iterator<Item = F>) -> Result<Vec<T>, BoxError>
 where

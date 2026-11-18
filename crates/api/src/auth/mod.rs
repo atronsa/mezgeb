@@ -10,9 +10,12 @@
 //! its credential's roles in the permission matrix ([`permissions`]). Each
 //! operation checks its scope before the request is read ([`scope`]). Each
 //! client's requests are rate-limited ([`rate`]): over its limit, a request
-//! is refused with `429 rate_limited` before anything else.
+//! is refused with `429 rate_limited` before anything else. A caller whose
+//! address has had too many tokens refused is refused before the lookup, if
+//! the operator turned that limit on (ADR-0021).
 
 use std::collections::BTreeSet;
+use std::net::IpAddr;
 
 use mezgeb_core::{ActorId, ClientId};
 use uuid::Uuid;
@@ -38,6 +41,9 @@ pub struct Principal {
     pub scopes: BTreeSet<String>,
     /// The templates the caller may post.
     pub templates: BTreeSet<String>,
+    /// The client's rate limit: requests per second, and the burst.
+    pub rate_per_second: u32,
+    pub burst: u32,
 }
 
 impl Principal {
@@ -61,13 +67,25 @@ impl Principal {
     }
 }
 
-/// The caller of a request with this `Authorization` header value.
-pub async fn authenticate(state: &AppState, header: Option<&str>) -> Result<Principal, ApiError> {
+/// The caller of a request with this `Authorization` header value, from
+/// `address`. The client's rate limit is checked by [`admit`], once the
+/// caller is known to the logs.
+pub async fn authenticate(
+    state: &AppState,
+    header: Option<&str>,
+    address: Option<IpAddr>,
+) -> Result<Principal, ApiError> {
     let token = header
         .and_then(|h| h.strip_prefix("Bearer "))
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .ok_or_else(ApiError::unauthenticated)?;
+    if !state.limits.reserve_address(address) {
+        return Err(ApiError::new(
+            "rate_limited",
+            "Too many refused requests from this address; retry after Retry-After seconds.",
+        ));
+    }
     let digest = mezgeb_engine::token_digest(token);
     let mut conn = state.pool.acquire().await.map_err(|e| match e {
         sqlx::Error::PoolTimedOut => {
@@ -75,25 +93,37 @@ pub async fn authenticate(state: &AppState, header: Option<&str>) -> Result<Prin
         }
         other => ApiError::internal(other),
     })?;
-    let owner = mezgeb_engine::token_owner(&mut conn, &digest)
-        .await?
-        .ok_or_else(ApiError::unauthenticated)?;
+    let owner = mezgeb_engine::token_owner(&mut conn, &digest).await?;
     drop(conn);
-    if !state
-        .limits
-        .clients
-        .take(owner.client, owner.rate_per_second, owner.burst)
-    {
-        return Err(ApiError::new(
-            "rate_limited",
-            "This client has sent more requests than its limit; retry after Retry-After seconds.",
-        ));
-    }
+    let Some(owner) = owner else {
+        // The reservation stays spent: this was a failure.
+        return Err(ApiError::unauthenticated());
+    };
+    state.limits.release_address(address);
     Ok(Principal {
         client: owner.client,
         credential: owner.credential,
         actor: owner.actor,
         templates: state.permissions.templates(&owner.roles),
         scopes: owner.scopes.into_iter().collect(),
+        rate_per_second: owner.rate_per_second,
+        burst: owner.burst,
     })
+}
+
+/// Takes one request from the caller's client's rate limit: `429` if it is
+/// spent.
+pub fn admit(state: &AppState, principal: &Principal) -> Result<(), ApiError> {
+    if state
+        .limits
+        .clients
+        .take(principal.client, principal.rate_per_second, principal.burst)
+    {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            "rate_limited",
+            "This client has sent more requests than its limit; retry after Retry-After seconds.",
+        ))
+    }
 }

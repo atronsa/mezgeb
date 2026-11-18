@@ -135,6 +135,9 @@ as `mezgeb_owner`, before a new version starts.
 |---|---|
 | Request ID | A UUIDv7 per request, or the caller's `X-Request-Id` if it is a UUID. Returned in `X-Request-Id`, and the `instance` of every problem (`urn:uuid:<id>`) |
 | Body limit | `MEZGEB_BODY_LIMIT_BYTES`, 64 KiB by default. A larger body is `400 invalid_request` |
+| Failed logins | 20 a second in the whole service, in bursts of 100, reserved before any secret is hashed; over it, `429 slow_down` ([ADR-0021](../adr/0021-unauthenticated-traffic-limits.md)) |
+| Failures per address | Off by default. `MEZGEB_ADDRESS_FAILURE_LIMIT` failed logins and refused tokens a second per source address (the TCP peer, or with `MEZGEB_CLIENT_ADDRESS=x-forwarded-for` the last `X-Forwarded-For` entry); over it, `429` before any lookup |
+| Refusals in the audit log | A refusal of an unauthenticated caller is its own audit event only if it is the first for its actor in the minute, and at most 60 a minute; the rest are counted in one `refusals.suppressed` event a minute |
 | Strict bodies | Unknown fields, JSON numbers for amounts, more decimal places than the currency, and unknown currencies are `400 invalid_request`, with a JSON Pointer to the field in `errors` |
 | Timeout | After `MEZGEB_REQUEST_TIMEOUT_MS` (10 s), the client gets `503 busy` with `Retry-After`. **The write is not cancelled:** it runs in its own task and commits or fails on its own, so a retry with the same key returns its entry |
 | Access log | One JSON line per request: method, route pattern (never the path with its IDs), status, latency, request ID and client. No bodies, tokens, amounts, account references or idempotency keys |

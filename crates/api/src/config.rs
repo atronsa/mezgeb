@@ -12,11 +12,15 @@
 //! | `MEZGEB_REQUEST_TIMEOUT_MS` | `10000` | How long a request may take before the client is told to retry |
 //! | `MEZGEB_BODY_LIMIT_BYTES` | `65536` | The largest request body accepted |
 //! | `MEZGEB_DB_POOL` | `16` | Database connections |
+//! | `MEZGEB_ADDRESS_FAILURE_LIMIT` | `0` | Failed logins and refused tokens per second per source address, in bursts of ten times that; `0` turns the limit off (ADR-0021) |
+//! | `MEZGEB_CLIENT_ADDRESS` | `peer` | Where the source address comes from: `peer` (the TCP connection) or `x-forwarded-for` (the last entry, added by the operator's own proxy; only when the service is reachable through it alone) |
 //! | `MEZGEB_LOG` | `info` | Log filter (`tracing` syntax) |
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
+
+use crate::auth::rate::{AddressLimit, AddressSource};
 
 /// Everything the service needs to start.
 #[derive(Debug, Clone)]
@@ -31,6 +35,7 @@ pub struct Config {
     pub request_timeout: Duration,
     pub body_limit: usize,
     pub pool_size: u32,
+    pub address_limit: AddressLimit,
 }
 
 fn var(name: &str) -> Option<String> {
@@ -67,6 +72,36 @@ impl Config {
             request_timeout: Duration::from_millis(number("MEZGEB_REQUEST_TIMEOUT_MS", 10_000)?),
             body_limit: number("MEZGEB_BODY_LIMIT_BYTES", 65_536)?,
             pool_size: number("MEZGEB_DB_POOL", 16)?,
+            address_limit: AddressLimit {
+                per_second: number("MEZGEB_ADDRESS_FAILURE_LIMIT", 0)?,
+                source: address_source(var("MEZGEB_CLIENT_ADDRESS").as_deref())?,
+            },
         })
+    }
+}
+
+fn address_source(value: Option<&str>) -> Result<AddressSource, String> {
+    match value {
+        None | Some("peer") => Ok(AddressSource::Peer),
+        Some("x-forwarded-for") => Ok(AddressSource::ForwardedFor),
+        Some(other) => Err(format!(
+            "MEZGEB_CLIENT_ADDRESS must be peer or x-forwarded-for, not {other:?}"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_address_source_is_the_peer_unless_named() {
+        assert_eq!(address_source(None), Ok(AddressSource::Peer));
+        assert_eq!(address_source(Some("peer")), Ok(AddressSource::Peer));
+        assert_eq!(
+            address_source(Some("x-forwarded-for")),
+            Ok(AddressSource::ForwardedFor)
+        );
+        assert!(address_source(Some("X-Real-IP")).is_err());
     }
 }

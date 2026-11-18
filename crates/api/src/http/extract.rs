@@ -22,7 +22,11 @@ impl FromRequestParts<AppState> for Caller {
             .headers
             .get(axum::http::header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok());
-        let principal = crate::auth::authenticate(state, header).await?;
+        let address = parts
+            .extensions
+            .get::<crate::http::middleware::ClientAddress>()
+            .and_then(|a| a.0);
+        let principal = crate::auth::authenticate(state, header, address).await?;
         if let Some(logged) = parts.extensions.get::<LoggedClient>()
             && let Ok(mut slot) = logged.0.lock()
         {
@@ -32,6 +36,9 @@ impl FromRequestParts<AppState> for Caller {
                 sees_all: principal.sees_all(),
             });
         }
+        // After the caller is known, so a client over its own limit is
+        // audited as itself.
+        crate::auth::admit(state, &principal)?;
         Ok(Caller(principal))
     }
 }
