@@ -38,6 +38,10 @@
 //! from `pg_stat_statements`. The server must load it
 //! (`shared_preload_libraries`); the local compose file does.
 //!
+//! **`--recon ITEMS`** instead times reconciliation (step 2.15): a ledger
+//! and a statement of `ITEMS` lines in all, with planted breaks, imported
+//! and reconciled; see `recon.rs`.
+//!
 //! The URL is a superuser's, used to create and drop the databases. The
 //! roles from `db/init` must exist, with passwords equal to their names.
 
@@ -56,6 +60,8 @@ use mezgeb_engine::{
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use uuid::Uuid;
+
+mod recon;
 
 type Error = Box<dyn std::error::Error + Send + Sync>;
 type Result<T> = std::result::Result<T, Error>;
@@ -155,6 +161,8 @@ struct Config {
     rate: Option<u64>,
     scenarios: Vec<Scenario>,
     statements: bool,
+    /// Reconcile this many items instead of posting (step 2.15).
+    recon: Option<usize>,
 }
 
 /// The benchmark's signing key: postings sign their receipts as the
@@ -177,6 +185,7 @@ fn parse(args: &[String]) -> Result<Config> {
         rate: None,
         scenarios: Scenario::ALL.to_vec(),
         statements: false,
+        recon: None,
     };
     let mut args = args.iter().skip(1);
     while let Some(flag) = args.next() {
@@ -193,6 +202,7 @@ fn parse(args: &[String]) -> Result<Config> {
             "--runs" => config.runs = value.parse()?,
             "--wallets" => config.wallets = value.parse()?,
             "--rate" => config.rate = Some(value.parse()?),
+            "--recon" => config.recon = Some(value.parse()?),
             "--scenarios" => {
                 config.scenarios = value
                     .split(',')
@@ -646,6 +656,9 @@ fn spread(runs: &[RunResult]) -> f64 {
 }
 
 async fn run(config: Config) -> Result<bool> {
+    if let Some(items) = config.recon {
+        return recon::run(&config.database_url, items).await;
+    }
     let config = Arc::new(config);
     let mut admin = PgConnection::connect(&config.database_url).await?;
     let version: String = sqlx::query_scalar("SHOW server_version")
