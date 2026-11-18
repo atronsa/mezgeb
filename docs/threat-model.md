@@ -1,7 +1,7 @@
-# Threat Model v0
+# Threat Model v1
 
-> **Version:** v0. Reviewed again at the phase 2 security review (step 2.16)
-> and before release (phase 4).
+> **Version:** v1, after the phase 2 security review (step 2.16, 2026-11-18;
+> [findings](security/findings.md)). Reviewed again before release (phase 4).
 
 A threat model lists who might attack the ledger, what they want, how they
 could try, and what stops them. Every threat here has an **owner** who is
@@ -80,10 +80,10 @@ Someone on the internet with no legitimate access.
 |---|---|---|---|---|---|---|
 | TM-01 | Steals or guesses a client's API credentials and posts entries as that client | S | A1, A4 | Strong per-client credentials (mutual TLS or signed requests), rotation, scoped permissions, alerts on unusual volume. **Built in 2.08:** OAuth client credentials with 15-minute tokens; secrets kept only as Argon2id hashes; revoking a credential or disabling a client ends its tokens at once; roles per credential; rate limits per client and per credential at the token endpoint ([ADR-0017](adr/0017-authentication-and-authorization.md); `revoked_credentials_and_disabled_clients_stop_at_once`, `clients_and_logins_are_rate_limited`) | Operator | 2.08 |
 | TM-02 | Captures a valid request and replays it to post the same payment twice | T | A1 | TLS everywhere; idempotency key (INV-13); signed requests with a timestamp window | Maintainers | 1.11, 2.08 |
-| TM-03 | Floods the API so payments cannot be posted | D | A5 | Rate limits per client, request size limits, timeouts, load shedding before the database | Operator | 2.07, 3.01 |
-| TM-04 | Sends crafted input: SQL injection, huge payloads, amounts that overflow | T, E | A1 | Parameterised SQL only (SQLx); checked arithmetic ([ADR-0005](adr/0005-money-as-i64-minor-units.md)); strict input parsing; fuzzing | Maintainers | 1.04, 2.07, 2.16 |
-| TM-05 | Guesses account or entry IDs to read another client's data | I | A6 | Every read is scoped to the calling client; ID secrecy is never relied on. **Built in 2.08:** a client sees only its own accounts, entries and holds; anything else is `404`, as for nothing (`a_client_cannot_touch_another_clients_accounts`) | Maintainers | 2.08 |
-| TM-06 | Ships malicious code through a compromised dependency | T, E | A1, A2 | Locked dependencies, `cargo-deny` and `cargo-audit` in CI, few dependencies, review of updates | Maintainers | 3.11 |
+| TM-03 | Floods the API so payments cannot be posted | D | A5 | Rate limits per client, request size limits, timeouts, load shedding before the database. **Built in 2.16:** a caller without a secret is bounded too: failed logins share one bucket for the service, reserved before any hash, an optional limit per address, and its refusals audited in summary so they cannot flood the audit chain ([ADR-0021](adr/0021-unauthenticated-traffic-limits.md); `a_caller_without_a_secret_costs_bounded_work_and_audit_events`) | Operator | 2.07, 2.16, 3.01 |
+| TM-04 | Sends crafted input: SQL injection, huge payloads, amounts that overflow | T, E | A1 | Parameterised SQL only (SQLx); checked arithmetic ([ADR-0005](adr/0005-money-as-i64-minor-units.md)); strict input parsing; fuzzing. **Built in 2.16:** every formatted SQL statement checked to interpolate no request data; malformed and overflowing amounts refused (AC-01, AC-02); the API fuzzed with mutated contract examples on every change and 50,000 cases a night, with no `5xx` and full verification afterwards (`crates/api/tests/fuzz.rs`) | Maintainers | 1.04, 2.07, 2.16 |
+| TM-05 | Guesses account or entry IDs to read another client's data | I | A6 | Every read is scoped to the calling client; ID secrecy is never relied on. **Built in 2.08:** a client sees only its own accounts, entries and holds; anything else is `404`, as for nothing (`a_client_cannot_touch_another_clients_accounts`). **Fixed in 2.16:** a refund naming another client's entry was answered differently from one naming no entry; both are now `422 refunded_entry_not_found` (F-03, AC-09) | Maintainers | 2.08, 2.16 |
+| TM-06 | Ships malicious code through a compromised dependency | T, E | A1, A2 | Locked dependencies, `cargo-deny` and `cargo-audit` in CI, few dependencies, review of updates. **Built in 2.16:** both on every change and daily; an advisory is accepted only with a reason in `deny.toml` or `.cargo/audit.toml` (F-04, F-06) | Maintainers | 2.16, 3.11 |
 
 ### Compromised client server
 
@@ -105,7 +105,7 @@ production or to the admin tools.
 
 | ID | Threat | STRIDE | Asset | Controls | Owner | Step |
 |---|---|---|---|---|---|---|
-| TM-11 | Edits or deletes journal rows directly in the database to hide a theft | T | A1, A3 | Update and delete blocked by trigger and role privileges (INV-9); hash chain (INV-11); signed receipts held by clients (INV-26); superuser access restricted and logged. **Built in 2.09:** every entry, line and audit event is hash-chained in its own transaction and every entry signed; signed checkpoints are kept by clients and in files outside the database; `mezgeb-cli verify --chain` finds a changed entry, line or audit event, a missing or inserted link, a forged signature, and a deleted tail ([ADR-0018](adr/0018-tamper-evidence.md); `tampering_with_entries_lines_or_audit_events_is_found`, `deleting_the_last_entry_is_found_by_the_checkpoint`) | Operator | 1.08, 2.09 |
+| TM-11 | Edits or deletes journal rows directly in the database to hide a theft | T | A1, A3 | Update and delete blocked by trigger and role privileges (INV-9); hash chain (INV-11); signed receipts held by clients (INV-26); superuser access restricted and logged. **Built in 2.09:** every entry, line and audit event is hash-chained in its own transaction and every entry signed; signed checkpoints are kept by clients and in files outside the database; `mezgeb-cli verify --chain` finds a changed entry, line or audit event, a missing or inserted link, a forged signature, and a deleted tail ([ADR-0018](adr/0018-tamper-evidence.md); `tampering_with_entries_lines_or_audit_events_is_found`, `deleting_the_last_entry_is_found_by_the_checkpoint`). **Fixed in 2.16:** the service refuses the development signing key published in the repository, with which anyone could forge signatures (F-05) | Operator | 1.08, 2.09, 2.16 |
 | TM-12 | Posts an adjustment that credits an account they control | E | A1 | Maker-checker with different people (INV-25), reason codes, limits per person, audit events. **Built in 1.12:** maker ≠ checker and reason codes, in the engine and the database; see the [step 1.12 review](evidence/1.12-reversals-and-adjustments.md#exit-gate). **Built in 2.08:** no credential holds both `operator` and `approver` (matrix, engine and database); the same person's second credential is still refused (`maker_is_checker`) | Maintainers | 1.12, 2.08 |
 | TM-13 | Reopens a closed period to change past figures | T | A1, A3 | Closed periods immutable (INV-10). **Decided in 2.08 ([ADR-0017](adr/0017-authentication-and-authorization.md)): a period is never reopened.** There is no reopen operation in the contract, the service or the engine, and the database refuses the change; a correction posts into the open period (`tm13_a_closed_period_cannot_be_reopened`, `posting_into_a_closed_period_is_refused`) | Maintainers | 2.05, 2.08 |
 | TM-14 | Copies the receipt or voucher signing key to forge receipts or offline allowances | S, T | A2 | Keys in a key management service or HSM, never in the database, code or environment files; key IDs and rotation; access logged | Operator | 3.12 |
@@ -158,6 +158,16 @@ Not attackers, but the same assets are at risk.
 - **Offline loss up to the escrow amount.** By design, a cloned device can
   cost at most its reserved allowance, and a late receipt can cost at most
   what it settles under the loss policy.
+- **Fee rounding (F-07, step 2.16).** The offline merchant fee rounds down,
+  so splitting a payment into *n* receipts saves at most *n* − 1 santim of
+  fee. Each receipt needs a signed counter inside a capped voucher.
+- **An advisory in a crate that is never compiled (F-06, step 2.16).**
+  RUSTSEC-2026-0459 is in `Cargo.lock` only as an optional dependency that
+  nothing enables; ignored for cargo-audit, with the proof, until `sqlx`
+  allows the patched version. cargo-deny still checks everything compiled.
+- **An audit event can be lost without refusing the work (F-09).** Refusing
+  payments while the audit log is down would make the audit log a way to
+  stop payments; a lost event is logged, and step 3.09 alerts on it.
 
 ## Out of scope for v0
 
