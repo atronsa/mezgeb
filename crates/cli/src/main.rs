@@ -7,6 +7,7 @@
 //! mezgeb-cli client create|list|disable|seed ... [--database-url URL]
 //! mezgeb-cli credential issue|list|revoke ... [--database-url URL]
 //! mezgeb-cli offline key|tier|device|check ... [--database-url URL]
+//! mezgeb-cli recon import|run|offline|breaks ... [--database-url URL]
 //! ```
 //!
 //! `verify` proves that the stored balances equal the journal
@@ -36,11 +37,15 @@
 //! `offline` sets up offline payments: the issuer key, each client's tier
 //! limits, and device freezes and revocations ([`offline`], ADR-0019).
 //!
+//! `recon` imports bank statements and runs the daily reconciliation
+//! ([`recon`], ADR-0020). Connect as `mezgeb_verifier`.
+//!
 //! Planned: `import` (step 3.14).
 
 mod chain;
 mod clients;
 mod offline;
+mod recon;
 
 use std::process::ExitCode;
 use std::time::Duration;
@@ -91,6 +96,10 @@ enum Command {
     },
     Offline {
         command: offline::OfflineCommand,
+        url: Option<String>,
+    },
+    Recon {
+        command: recon::ReconCommand,
         url: Option<String>,
     },
 }
@@ -173,7 +182,7 @@ fn parse(args: &[String]) -> Result<Command, String> {
             let command = clients::parse(group, &rest)?;
             Ok(Command::Client { command, url })
         }
-        Some("offline") => {
+        Some(group @ ("offline" | "recon")) => {
             let mut rest = Vec::new();
             let mut url = None;
             while let Some(arg) = args.next() {
@@ -183,14 +192,19 @@ fn parse(args: &[String]) -> Result<Command, String> {
                     rest.push(arg.clone());
                 }
             }
+            if group == "recon" {
+                let command = recon::parse(&rest)?;
+                return Ok(Command::Recon { command, url });
+            }
             let command = offline::parse(&rest)?;
             Ok(Command::Offline { command, url })
         }
         _ => Err(format!(
-            "{USAGE}\n{}\n{}\n{}",
+            "{USAGE}\n{}\n{}\n{}\n{}",
             clients::USAGE,
             chain::USAGE,
-            offline::USAGE
+            offline::USAGE,
+            recon::USAGE
         )),
     }
 }
@@ -354,6 +368,12 @@ async fn run(command: Command) -> Result<bool, String> {
         Command::Offline { command, url } => {
             let mut conn = connect(url).await?;
             let (out, clean) = offline::run(&mut conn, command).await?;
+            print!("{out}");
+            Ok(clean)
+        }
+        Command::Recon { command, url } => {
+            let mut conn = connect(url).await?;
+            let (out, clean) = recon::run(&mut conn, command).await?;
             print!("{out}");
             Ok(clean)
         }
