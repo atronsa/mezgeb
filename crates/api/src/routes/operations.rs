@@ -12,7 +12,8 @@ use mezgeb_ops::OperationRequest;
 use serde::Deserialize;
 
 use super::common::{
-    ApiResult, bindable_account, connection, entry_response, entry_written, new_entry_id,
+    ApiResult, bindable_account, connection, entry_response, entry_visible, entry_written,
+    new_entry_id,
 };
 use crate::AppState;
 use crate::auth::Principal;
@@ -109,6 +110,21 @@ async fn operation(
             view.insert(id, account);
         }
         accounts.insert(role.clone(), id);
+    }
+    // The entry refunded must be one the caller can see: another client's
+    // entry is answered exactly as one that does not exist, so its ID
+    // cannot be probed (TM-05, API1).
+    if let Some(id) = refunds {
+        let visible = match mezgeb_engine::entry_record(&mut conn, id).await? {
+            Some(record) => entry_visible(&mut conn, &caller, &record).await?,
+            None => false,
+        };
+        if !visible {
+            return Err(ApiError::new(
+                "refunded_entry_not_found",
+                format!("No entry {id} to refund."),
+            ));
+        }
     }
     let request = OperationRequest {
         template,

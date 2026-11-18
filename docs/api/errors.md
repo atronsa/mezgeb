@@ -107,6 +107,7 @@ rule has no code here.
 | `refund_of_reversed_entry` | 409 |  | The entry has been reversed | LedgerError::RefundOfReversedEntry |
 | `refund_line_not_allowed` | 422 |  | The refund moves an account the original did not move that way | LedgerError::RefundLineNotAllowed |
 | `refund_exceeds_original` | 422 |  | The refunds would give back more than the original moved | LedgerError::RefundExceedsOriginal |
+| `refunded_entry_not_found` | 422 |  | The entry to refund does not exist, or is another client's: both are answered alike (TM-05) | The service, before posting |
 | `refunded_entry_cannot_be_reversed` | 409 |  | The entry has refunds | LedgerError::RefundedEntryCannotBeReversed |
 | `cannot_reverse_refund` | 409 |  | A refund cannot be reversed | LedgerError::CannotReverseRefund |
 | `period_not_closed` | 409 |  | The period is not closed | LedgerError::PeriodNotClosed |

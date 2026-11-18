@@ -198,6 +198,11 @@ pub const CATALOGUE: &[(&str, u16, &str)] = &[
         "The refunds would give back more than the original moved",
     ),
     (
+        "refunded_entry_not_found",
+        422,
+        "The entry to refund does not exist",
+    ),
+    (
         "refunded_entry_cannot_be_reversed",
         409,
         "The entry has refunds",

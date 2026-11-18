@@ -177,6 +177,12 @@ supported.
     for the first per actor each minute, at most 60 a minute; the rest are
     counted in a `refusals.suppressed` event, once a minute and at shutdown;
   - a client over its own rate limit is audited under its own name.
+- **A refund can no longer probe another client's entries** (TM-05,
+  API1, step 2.16; found by the fuzzer). A refund naming an entry checked
+  only that it existed, so naming another client's entry answered
+  differently from naming none. Both are now
+  `422 refunded_entry_not_found`, as for an entry that does not exist;
+  before, that case was an undocumented `404`.
 - **Every response carries security headers** (OWASP API8, step 2.16):
   `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
   `X-Frame-Options: DENY` and a `Content-Security-Policy` that allows
