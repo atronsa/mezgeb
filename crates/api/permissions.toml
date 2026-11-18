@@ -14,7 +14,13 @@
 # A client platform's back end: opens its customers' accounts, posts through
 # the templates, places holds.
 [roles.poster]
-scopes = ["accounts:write", "operations:write", "holds:write", "offline:write"]
+scopes = [
+    "accounts:write",
+    "operations:write",
+    "holds:write",
+    "offline:write",
+    "reconciliation:write",
+]
 templates = [
     "p2p_transfer.v1",
     "merchant_payment.v1",
@@ -51,6 +57,8 @@ scopes = [
     "periods:read",
     "periods:close",
     "offline:resolve",
+    "reconciliation:read",
+    "reconciliation:resolve",
 ]
 
 # A second person who approves or rejects adjustment requests (INV-25).
@@ -67,6 +75,7 @@ scopes = [
     "periods:read",
     "reports:read",
     "audit:read",
+    "reconciliation:read",
 ]
 
 # Opens system accounts (1010, 4010, ...) and freezes, unfreezes or closes

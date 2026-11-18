@@ -20,6 +20,7 @@ mod oauth;
 mod offline;
 mod operations;
 mod periods;
+mod reconciliation;
 mod reports;
 mod templates;
 
@@ -36,4 +37,5 @@ pub fn routes() -> Router<AppState> {
         .merge(offline::router())
         .merge(oauth::router())
         .merge(audit::router())
+        .merge(reconciliation::router())
 }

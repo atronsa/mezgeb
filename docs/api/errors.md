@@ -133,6 +133,13 @@ Devices and vouchers (step 2.11, ADR-0019, [protocol](../offline/protocol.md)).
 | `shortfall_unpaid` | 409 |  | The owner has an unpaid offline shortfall | OfflineError::ShortfallUnpaid: no voucher until it is repaid (step 2.13) |
 | `dispute_resolved` | 409 |  | The dispute is already resolved the other way | OfflineError::DisputeResolved |
 
+### Reconciliation (step 2.15, ADR-0020)
+
+| Code | HTTP | Rule | Meaning | Source |
+|---|---:|---:|---|---|
+| `break_closed` | 409 |  | The break is already closed | ReconError::Closed: cleared, resolved or explained |
+| `break_not_closable` | 409 |  | The break cannot be closed this way | ReconError::Conflict: a money break explained, another resolved by an entry, or an entry that is not a suspense entry for exactly the break's difference, or has resolved another break |
+
 ## Retrying
 
 - `busy`, `contention` and `no_open_period` (503) and `rate_limited` (429)

@@ -267,6 +267,12 @@ pub const CATALOGUE: &[(&str, u16, &str)] = &[
         409,
         "The dispute is already resolved the other way",
     ),
+    ("break_closed", 409, "The break is already closed"),
+    (
+        "break_not_closable",
+        409,
+        "The break cannot be closed this way",
+    ),
 ];
 
 /// The posting rule codes, by rule number (1001–1012).
