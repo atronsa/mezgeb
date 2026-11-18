@@ -32,6 +32,9 @@ own, with constraints, triggers and role privileges.
 | `checkpoints` | Checkpoint at a period's close | Both chains' heads (position and hash), when, and the signature |
 | `signing_keys` | Public signing key | The key ID and the Ed25519 public key; retired keys stay |
 | `chain_heads` | Chain | Its last position and hash; one row each for `entries` and `audit`, the only rows that change |
+| `recon_runs` | Statement import or reconciliation run | Its kind (`import`, `external`, `internal`, `offline`), the account or client it covered, its clock (`as_of`), what it found (items, matched, pending, breaks new, cleared and still open) and its runtime; recorded once, when it ends (migration 0014, step 2.15) |
+| `recon_items` | Bank statement line | The account, the bank's line ID (unique per account), booking date, signed amount, currency, reference and SHA-256 of the line; the ledger line it matched, by which rule and run, set once |
+| `recon_breaks` | Disagreement found | Its kind, a subject stable across runs (one open break per subject), the statement line, ledger line, device or voucher it is about, the other record's amount, the ledger's and the difference; its status (`open`, `cleared`, `resolved`, `explained`) and how it closed |
 
 Since migration 0003, every journal entry also has a `kind` (`standard`,
 `reversal`, `adjustment` or, since migration 0006, `refund`), and
@@ -364,6 +367,35 @@ The rest of a voucher's life (migration 0013, step 2.13;
   take the device's and the voucher's row locks in the same order as
   receipt ingestion, so a receipt racing the expiry has one outcome.
 
+## Reconciliation
+
+Reconciliation reads the ledger and writes only its own three tables
+(migration 0014, step 2.15, [ADR-0020](adr/0020-reconciliation.md)). The
+service and `mezgeb-cli recon` cannot change a journal row through them.
+
+- **History never changes.** A run is inserted once, when its counts are
+  known, and never updated or deleted. A statement line's content never
+  changes; only its match is set, once. A break's facts never change; only
+  an open break's status moves, once, to `cleared`, `resolved` or
+  `explained` (`MZ001` otherwise, for every role, including the owner).
+- **One open break per subject.** A partial unique index on `subject`
+  where `status = 'open'`; a run inserts with `ON CONFLICT DO NOTHING`, so
+  the same disagreement is never raised twice.
+- **A ledger line matches once.** `UNIQUE (matched_entry_id,
+  matched_line_no)`; an entry resolves at most one break
+  (`resolution_entry_id` is unique). Keys point at `journal_entries`, not
+  `journal_lines`, so the journal's own guard is what refuses a `TRUNCATE`
+  of the lines.
+- **A run's rows refer to it before it exists.** The foreign keys to
+  `recon_runs` are checked at commit (`DEFERRABLE INITIALLY DEFERRED`):
+  the run is inserted last, in the same transaction.
+- **One run of a scope at a time.** Imports and runs of an account take a
+  transaction-scoped advisory lock on it; offline runs and each client's
+  cache comparisons take their own.
+- **What a device reported.** `vouchers.reported_last_counter` keeps the
+  last counter the device gave when it asked for the voucher, for the
+  offline reconciliation; `NULL` for vouchers issued before step 2.15.
+
 ## Adjustment requests
 
 An adjustment is requested by one person and approved by another (INV-25,
@@ -473,9 +505,9 @@ Roles are created once per PostgreSQL cluster, before migrations, by
 | Role | Used by | Privileges |
 |---|---|---|
 | `mezgeb_owner` | Migrations only | Owns the schema. Never used by the running service. |
-| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads; SELECT and INSERT on devices, vouchers, issuer keys, offline receipts and their conflicts, UPDATE on their status columns, a device's next counter and a receipt's outcome and payment, and SELECT on tier limits and offline settings. No DELETE on anything else. |
+| `mezgeb_app` | The ledger service | SELECT and INSERT on accounts and the journal; UPDATE on `accounts.debits_total`, `credits_total`, `version` and `status`, on `refund_tallies.refunded`, on a period's `status` and end, and on an adjustment request's decision, only; SELECT on clients and credentials, and SELECT, INSERT and DELETE on access tokens; SELECT and INSERT on the chains, checkpoints and signing keys, and UPDATE on the chain heads; SELECT and INSERT on devices, vouchers, issuer keys, offline receipts and their conflicts, UPDATE on their status columns, a device's next counter and a receipt's outcome and payment, and SELECT on tier limits and offline settings; SELECT and INSERT on the reconciliation tables, UPDATE on a statement line's match and a break's status. No DELETE on anything else. |
 | `mezgeb_readonly` | Reports, reconciliation, support | SELECT only |
-| `mezgeb_verifier` | `mezgeb-cli verify` | SELECT on the ledger; SELECT and INSERT on the verification tables; nothing else (separation of duties, threat TM-15) |
+| `mezgeb_verifier` | `mezgeb-cli verify`, `mezgeb-cli recon` | SELECT on the ledger; SELECT and INSERT on the verification and reconciliation tables, and UPDATE on a statement line's match and a break's status; nothing else (separation of duties, threat TM-15) |
 | `mezgeb_admin` | `mezgeb-cli client`, `mezgeb-cli credential` | Creates clients and credentials, disables and revokes them, deletes tokens, sets clients' offline tier limits, fee and devices' status, and records those changes as audit events; nothing in the ledger (steps 2.08, 2.11). Created by [`db/init/03-admin.sql`](../db/init/03-admin.sql); a database created before step 2.08 needs that file run once |
 
 `mezgeb_app` also has `transaction_timeout = 30s`, which verification

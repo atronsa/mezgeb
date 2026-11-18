@@ -15,6 +15,7 @@ reading order.
 | [api/](api/README.md) | The REST API contract (`openapi/mezgeb.v1.yaml`), its conventions, error catalogue and OWASP review | You integrate with the ledger or change the API |
 | [db-schema.md](db-schema.md) | PostgreSQL tables, the constraint behind each invariant, roles, and how to run the database tests | You want to know what the database itself guarantees |
 | [accounting/](accounting/README.md) | Chart of accounts and worked journal entries for every money flow | You want to know how money is booked |
+| [reconciliation/](reconciliation/README.md) | How the ledger is reconciled with the bank statement, client caches and offline devices; the statement format | You connect a bank or work on breaks |
 | [runbooks/](runbooks/README.md) | Step-by-step operator procedures, such as the daily period close | You operate a ledger |
 | [roadmap/](roadmap/README.md) | The engineering plan: 52 steps in four phases, milestones and schedule | You want to know what is being built next |
 | [evidence/](evidence/README.md) | Proof that each step's exit gate was met | You want to check that a step is really done |

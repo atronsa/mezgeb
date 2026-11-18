@@ -9,6 +9,30 @@ supported.
 
 ### Added
 
+- **Reconciliation** (ADR-0020, migration 0014, step 2.15):
+  - `mezgeb-cli recon import` reads a bank statement into an account such
+    as 1010: Mezgeb's CSV layout, or a bank's own export through a TOML
+    mapping (`docs/reconciliation/statement-format.md`). A line already
+    imported is skipped; the same line ID with other content is a
+    `statement_conflict`.
+  - `mezgeb-cli recon run` matches statement lines with ledger lines,
+    exactly by `bank_ref` or by amount, `payment_ref` and date with one
+    candidate on each side, never guessing; what is left after 2 days is a
+    break (`missing_in_ledger`, `missing_in_statement`, `amount_mismatch`,
+    `duplicate_statement_line`). `mezgeb-cli recon offline` finds devices
+    that reported counters never received or less than they signed, and
+    receipts or escrows that disagree with their entries.
+  - `POST /v1/reconciliation/balances` compares a client's cached balances
+    with the ledger's at the same posting sequence (`stale_cache`); the
+    ledger wins.
+  - Operators list breaks and runs, resolve a money break with the suspense
+    entry that put 1010 right, or explain another
+    (`reconciliation:read`, `reconciliation:resolve`).
+  - 9040 Suspense: unexplained bank debits, `bank_debit_unmatched.v1` and
+    `bank_debit_resolve.v1` (E32–E35); 5020 Bank charges is now active.
+  - `mezgeb-bench --recon ITEMS` times reconciliation at scale and checks
+    every planted break.
+  - The daily procedure: `docs/runbooks/reconciliation.md`.
 - **Offline devices and vouchers** (ADR-0019, migration 0011, step 2.11):
   - Devices register a P-256 key and get a certificate signed by the
     issuer key (`POST /v1/offline/devices`); clients revoke them.
