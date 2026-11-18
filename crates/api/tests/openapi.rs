@@ -287,7 +287,11 @@ fn every_operation_is_scoped_and_every_posting_is_idempotent() {
             body.contains("security:\n        - oauth2:\n            - \""),
             "{method} {path} has no scope"
         );
-        let exempt = path == "/v1/periods/close" || path.starts_with("/v1/offline/");
+        // Reconciliation posts no entry: a suspense entry that resolves a
+        // break is posted before, through its template, with its own key.
+        let exempt = path == "/v1/periods/close"
+            || path.starts_with("/v1/offline/")
+            || path.starts_with("/v1/reconciliation/");
         if method == "post" && !exempt {
             assert!(
                 body.contains("#/components/parameters/IdempotencyKey"),

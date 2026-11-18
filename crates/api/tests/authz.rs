@@ -371,7 +371,7 @@ async fn every_role_gets_exactly_what_the_matrix_allows() -> Result<(), BoxError
             operations.push((method.to_uppercase(), path.clone(), scopes));
         }
     }
-    assert_eq!(operations.len(), 57, "operations with a bearer token");
+    assert_eq!(operations.len(), 63, "operations with a bearer token");
 
     let mut cases = 0;
     for (n, (method, path, scopes)) in operations.iter().enumerate() {
@@ -412,7 +412,7 @@ async fn every_role_gets_exactly_what_the_matrix_allows() -> Result<(), BoxError
             cases += 1;
         }
     }
-    assert_eq!(cases, 57 * ROLE_TOKENS.len());
+    assert_eq!(cases, 63 * ROLE_TOKENS.len());
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }

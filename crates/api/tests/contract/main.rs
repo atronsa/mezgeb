@@ -45,6 +45,7 @@ mod oauth;
 mod offline;
 mod operations;
 mod periods;
+mod reconciliation;
 mod reports;
 mod templates;
 
@@ -97,6 +98,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
     offline::disputes_and_shortfalls(&api, &server).await?;
     oauth::token_and_refusals(&api).await?;
     audit::keys_checkpoints_and_events(&api).await?;
+    reconciliation::caches_breaks_and_runs(&api, &server).await?;
 
     // ------------------------------------------------------------ coverage
     let uncovered = contract.uncovered();
@@ -104,7 +106,7 @@ async fn every_operation_meets_the_contract() -> Result<(), BoxError> {
         uncovered.is_empty(),
         "operations no test called: {uncovered:?}"
     );
-    assert_eq!(contract.operation_count(), 58, "operations in the contract");
+    assert_eq!(contract.operation_count(), 64, "operations in the contract");
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }
