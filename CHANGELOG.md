@@ -177,6 +177,12 @@ supported.
     for the first per actor each minute, at most 60 a minute; the rest are
     counted in a `refusals.suppressed` event, once a minute and at shutdown;
   - a client over its own rate limit is audited under its own name.
+- **The service refuses the published development signing key** (TM-11,
+  step 2.16). `deploy/signing.dev.hex` is in the repository, so receipts
+  and checkpoints signed with it can be forged by anyone; a deployment
+  copied from `compose.yaml` would have used it. The service now refuses to
+  start with it unless `MEZGEB_ALLOW_DEVELOPMENT_KEY=true`, which
+  `compose.yaml` and the local scripts set.
 - **A refund can no longer probe another client's entries** (TM-05,
   API1, step 2.16; found by the fuzzer). A refund naming an entry checked
   only that it existed, so naming another client's entry answered

@@ -59,8 +59,11 @@ services:
     build: .
     environment:
       MEZGEB_DATABASE_URL: postgres://mezgeb_app:mezgeb_app@postgres:5432/mezgeb
-      # A development key (ADR-0018); production keeps its own secret.
+      # A development key (ADR-0018); production keeps its own secret. The
+      # service refuses this published key unless told it is a development
+      # run (step 2.16).
       MEZGEB_SIGNING_KEY_FILE: /etc/mezgeb/signing.hex
+      MEZGEB_ALLOW_DEVELOPMENT_KEY: "true"
     volumes:
       - ./deploy/signing.dev.hex:/etc/mezgeb/signing.hex:ro
     ports:

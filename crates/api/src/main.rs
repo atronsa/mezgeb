@@ -44,6 +44,7 @@ async fn run() -> Result<(), String> {
     let chart = Chart::from_toml(&chart_text).map_err(|e| format!("chart: {e}"))?;
     let permissions = Permissions::built_in()?;
     let signer = mezgeb_engine::Signer::from_file(&config.signing_key)?;
+    mezgeb_api::config::check_signing_key(signer.key_id())?;
     let pool = PgPoolOptions::new()
         .max_connections(config.pool_size)
         .acquire_timeout(config.request_timeout)
