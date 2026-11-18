@@ -105,6 +105,30 @@ fn caller_request_id(value: &HeaderValue) -> Option<String> {
         .map(|id| id.hyphenated().to_string())
 }
 
+/// The headers every response carries (OWASP API8; the OWASP REST Security
+/// Cheat Sheet). Every answer holds ledger data or a token, so none is
+/// cached; none is to be read as anything but its declared type, framed or
+/// run as a page. HSTS belongs to whatever terminates TLS in front of the
+/// service, which speaks plain HTTP itself.
+const SECURITY_HEADERS: [(&str, &str); 4] = [
+    ("cache-control", "no-store"),
+    ("x-content-type-options", "nosniff"),
+    ("x-frame-options", "DENY"),
+    (
+        "content-security-policy",
+        "default-src 'none'; frame-ancestors 'none'",
+    ),
+];
+
+/// Adds the [`SECURITY_HEADERS`], keeping any a handler set itself.
+fn security_headers(headers: &mut axum::http::HeaderMap) {
+    for (name, value) in SECURITY_HEADERS {
+        headers
+            .entry(name)
+            .or_insert(HeaderValue::from_static(value));
+    }
+}
+
 pub(crate) async fn request_context(
     State(state): State<AppState>,
     mut request: Request,
@@ -145,6 +169,7 @@ pub(crate) async fn request_context(
     if let Ok(value) = HeaderValue::from_str(&id) {
         response.headers_mut().insert("x-request-id", value);
     }
+    security_headers(response.headers_mut());
     let caller = logged.0.lock().ok().and_then(|c| c.clone());
     let status = response.status().as_u16();
     tracing::info!(
@@ -223,6 +248,17 @@ mod tests {
         assert_eq!(id("abc"), None);
         assert_eq!(id("0192f3c4-0000-7000-8000-00000000abcd\nforged"), None);
         assert_eq!(id(""), None);
+    }
+
+    #[test]
+    fn security_headers_are_added_without_replacing_a_handlers() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("cache-control", HeaderValue::from_static("max-age=60"));
+        security_headers(&mut headers);
+        assert_eq!(headers["cache-control"], "max-age=60");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["x-frame-options"], "DENY");
+        assert!(headers.contains_key("content-security-policy"));
     }
 
     #[test]
