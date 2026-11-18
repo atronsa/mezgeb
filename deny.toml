@@ -6,7 +6,10 @@ all-features = true
 
 [advisories]
 # Fail on any crate with a RustSec advisory: vulnerable, unsound or
-# unmaintained. A finding we accept goes in `ignore`, with the reason.
+# unmaintained. A finding we accept goes in `ignore`, with the reason, and
+# in .cargo/audit.toml too: the `deps` workflow runs cargo-audit as well.
+# cargo-audit also reads crates that are in Cargo.lock but never compiled;
+# those go in .cargo/audit.toml alone, with the proof.
 ignore = []
 
 [licenses]

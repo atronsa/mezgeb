@@ -1,0 +1,71 @@
+# The nightly API fuzz (step 2.16): crates/api/tests/fuzz.rs at scale, with
+# a new seed each night, the date. Every pull request runs it with seed 1
+# and 1,500 cases (ci.yml, `cargo test`); this runs 50,000.
+#
+# A separate workflow from nightly.yml on purpose: step 2.14 is accepted
+# after 14 consecutive clean nights of the offline simulation, and a fuzz
+# finding must not reset that count, nor a simulation failure hide one.
+#
+# A failure prints the seed and the case; replay it on any machine with
+#   MEZGEB_FUZZ_SEED=<seed> MEZGEB_FUZZ_CASES=<cases> cargo test --release -p mezgeb-api --test fuzz
+name: fuzz
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Seed (empty for today's date)
+        default: ""
+      cases:
+        description: Cases
+        default: "50000"
+env:
+  CARGO_TERM_COLOR: never
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --shm-size=1g
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      MEZGEB_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Create database roles
+        run: |
+          for file in db/init/*.sql; do
+            psql "$MEZGEB_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - run: cargo test --release -p mezgeb-api --test fuzz --no-run
+      - name: Fuzz the API
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          CASES="${{ inputs.cases }}"; CASES="${CASES:-50000}"
+          set -o pipefail
+          MEZGEB_FUZZ_SEED="$SEED" MEZGEB_FUZZ_CASES="$CASES" \
+            cargo test --release -p mezgeb-api --test fuzz -- --nocapture 2>&1 | tee run.txt
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          SEED="${{ inputs.seed }}"; SEED="${SEED:-$(date -u +%Y%m%d)}"
+          {
+            echo "## API fuzz (seed $SEED)"
+            echo '```'
+            grep -E '^seed |cases failed|-> |^test result' run.txt || tail -n 40 run.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
