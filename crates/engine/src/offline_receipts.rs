@@ -1364,6 +1364,28 @@ mod tests {
         assert_eq!(fee_on(etb(6_000), 0), etb(0));
     }
 
+    proptest::proptest! {
+        /// Abuse case AC-08 (step 2.16): rounding. For any amount and any
+        /// fee the service allows (at most 1000 basis points), the fee is
+        /// never negative and never more than the payment, and splitting a
+        /// payment into two saves the payer's merchant at most one santim:
+        /// the fee of the parts is never more than the fee of the whole,
+        /// and at most one santim less.
+        #[test]
+        fn splitting_a_payment_saves_at_most_one_santim_of_fee(
+            a in 1i64..=i64::MAX / 2,
+            b in 1i64..=i64::MAX / 2,
+            bps in 0u32..=1_000,
+        ) {
+            let etb = |m| Money::from_minor(m, Currency::ETB);
+            let whole = fee_on(etb(a + b), bps).amount();
+            let parts = fee_on(etb(a), bps).amount() + fee_on(etb(b), bps).amount();
+            proptest::prop_assert!(whole >= 0 && whole <= a + b);
+            proptest::prop_assert!(parts <= whole);
+            proptest::prop_assert!(whole - parts <= 1);
+        }
+    }
+
     #[test]
     fn stored_outcomes_round_trip() {
         for o in [
