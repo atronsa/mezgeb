@@ -1,0 +1,23 @@
+$kind: http-request
+description: The latest statement imports and reconciliation runs, newest first, with what each found and how long it took.
+url: "{{baseUrl}}/v1/reconciliation/runs?limit=50"
+method: GET
+headers:
+  Accept: application/json
+queryParams:
+  - key: kind
+    value: external
+    disabled: true
+  - key: limit
+    value: "50"
+    disabled: false
+    description: 1 to 1,000; 50 by default.
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read audit:read offline:write offline:resolve reconciliation:write reconciliation:read reconciliation:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/List reconciliation runs.resources/examples
+order: 8000

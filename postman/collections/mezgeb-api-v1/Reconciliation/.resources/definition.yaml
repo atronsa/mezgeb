@@ -1,0 +1,3 @@
+$kind: collection
+description: Breaks between the ledger and the bank statement, client caches and offline devices, and the suspense entries that resolve them (ADR-0020).
+order: 14000

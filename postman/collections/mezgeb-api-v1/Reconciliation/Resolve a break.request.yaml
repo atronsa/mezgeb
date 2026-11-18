@@ -1,0 +1,27 @@
+$kind: http-request
+description: "Resolves a money break (`missing_in_ledger`, `missing_in_statement`, `amount_mismatch`, `duplicate_statement_line`) with the entry that made the account equal the bank again (ADR-0020 decision 7): one booked by `deposit_unmatched.v1` (the bank has more) or `bank_debit_unmatched.v1` (the bank has less), whose one line in the account equals the break's difference, and that has resolved no other break. The difference then waits in its suspense item, visible in ageing, until its cause is booked. For the operator's staff."
+url: "{{baseUrl}}/v1/reconciliation/breaks/:break_id/resolve"
+method: POST
+headers:
+  Content-Type: application/json
+  Accept: application/json
+pathVariables:
+  - key: break_id
+    value: 0192f3c4-0000-7000-8000-00000000b001
+    disabled: false
+    description: (Required) The break.
+body:
+  type: json
+  content: |-
+    {
+      "entry_id": "0192f3c4-0000-7000-8000-000000000e09"
+    }
+auth:
+  type: oauth2
+  credentials:
+    accessTokenUrl: /oauth/token
+    scope: accounts:read accounts:read_all accounts:write accounts:admin operations:write entries:read corrections:write adjustments:request adjustments:approve holds:read holds:write periods:read periods:close reports:read audit:read offline:write offline:resolve reconciliation:write reconciliation:read reconciliation:resolve
+    grant_type: client_credentials
+settings: {}
+examples: ./.resources/Resolve a break.resources/examples
+order: 6000
