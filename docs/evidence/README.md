@@ -42,3 +42,4 @@ Files are named `<step>-<topic>.md`, for example
 | 2.13 | [Gaps, conflicts, expiry, rejections and disputes](2.13-offline-conflicts-and-expiry.md) | Passed; late receipts follow ADR-0019's loss policy, not suspense |
 | 2.14 | [Offline deterministic simulation](2.14-offline-simulation.md) | Built; planted bugs caught, seeds reproduce across machines; 14 clean nights pending |
 | 2.15 | [Reconciliation (internal, external, offline)](2.15-reconciliation.md) | Passed; every planted break found, zero false matches, a million items in under two minutes |
+| 2.16 | [Phase 2 security review and exit](2.16-phase-2-security-review-and-exit.md) | Review passed: no open high or critical finding, every abuse case passes; the Phase 2 gate and `v0.2.0-functional` wait for 2.14's 14 clean nights |

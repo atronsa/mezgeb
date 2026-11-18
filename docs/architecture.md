@@ -36,7 +36,7 @@ against accounting rules, records them permanently and reports on them.
 
 Additions, each justified when introduced: `proptest` (1.07), `tracing` (1.09),
 `ed25519-dalek` + `sha2` (2.09–2.11), Prometheus/Grafana (3.09), pgBackRest (3.10),
-`cargo-deny`/`cargo-audit` (3.11).
+`cargo-deny`/`cargo-audit` (2.16, on every change and daily).
 
 ## 3. Shape of the system: a modular monolith behind its own boundary
 

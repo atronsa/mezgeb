@@ -61,9 +61,28 @@ What step 2.08 did against the "must" column
 | API4 | Per-client rate limits (`429 rate_limited`), with the body limit and timeouts of 2.07. Report ranges are still uncapped | `clients_and_logins_are_rate_limited` |
 | API5 | Operator scopes belong only to operator roles in the permission matrix; the scope is checked before the request is read; every operation is tested with every role | `every_role_gets_exactly_what_the_matrix_allows`, `a_missing_scope_is_refused_before_the_request_is_read` |
 
+## Checked in step 2.16
+
+Each risk against the implementation as it stands, not the design: what
+the code does, the test that shows it, and what the review found
+([findings](../security/findings.md)).
+
+| Risk | Holds? | Evidence | Found and fixed in 2.16 |
+|---|---|---|---|
+| API1 | Yes | `a_client_cannot_touch_another_clients_accounts`; AC-03 (keys per client); AC-09 | **F-03:** a refund naming another client's entry told it apart from a missing one. Now both are `422 refunded_entry_not_found` |
+| API2 | Yes | `contract/oauth.rs`; `revoked_credentials_and_disabled_clients_stop_at_once`; dummy hash for unknown IDs | **F-01:** inventing credential IDs passed the per-credential limit; failed logins now share a bucket for the service ([ADR-0021](../adr/0021-unauthenticated-traffic-limits.md)) |
+| API3 | Yes | 35 of 35 request types refuse unknown fields; actors come from the token (`maker_is_checker`) | |
+| API4 | Mostly | Body limit, timeouts, per-client and login limits; lists paginated 1–100; unauthenticated refusals summarised in the audit log | **F-01** (above). Open: two operator reports are not paginated (F-08, step 3.01); limits are per process (F-10, step 3.03) |
+| API5 | Yes | `every_role_gets_exactly_what_the_matrix_allows` (63 operations × 6 roles, re-run); `a_missing_scope_is_refused_before_the_request_is_read` | |
+| API6 | Yes | Abuse suite: overspending, refunds past the cap, hold races, vouchers and receipts at once (AC-04 to AC-07) | |
+| API7 | Yes | The service fetches no URL; no webhooks yet | |
+| API8 | Yes | `every_answer_carries_the_security_headers`; no CORS; errors without internals; the published development key refused | **F-02:** security headers on every response. **F-05:** the development signing key |
+| API9 | Yes | `tests/openapi.rs`; every response of every API test, and of 24,000 fuzz cases, checked against the contract | The fuzzer found one undocumented status (F-03) |
+| API10 | Yes | Device receipts verified before settlement (`crates/engine/tests/offline_receipts.rs`); statements parsed as data | |
+
 ## Open for later steps
 
-- **2.09:** audit events for token issuance, refusals and reads across
-  clients (TM-16).
-- **3.03:** rate limits shared between instances.
-- **2.16:** an external review of this table against the implementation.
+- **3.01:** paginate the trial balance and ageing reports (F-08).
+- **3.03:** rate limits shared between instances (F-10).
+- **3.06:** an allow-list for any webhook (API7).
+- **3.09:** an alert when an audit event cannot be written (F-09).

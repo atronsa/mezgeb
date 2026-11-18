@@ -189,7 +189,7 @@ plausibly adds 1–3 months after step 4.04. No gate is shortened to hit a date.
 | 2.13 | [Gaps, Conflicts, Expiry, Rejections and Disputes](phase-2-operations-and-security/13-offline-conflicts-and-expiry.md) | 29 | Done ([evidence](../evidence/2.13-offline-conflicts-and-expiry.md)) |
 | 2.14 | [Offline Deterministic Simulation](phase-2-operations-and-security/14-offline-simulation.md) | 30 | Built ([evidence](../evidence/2.14-offline-simulation.md)); accepted after 14 consecutive clean nightly runs |
 | 2.15 | [Reconciliation (Internal, External, Offline)](phase-2-operations-and-security/15-reconciliation.md) | 31 | Done ([evidence](../evidence/2.15-reconciliation.md)) |
-| 2.16 | [Phase 2 Security Review and Exit](phase-2-operations-and-security/16-phase-2-security-review-and-exit.md) | 32 | Not started |
+| 2.16 | [Phase 2 Security Review and Exit](phase-2-operations-and-security/16-phase-2-security-review-and-exit.md) | 32 | Review done ([evidence](../evidence/2.16-phase-2-security-review-and-exit.md)); the gate and the tag wait for 2.14's 14 clean nights |
 | 3.01 | [Performance Methodology and Realistic Workload](phase-3-scale-and-integration/01-performance-methodology.md) | 33 | Not started |
 | 3.02 | [Indexing and Query Optimisation](phase-3-scale-and-integration/02-indexing-and-query-optimisation.md) | 34 | Not started |
 | 3.03 | [Hot Accounts and Contention](phase-3-scale-and-integration/03-hot-accounts-and-contention.md) | 35 | Not started |
