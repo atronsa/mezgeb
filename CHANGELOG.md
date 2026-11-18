@@ -177,6 +177,10 @@ supported.
     for the first per actor each minute, at most 60 a minute; the rest are
     counted in a `refusals.suppressed` event, once a minute and at shutdown;
   - a client over its own rate limit is audited under its own name.
+- **Every response carries security headers** (OWASP API8, step 2.16):
+  `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY` and a `Content-Security-Policy` that allows
+  nothing. Only the token endpoint set `no-store` before.
 
 ### Changed
 

@@ -135,6 +135,7 @@ as `mezgeb_owner`, before a new version starts.
 |---|---|
 | Request ID | A UUIDv7 per request, or the caller's `X-Request-Id` if it is a UUID. Returned in `X-Request-Id`, and the `instance` of every problem (`urn:uuid:<id>`) |
 | Body limit | `MEZGEB_BODY_LIMIT_BYTES`, 64 KiB by default. A larger body is `400 invalid_request` |
+| Security headers | Every response, errors and unknown routes included: `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. HSTS is set by whatever terminates TLS in front of the service |
 | Failed logins | 20 a second in the whole service, in bursts of 100, reserved before any secret is hashed; over it, `429 slow_down` ([ADR-0021](../adr/0021-unauthenticated-traffic-limits.md)) |
 | Failures per address | Off by default. `MEZGEB_ADDRESS_FAILURE_LIMIT` failed logins and refused tokens a second per source address (the TCP peer, or with `MEZGEB_CLIENT_ADDRESS=x-forwarded-for` the last `X-Forwarded-For` entry); over it, `429` before any lookup |
 | Refusals in the audit log | A refusal of an unauthenticated caller is its own audit event only if it is the first for its actor in the minute, and at most 60 a minute; the rest are counted in one `refusals.suppressed` event a minute |

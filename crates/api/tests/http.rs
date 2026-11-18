@@ -624,6 +624,82 @@ async fn an_address_that_keeps_failing_is_refused_when_the_limit_is_on() -> Resu
     Ok(())
 }
 
+/// OWASP API8: every answer, success, refusal, unknown route or token,
+/// carries the security headers, and none may be cached.
+#[tokio::test]
+async fn every_answer_carries_the_security_headers() -> Result<(), BoxError> {
+    let Some(server) = TestServer::start(Duration::from_secs(30))
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let contract = Arc::new(Contract::load().map_err(|e| e.to_string())?);
+    let api = Api::new(&server.base, contract);
+
+    let answers = [
+        ("a read", api.get("/v1/periods/current", CLIENT).await?),
+        (
+            "a refused write",
+            api.post("/v1/accounts", CLIENT, "headers-1", json!({"nope": 1}))
+                .await?,
+        ),
+        (
+            "no token",
+            api.call("GET", "/v1/periods/current", None, None, None)
+                .await?,
+        ),
+        (
+            "a token",
+            api.token(
+                Some((CLIENT_CREDENTIAL, common::CLIENT_SECRET)),
+                "grant_type=client_credentials",
+            )
+            .await?,
+        ),
+        (
+            "a refused token",
+            api.token(
+                Some((CLIENT_CREDENTIAL, "a-guess")),
+                "grant_type=client_credentials",
+            )
+            .await?,
+        ),
+    ];
+    let statuses: Vec<u16> = answers.iter().map(|(_, r)| r.status).collect();
+    assert_eq!(statuses, [200, 400, 401, 200, 401]);
+    // A route outside the contract, which `Api` will not call.
+    let unknown = reqwest::Client::new()
+        .post(format!("{}/v1/no-such-thing", server.base))
+        .send()
+        .await?;
+    assert_eq!(unknown.status(), 404);
+    let mut all: Vec<(&str, reqwest::header::HeaderMap)> = answers
+        .iter()
+        .map(|(what, reply)| (*what, reply.headers.clone()))
+        .collect();
+    all.push(("an unknown route", unknown.headers().clone()));
+    for (what, headers) in &all {
+        let header = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_owned()
+        };
+        assert_eq!(header("cache-control"), "no-store", "{what}");
+        assert_eq!(header("x-content-type-options"), "nosniff", "{what}");
+        assert_eq!(header("x-frame-options"), "DENY", "{what}");
+        assert_eq!(
+            header("content-security-policy"),
+            "default-src 'none'; frame-ancestors 'none'",
+            "{what}"
+        );
+    }
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Runs the futures concurrently and collects their results in order.
 async fn futures_join_all<F, T>(futures: impl Iterator<Item = F>) -> Result<Vec<T>, BoxError>
 where
