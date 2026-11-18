@@ -61,6 +61,12 @@ scopes! {
     /// Ending a frozen offline voucher's dispute (protocol §14).
     OfflineResolve => ["offline:resolve"],
     AuditRead => ["audit:read"],
+    /// A client comparing its cached balances with the ledger (step 2.15).
+    ReconciliationWrite => ["reconciliation:write"],
+    /// Reading reconciliation runs and breaks.
+    ReconciliationRead => ["reconciliation:read"],
+    /// Resolving or explaining a break (operators).
+    ReconciliationResolve => ["reconciliation:resolve"],
 }
 
 /// An authenticated caller holding one of the scopes of `S`.
@@ -91,7 +97,7 @@ mod tests {
         let mut names: Vec<&str> = ALL.iter().flat_map(|s| s.iter().copied()).collect();
         names.sort_unstable();
         names.dedup();
-        assert_eq!(names.len(), 16, "{names:?}");
+        assert_eq!(names.len(), 19, "{names:?}");
         assert_eq!(
             AdjustmentsView::NAMES,
             ["adjustments:request", "adjustments:approve"]
