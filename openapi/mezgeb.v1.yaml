@@ -1846,6 +1846,8 @@ paths:
                   $ref: "#/components/examples/error-refund_line_not_allowed"
                 refund_exceeds_original:
                   $ref: "#/components/examples/error-refund_exceeds_original"
+                refunded_entry_not_found:
+                  $ref: "#/components/examples/error-refunded_entry_not_found"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -2097,6 +2099,8 @@ paths:
                   $ref: "#/components/examples/error-refund_line_not_allowed"
                 refund_exceeds_original:
                   $ref: "#/components/examples/error-refund_exceeds_original"
+                refunded_entry_not_found:
+                  $ref: "#/components/examples/error-refunded_entry_not_found"
         "429":
           $ref: "#/components/responses/RateLimited"
         "500":
@@ -6809,6 +6813,7 @@ components:
         - "refund_of_reversed_entry"
         - "refund_line_not_allowed"
         - "refund_exceeds_original"
+        - "refunded_entry_not_found"
         - "refunded_entry_cannot_be_reversed"
         - "cannot_reverse_refund"
         - "period_not_closed"
@@ -8117,6 +8122,15 @@ components:
         code: "refund_exceeds_original"
         detail: "The refunds of entry 0192f3c4-0000-7000-8000-0000000003e8 would give back more than it moved on line 0."
         line: 0
+        instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
+    error-refunded_entry_not_found:
+      summary: "refunded_entry_not_found"
+      value:
+        type: "urn:mezgeb:problem:refunded_entry_not_found"
+        title: "The entry to refund does not exist"
+        status: 422
+        code: "refunded_entry_not_found"
+        detail: "No entry 0192f3c4-0000-7000-8000-0000000003e8 to refund."
         instance: "urn:uuid:0192f3c4-0000-7000-8000-00000000abcd"
     error-refunded_entry_cannot_be_reversed:
       summary: "refunded_entry_cannot_be_reversed"

@@ -12,6 +12,7 @@
 //! | AC-06 | Capturing and releasing one hold many times at once | Exactly one wins; the money is either captured or back, never both |
 //! | AC-07 | Several vouchers at once for one device, and the same receipts uploaded by many at once | One voucher; each receipt pays once |
 //! | AC-08 | Rounding: splitting an offline payment to shave the merchant fee | At most one santim saved per split; the fee is never negative or more than the payment (`splitting_a_payment_saves_at_most_one_santim_of_fee`, `crates/engine/src/offline_receipts.rs`, the only fee the service computes) |
+//! | AC-09 | Naming another client's entry as the one to refund, to learn whether it exists | Answered exactly as an entry that does not exist: `422 refunded_entry_not_found` (found by the fuzzer, `tests/fuzz.rs`) |
 //!
 //! Every test ends with the ledger's full verification (`TestDb::drop`):
 //! balances, totals, chains and escrows.
@@ -475,6 +476,58 @@ async fn ac06_a_hold_ends_once_however_many_try_at_once() -> Result<(), BoxError
     let paid = balance(&api, &merchant).await?.parse::<f64>()?;
     assert!((wallet + paid - 100.00).abs() < 0.001, "{wallet} + {paid}");
     assert!(((paid / 15.00).round() * 15.00 - paid).abs() < 0.001);
+    server.finish().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// AC-09.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ac09_a_refund_cannot_probe_another_clients_entries() -> Result<(), BoxError> {
+    let Some((server, api)) = server().await? else {
+        return Ok(());
+    };
+    open(&api, OPERATOR, "1010").await?;
+    open(&api, CLIENT, "2010:cust-a").await?;
+    open(&api, CLIENT, "2030:merch-coffee").await?;
+    open(&api, OTHER, "2010:cust-oa").await?;
+    open(&api, OTHER, "2030:merch-ob").await?;
+    deposit(&api, "2010:cust-a", "100.00", "fund-a").await?;
+    let payment = operate(
+        &api,
+        "merchant_payment.v1",
+        "pay-1",
+        json!({
+        "accounts": {"payer_wallet": "2010:cust-a", "merchant_balance": "2030:merch-coffee"},
+        "amounts": {"amount": etb("10.00")}, "metadata": {"channel": "qr"}}),
+    )
+    .await?;
+    assert_eq!(payment.status, 201, "{}", payment.body);
+
+    // The other client names the first client's payment, then an entry
+    // that does not exist: the two answers are the same.
+    let mut answers = Vec::new();
+    for (key, entry) in [
+        ("probe-1", payment.str("/id")),
+        ("probe-2", "0192f3c4-0000-7000-8000-00000000dead".to_owned()),
+    ] {
+        let reply = api
+            .post(
+                "/v1/operations/merchant_refund.v1",
+                OTHER,
+                key,
+                json!({"accounts": {"merchant_balance": "2030:merch-ob", "payer_wallet": "2010:cust-oa"},
+                       "amounts": {"amount": etb("1.00")}, "refunds": entry}),
+            )
+            .await?;
+        answers.push((
+            reply.status,
+            reply.code().to_owned(),
+            reply.body["title"].clone(),
+        ));
+    }
+    assert_eq!(answers[0], answers[1], "the answers tell the entries apart");
+    assert_eq!(answers[0].0, 422);
+    assert_eq!(answers[0].1, "refunded_entry_not_found");
     server.finish().await.map_err(|e| e.to_string())?;
     Ok(())
 }
