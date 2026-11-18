@@ -32,6 +32,7 @@ back to the reason it exists.
 | [0018](0018-tamper-evidence.md) | Entries are hash-chained and signed in the posting transaction; signed checkpoints are published to clients and to a file | Spec §7; INV-11, INV-26; TM-11 | Accepted |
 | [0019](0019-offline-protocol-v1.md) | Offline protocol v1: P-256 device signatures, one voucher per device, ordered settlement with a gap timeout, late receipts paid by the payer first | Spec §5; TM-17 to TM-21, TM-23 | Accepted |
 | [0020](0020-reconciliation.md) | Reconciliation matches without guessing, the ledger wins, and money breaks are resolved through suspense entries | Architecture §5.9; ADR-0002 | Accepted |
+| [0021](0021-unauthenticated-traffic-limits.md) | Callers who have not authenticated are limited globally, optionally by address, and their refusals are audited in summary | ADR-0017, ADR-0018; TM-01, TM-03 | Accepted |
 
 Every question in [architecture §5](../architecture.md#5-the-ten-architectural-questions)
 maps to at least one ADR.
