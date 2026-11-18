@@ -30,6 +30,7 @@
 use std::time::Duration;
 
 use mezgeb_core::{Chart, Currency, EntryDraft, IdempotencyKey, Money, PositiveAmount, Timestamp};
+use mezgeb_engine::recon::{BreakFilter, BreakKind, BreakStatus, list_breaks, reconcile_offline};
 use mezgeb_engine::{
     Attestation, AttestationKind, DeviceStatus, FaultPoint, IssuerKey, MIGRATOR, NewDevice,
     NewVoucher, OfflineAccounts, PostOptions, PostRequest, Scope, Upload, VerifyOptions,
@@ -718,6 +719,36 @@ async fn verify_lane(admin: &PgConnectOptions, database: &str) -> Result<(), Str
         .map_err(|e| e.to_string())?;
     if !chains.is_clean() {
         return Err(format!("the hash chains are broken: {:?}", chains.findings));
+    }
+    // The offline reconciliation (step 2.15) agrees with every flow the
+    // fleet ran: no settled receipt that its entry does not pay, and no
+    // escrow off its voucher. Devices the fleet reset or cloned may leave
+    // counter breaks; those are findings about devices, not defects.
+    reconcile_offline(&mut verifier, Timestamp::from_micros(0))
+        .await
+        .map_err(|e| e.to_string())?;
+    let defects = list_breaks(
+        &mut verifier,
+        &BreakFilter {
+            status: Some(BreakStatus::Open),
+            limit: 1000,
+            ..BreakFilter::default()
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .into_iter()
+    .filter(|b| {
+        matches!(
+            b.kind,
+            BreakKind::ReceiptEntryMismatch | BreakKind::EscrowMismatch
+        )
+    })
+    .collect::<Vec<_>>();
+    if !defects.is_empty() {
+        return Err(format!(
+            "the offline reconciliation found defects: {defects:?}"
+        ));
     }
     verifier.close().await.map_err(|e| e.to_string())
 }
