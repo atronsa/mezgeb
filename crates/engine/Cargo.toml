@@ -17,6 +17,8 @@ tokio.workspace = true
 argon2 = "0.6"
 getrandom = "0.4"
 sha2.workspace = true
+# Bank statement mappings (step 2.15).
+toml.workspace = true
 ed25519-dalek = "3"
 
 [features]

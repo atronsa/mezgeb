@@ -21,6 +21,7 @@ mod offline_lifecycle;
 mod offline_receipts;
 mod periods;
 mod post;
+pub mod recon;
 mod reports;
 mod rows;
 pub mod signing;
