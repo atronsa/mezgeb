@@ -218,6 +218,18 @@ fn mutate(rng: &mut Rng, mut body: Value, strings: &[String], pool: &[String]) -
     body
 }
 
+/// An error and every cause under it: reqwest's own message alone is
+/// "error sending request", which says nothing.
+fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut text = error.to_string();
+    let mut cause = error.source();
+    while let Some(e) = cause {
+        text.push_str(&format!(": {e}"));
+        cause = e.source();
+    }
+    text
+}
+
 fn percent_encode(text: &str) -> String {
     text.bytes()
         .map(|b| {
@@ -485,8 +497,14 @@ async fn random_requests_never_get_a_5xx_or_break_an_invariant() -> Result<(), B
     .await?;
     drop(admin);
 
+    // A new connection for every case. The server closes a connection
+    // after refusing a body it did not read (one over the limit); a pooled
+    // client can pick that connection up for its next request before it
+    // sees the close, and that request then fails to send through no fault
+    // of its own. Seen on CI: a small, valid request failing that way.
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
+        .pool_max_idle_per_host(0)
         .build()?;
     let pool = Arc::new(Mutex::new(Vec::<String>::new()));
     let keys = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -540,8 +558,9 @@ async fn random_requests_never_get_a_5xx_or_break_an_invariant() -> Result<(), B
                     Err(e) => {
                         if let Ok(mut f) = failures.lock() {
                             f.push(format!(
-                                "seed {seed} case {number}: {}\n  -> no answer: {e}",
-                                case.describe
+                                "seed {seed} case {number}: {}\n  -> no answer: {}",
+                                case.describe,
+                                error_chain(&e)
                             ));
                         }
                         return Ok(());
